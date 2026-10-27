@@ -1,0 +1,47 @@
+---
+# Base working directory for staging diagnostic outputs before compression.
+# Sessions are namespaced by timestamp so back-to-back runs never overwrite each other.
+must_gather_base_dir: "{{ tmp_dir | default('/tmp/' ~ cluster_name) }}/diagnostics"
+must_gather_timestamp: "{{ lookup('pipe', 'date +%Y%m%d-%H%M%S') }}"
+must_gather_session_dir: "{{ must_gather_base_dir }}/session-{{ must_gather_timestamp }}"
+must_gather_archive_dest: "{{ must_gather_base_dir }}/must-gather-{{ cluster_name }}-{{ must_gather_timestamp }}.tar.gz"
+
+# Maximum seconds to wait for each `oc adm must-gather` run.
+# Full cluster + ODF must-gather on a loaded SNO can take 15–20 minutes each.
+must_gather_timeout: 1800
+
+# Bin directory containing the `oc` CLI binary (must-gather runs on localhost).
+bin_dir: "~/.local/bin"
+
+# ──────────────────────────────────────────────
+# Collector toggles — each collector is opt-in.
+# Set to false on the command line (-e must_gather_collect_odf=false) or in
+# inventory/group_vars when only a subset of diagnostics is needed.
+# ──────────────────────────────────────────────
+# General OpenShift cluster must-gather (oc adm must-gather, no --image)
+must_gather_collect_general: true
+
+# ODF-specific must-gather. The image is auto-discovered from the running ODF
+# CSV/operator pod so it works in disconnected clusters without a hardcoded ref.
+# Set odf_must_gather_image to override auto-discovery with a specific image.
+must_gather_collect_odf: true
+odf_must_gather_image: ""
+
+# Bastion host diagnostics: OS metrics, dnsmasq/httpd journal, podman/mirror-registry logs.
+must_gather_collect_bastion: true
+
+# Dell iDRAC BMC diagnostics via Redfish: SEL, Lifecycle Controller log, system health.
+# Automatically skipped when infra_provider != 'baremetal' or BMC vars are not set.
+must_gather_collect_bmc: true
+
+# Dell iDRAC Redfish resource IDs (standard for PowerEdge — no change normally needed)
+bmc_manager_resource_id: "iDRAC.Embedded.1"
+bmc_system_resource_id: "System.Embedded.1"
+
+# ──────────────────────────────────────────────
+# Relay: copy the finished bundle to mirror_staging_host.
+# Only happens when must_gather_relay_enabled is true AND
+# backup_egress_mode is 'network' or 'both' (same egress gate as export-backup.yaml).
+# ──────────────────────────────────────────────
+must_gather_relay_enabled: true
+must_gather_staging_dest_dir: "/opt/diagnostics-relay"

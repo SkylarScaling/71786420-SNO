@@ -61,6 +61,7 @@ deletion, not a file edit.
 - `playbooks/configure-tracing.yaml`
 - `playbooks/mirror-content.yaml`
 - `playbooks/export-backup.yaml`
+- `playbooks/collect-diagnostics.yaml`
 - `playbooks/upgrade-sno.yaml`
 - `playbooks/simulate-node-failure.yaml`
 - **Do not copy** `playbooks/configure-aws-env.yaml`, `playbooks/full-sno-test-setup.yaml`,
@@ -73,7 +74,7 @@ deletion, not a file edit.
   `export_backup_from_noobaa`, `generate_install_config`, `install_ocp_prerequisites`,
   `push_backup_to_external_s3`, `push_backup_to_internal_target`,
   `stage_mirror_content`, `sync_backup_to_staging`, `sync_mirror_to_bastion`,
-  `wait_for_sno_install`.
+  `collect_must_gather`, `wait_for_sno_install`.
 - `roles/baremetal/**` — all of it: `baremetal_boot_node_via_bmc`,
   `baremetal_destroy_sno`, `baremetal_generate_agent_iso`, `baremetal_prepare_bastion`.
 - `roles/ocp/**` — entirely provider-agnostic by design. Copy all of it: every

@@ -1,0 +1,29 @@
+---
+# General OpenShift cluster must-gather — no --image flag.
+# Collects ClusterOperator status, node state, pod logs for all platform namespaces,
+# and anything else the default must-gather image captures.
+
+- name: Ensure general must-gather output directory exists
+  file:
+    path: "{{ must_gather_session_dir }}/ocp-general"
+    state: directory
+    mode: '0755'
+
+- name: Run oc adm must-gather (general cluster diagnostics)
+  command: >-
+    {{ bin_dir }}/oc --kubeconfig={{ sno_kubeconfig }}
+    adm must-gather
+    --dest-dir={{ must_gather_session_dir }}/ocp-general
+  async: "{{ must_gather_timeout }}"
+  poll: 15
+  register: _ocp_general_mg_result
+  failed_when: false
+
+- name: Warn if general must-gather finished with a non-zero exit code
+  debug:
+    msg: >-
+      Warning: general must-gather exited with rc={{ _ocp_general_mg_result.rc }}.
+      Output is still included in the bundle — check
+      {{ must_gather_session_dir }}/ocp-general for partial data.
+      stderr: {{ _ocp_general_mg_result.stderr | default('(none)') }}
+  when: _ocp_general_mg_result.rc | default(0) != 0

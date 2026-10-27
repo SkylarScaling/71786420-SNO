@@ -1,0 +1,86 @@
+---
+# Collect Dell iDRAC 9/10 BMC diagnostics via Redfish API.
+# Captures the System Event Log (SEL), Lifecycle Controller Log (LCLog),
+# and system health summary (storage, memory, CPU, power status).
+#
+# Only runs when:
+#   - must_gather_collect_bmc: true (default)
+#   - infra_provider == 'baremetal'
+#   - bmc_address, bmc_username, bmc_password are defined and non-empty
+# The guard conditions are enforced in tasks/main.yaml — this file assumes
+# those checks already passed.
+
+- name: Ensure BMC diagnostics output directory exists
+  file:
+    path: "{{ must_gather_session_dir }}/bmc"
+    state: directory
+    mode: '0755'
+
+- name: Fetch System Event Log (SEL) from Dell iDRAC via Redfish
+  ansible.builtin.uri:
+    url: "https://{{ bmc_address }}/redfish/v1/Managers/{{ bmc_manager_resource_id }}/LogServices/SEL/Entries"
+    user: "{{ bmc_username }}"
+    password: "{{ bmc_password }}"
+    method: GET
+    force_basic_auth: true
+    validate_certs: false
+    status_code: [200, 404]
+    return_content: true
+  register: _bmc_sel
+  failed_when: false
+  no_log: true   # credentials in the URL
+
+- name: Save SEL entries to file
+  copy:
+    content: "{{ _bmc_sel.json | to_nice_json }}"
+    dest: "{{ must_gather_session_dir }}/bmc/idrac-sel.json"
+    mode: '0644'
+  when:
+    - _bmc_sel.status is defined
+    - _bmc_sel.status == 200
+
+- name: Fetch Lifecycle Controller Log (LCLog) from Dell iDRAC via Redfish
+  ansible.builtin.uri:
+    url: "https://{{ bmc_address }}/redfish/v1/Managers/{{ bmc_manager_resource_id }}/LogServices/Lclog/Entries"
+    user: "{{ bmc_username }}"
+    password: "{{ bmc_password }}"
+    method: GET
+    force_basic_auth: true
+    validate_certs: false
+    status_code: [200, 404]
+    return_content: true
+  register: _bmc_lclog
+  failed_when: false
+  no_log: true
+
+- name: Save LCLog entries to file
+  copy:
+    content: "{{ _bmc_lclog.json | to_nice_json }}"
+    dest: "{{ must_gather_session_dir }}/bmc/idrac-lclog.json"
+    mode: '0644'
+  when:
+    - _bmc_lclog.status is defined
+    - _bmc_lclog.status == 200
+
+- name: Fetch System health summary (storage, CPU, memory, power) from Redfish
+  ansible.builtin.uri:
+    url: "https://{{ bmc_address }}/redfish/v1/Systems/{{ bmc_system_resource_id }}"
+    user: "{{ bmc_username }}"
+    password: "{{ bmc_password }}"
+    method: GET
+    force_basic_auth: true
+    validate_certs: false
+    status_code: [200, 404]
+    return_content: true
+  register: _bmc_system
+  failed_when: false
+  no_log: true
+
+- name: Save System health summary to file
+  copy:
+    content: "{{ _bmc_system.json | to_nice_json }}"
+    dest: "{{ must_gather_session_dir }}/bmc/idrac-system-health.json"
+    mode: '0644'
+  when:
+    - _bmc_system.status is defined
+    - _bmc_system.status == 200
