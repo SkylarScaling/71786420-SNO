@@ -1,0 +1,94 @@
+---
+# Collect host-level diagnostics from the disconnected bastion.
+# Captures OS state, mirror-registry service health, dnsmasq/httpd logs,
+# and podman container logs for the local Quay mirror-registry.
+#
+# All collection happens in /tmp/bastion-diagnostics on the bastion, which is
+# fetched back to the controller's session dir and then cleaned up.
+
+- name: Create temporary staging directory on the bastion
+  file:
+    path: "/tmp/bastion-diagnostics"
+    state: directory
+    mode: '0755'
+
+- name: Capture OS system information (uptime, memory, disk, network)
+  shell: |
+    {
+      echo "=== DATE ==="
+      date
+      echo ""
+      echo "=== UPTIME / LOAD ==="
+      uptime
+      echo ""
+      echo "=== MEMORY ==="
+      free -m
+      echo ""
+      echo "=== DISK USAGE ==="
+      df -hT
+      echo ""
+      echo "=== BLOCK DEVICES ==="
+      lsblk
+      echo ""
+      echo "=== NETWORK INTERFACES ==="
+      ip addr
+      echo ""
+      echo "=== ROUTING TABLE ==="
+      ip route
+    } > /tmp/bastion-diagnostics/system-info.txt 2>&1
+  changed_when: false
+  failed_when: false
+
+- name: Capture kernel ring buffer (dmesg)
+  shell: "dmesg -T > /tmp/bastion-diagnostics/dmesg.txt 2>&1"
+  become: true
+  changed_when: false
+  failed_when: false
+
+- name: Capture mirror-registry systemd service journal (last 5000 lines)
+  shell: "journalctl -u mirror-registry -n 5000 --no-pager > /tmp/bastion-diagnostics/journal-mirror-registry.log 2>&1"
+  become: true
+  changed_when: false
+  failed_when: false
+
+- name: Capture dnsmasq and httpd journal (last 2000 lines each)
+  shell: "journalctl -u dnsmasq -u httpd -n 2000 --no-pager > /tmp/bastion-diagnostics/journal-services.log 2>&1"
+  become: true
+  changed_when: false
+  failed_when: false
+
+- name: List all podman containers (running and stopped)
+  shell: "podman ps -a --no-trunc > /tmp/bastion-diagnostics/podman-ps.txt 2>&1"
+  become: true
+  changed_when: false
+  failed_when: false
+
+- name: Capture podman logs for each container (last 2000 lines each)
+  shell: |
+    for name in $(podman ps -a --format '{{ '{{' }}.Names{{ '}}' }}'); do
+      podman logs --tail 2000 "${name}" > "/tmp/bastion-diagnostics/podman-${name}.log" 2>&1
+    done
+  become: true
+  changed_when: false
+  failed_when: false
+
+# Pull everything back to the controller for bundling.
+- name: Ensure bastion sub-directory exists in the session dir on the controller
+  file:
+    path: "{{ must_gather_session_dir }}/bastion"
+    state: directory
+    mode: '0755'
+  delegate_to: localhost
+
+- name: Fetch bastion diagnostic files back to the controller
+  ansible.posix.synchronize:
+    mode: pull
+    src: "/tmp/bastion-diagnostics/"
+    dest: "{{ must_gather_session_dir }}/bastion/"
+  failed_when: false
+
+- name: Remove the temporary staging directory on the bastion
+  file:
+    path: "/tmp/bastion-diagnostics"
+    state: absent
+  failed_when: false
