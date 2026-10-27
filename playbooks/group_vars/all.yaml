@@ -2,19 +2,20 @@
 # Identity
 # base_domain is deliberately NOT defaulted here. Ansible precedence puts this file
 # (playbook group_vars/all) ABOVE inline inventory-file vars, so a default here would
-# silently win over any override in inventory/<provider>/inventory.yaml's vars block.
-# base_domain must be set there instead (configure-aws-env.yaml does this for AWS).
+# silently win over any override in inventory/baremetal/inventory.yaml's vars block.
+# base_domain must be set there instead.
 cluster_name: sno-test
 openshift_version: "4.22.17"
 
-# Infra provider switch: aws | baremetal (overridden per inventory)
-infra_provider: aws
+# This branch is bare-metal only (the AWS provisioning layer has been removed
+# entirely — see CLAUDE.md). Hardcoded rather than left to inventory: Ansible's
+# precedence puts this file ABOVE inline inventory-file vars (same reason
+# base_domain isn't defaulted here either — see below), so a stray "aws" default
+# here would silently win over inventory/baremetal/inventory.yaml's own value.
+infra_provider: baremetal
 
 # Credentials / keys
 ssh_key: "{{ lookup('file', '~/.ssh/id_ed25519.pub') }}"
-# The matching private key path — only used to print ready-to-run ssh commands
-# (roles/aws/aws_provision_bastion's connection-info output); cloud-init/EC2 key pair
-# injection uses ssh_key's public key content above, not this.
 ssh_private_key: "~/.ssh/id_ed25519"
 # Kept as the raw JSON text (not parsed with | from_json) — generate_install_config's
 # install-config.yaml.j2 embeds this directly as `pullSecret: '{{ pull_secret }}'`,
@@ -26,50 +27,27 @@ tmp_dir: "/tmp/{{ cluster_name }}"
 install_dir: "{{ tmp_dir }}/install"
 sno_kubeconfig: "{{ install_dir }}/auth/kubeconfig"
 
-# Single-switch / single-subnet network emulation (kept identical across
-# providers so day-2 roles never need to know which one is active)
+# Single-switch / single-subnet network emulation
 machine_network_cidr: "10.0.0.0/24"
 cluster_network_cidr: "10.128.0.0/14"
 service_network_cidr: "172.30.0.0/16"
 
-# --- AWS-specific (only consulted when infra_provider: aws) ---
-# aws_region, aws_access_key_id, aws_secret_access_key are NOT defaulted here either
-# (same precedence reason as base_domain) — they're derived in
-# inventory/aws/inventory.yaml from a per-environment local credentials file
-# (~/tmp/<base_domain>-creds, written by configure-aws-env.yaml), not ~/.aws/credentials.
-# This is what lets multiple AWS test environments run in parallel without sharing
-# process-wide AWS credential state.
-aws_sno_instance_type: m6i.4xlarge   # sized to emulate the target bare-metal server
-# t3.medium (4GB RAM, no swap) hard-hung a real bastion during deploy_mirror_registry's
-# install — mirror-registry bundles Quay+Redis+Postgres as concurrent containers, and
-# AWS's own instance-status check confirmed guest-level unresponsiveness (SystemStatus
-# ok, InstanceStatus impaired) rather than an AWS-side fault. t3.large (8GB) ran the
-# same install cleanly with ~5.6GB free for buff/cache at peak.
-bastion_instance_type: t3.large
-# aws_key_pair is NOT defaulted here either (same precedence reason as base_domain,
-# compounded further since this file is now also loaded via vars_files in
-# infra_providers/*/provision.yaml — vars_files outranks inventory vars entirely).
-# It's a real EC2 key pair name that must already exist in aws_region, so it's
-# prompted for by configure-aws-env.yaml and written into the per-environment
-# inventory/aws/<base_domain>.yaml alongside base_domain.
-
-# --- Bare-metal-specific (only consulted when infra_provider: baremetal) ---
+# --- Bare-metal-specific ---
 # rendezvous_ip, sno_mac_address, dns_server, default_gateway, bmc_address,
 # bmc_username, bmc_password: set per-deployment in inventory/baremetal/.
-# bastion_host (used by roles that delegate_to the bastion): on AWS this is set
-# dynamically by aws_provision_bastion as a localhost fact; this default only
-# applies to the baremetal path's static inventory.
+# bastion_host is used by roles that delegate_to the bastion against the static
+# baremetal inventory.
 bastion_host: bastion1
 
 # --- Disconnected mirroring (always on — see docs/architectural-decisions.md #2) ---
 # This is the registry install-config.yaml always points at; there is no
-# connected-install path for either provider.
+# connected-install path.
 mirror_registry_quay_hostname: "mirror.{{ base_domain }}"
 mirror_registry_quay_port: 8443
 
 # --- Backup / DR target ---
 # configure_oadp_backup always targets the in-cluster NooBaa provided by
-# configure_mcg — the only backend it supports, on both providers (see
+# configure_mcg — the only backend it supports (see
 # roles/ocp/configure_oadp_backup/README.md). No external S3 account/region needed.
 backup_s3_bucket: "{{ cluster_name }}-oadp-backup"
 

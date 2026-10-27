@@ -1,6 +1,10 @@
 ---
-# Each play below explicitly loads playbooks/group_vars/all.yaml via vars_files —
-# see the comment at the top of ../aws/provision.yaml for why this is needed.
+# Each play below explicitly loads playbooks/group_vars/all.yaml via vars_files.
+# Ansible's group_vars auto-loading is relative to each individual playbook file's
+# own directory, not the top-level playbook passed on the command line — this file is
+# two directories below playbooks/group_vars/, so its plays would never see
+# cluster_name, openshift_version, etc. without this explicit vars_files line. Any
+# new playbook file added under a subdirectory of playbooks/ needs the same line.
 - name: Stage mirror content on the internet-connected host
   hosts: mirror_staging_host
   gather_facts: true
@@ -28,8 +32,7 @@
     - include_role:
         name: deploy_mirror_registry
 
-    - name: Configure bastion services (shared with the AWS path)
-      include_role:
+    - include_role:
         name: configure_bastion_services
 
 - name: Generate agent-based installer ISO

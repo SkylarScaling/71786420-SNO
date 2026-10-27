@@ -24,19 +24,10 @@ single-switch, single-node bare-metal environment with no routing peer to speak 
 |--------------------------|-------------------|-------|
 | `metallb_channel`        | `stable`          | Operator subscription channel. |
 | `metallb_namespace`      | `metallb-system`  | Namespace for operator + CRs. |
-| `metallb_address_pool`   | *(none — required)* | Customer-provided IP range from their network team. **Not defaulted** — same precedence reason as `base_domain`/`aws_key_pair` in `playbooks/group_vars/all.yaml`: a real inventory override must win, so no generic value is set here. Must be set in `inventory/baremetal/inventory.yaml`'s `vars` block. Accepts a CIDR (e.g. `"192.168.1.240/28"`), an explicit range string (e.g. `"192.168.1.240-192.168.1.250"`), or a YAML list of either form — the role wraps a single string in a list automatically when templating `IPAddressPool.spec.addresses`. |
+| `metallb_address_pool`   | *(none — required)* | Customer-provided IP range from their network team. **Not defaulted** — same precedence reason as `base_domain` in `playbooks/group_vars/all.yaml`: a real inventory override must win, so no generic value is set here. Must be set in `inventory/baremetal/inventory.yaml`'s `vars` block. Accepts a CIDR (e.g. `"192.168.1.240/28"`), an explicit range string (e.g. `"192.168.1.240-192.168.1.250"`), or a YAML list of either form — the role wraps a single string in a list automatically when templating `IPAddressPool.spec.addresses`. |
 
 The role fails fast with a clear message if `metallb_address_pool` is undefined or
 empty, same guard style as `roles/ocp/simulate_node_failure`.
-
-## AWS test runs
-
-This role is bare-metal-only in practice — AWS test environments don't have a
-customer-provided L2 IP pool to advertise into, and the middleware services it
-supports aren't expected to be LoadBalancer-exposed in that path. The code itself has
-no AWS/bare-metal-specific logic (per this repo's one rule for `roles/ocp/*`), so
-nothing stops it from being invoked against an AWS SNO cluster, but no
-`playbooks/infra_providers/aws/*` playbook is expected to call it.
 
 ## Known gaps
 

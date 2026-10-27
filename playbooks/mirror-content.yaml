@@ -1,9 +1,9 @@
 ---
 # Standalone re-run of the mirroring pipeline (e.g. to refresh content on an existing
 # bastion) plus the on-cluster application registry. The initial mirror done during
-# provisioning (provision-sno-aws.yaml / provision-sno-baremetal.yaml) already runs
-# stage/sync/deploy_mirror_registry — use this playbook to refresh content later
-# without re-provisioning infrastructure.
+# provisioning (provision-sno-baremetal.yaml) already runs stage/sync/
+# deploy_mirror_registry — use this playbook to refresh content later without
+# re-provisioning infrastructure.
 # See docs/architectural-decisions.md #2.
 - name: Stage content on an internet-connected host
   hosts: mirror_staging_host

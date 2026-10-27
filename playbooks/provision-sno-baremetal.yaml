@@ -1,4 +1,3 @@
 ---
-# Bare-metal-only entry point. See provision-sno-aws.yaml for why this is a separate
-# playbook rather than one infra_provider-dispatched file.
+# Bare-metal provisioning entry point.
 - import_playbook: ./infra_providers/baremetal/provision.yaml

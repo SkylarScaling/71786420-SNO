@@ -56,12 +56,9 @@ Internet ── mirror-staging host ──(private network / single switch)─�
 
 The bastion needs real headroom, not just connectivity: `deploy_mirror_registry`
 installs `mirror-registry`, which runs Quay+Redis+Postgres as concurrent containers.
-A 4GB/no-swap AWS test instance (`t3.medium`) hard-hung under that load — confirmed by
-AWS's own instance-status check as guest-level unresponsiveness, not an AWS fault —
-and needed 8GB (`t3.large`) to install cleanly (see
-`playbooks/group_vars/all.yaml`'s `bastion_instance_type` comment). Size the physical
-bastion accordingly; this isn't an AWS-only concern, since `deploy_mirror_registry`
-runs the identical install on both providers.
+A 4GB/no-swap test host hard-hung under that load — confirmed by the hypervisor's own
+instance-status check as guest-level unresponsiveness, not a host fault — and needed
+8GB to install cleanly. Size the physical bastion accordingly.
 
 It matters here because every content-movement mechanism in this repo (inbound
 mirroring *and* backup export, §3/§8) depends on it: nothing ever assumes the
@@ -195,12 +192,9 @@ Two independent concerns:
 
 1. **In-cluster backup/restore**: `roles/ocp/configure_oadp_backup` (OADP) targets
    the in-cluster NooBaa provided by `configure_mcg` — the only backend this role
-   supports, on both providers. An external AWS S3 bucket backend was considered
-   early on but removed: it only ever worked on the AWS test environment (reachable
-   there via a VPC S3 Gateway Endpoint, not a real internet route), and once
-   `configure_mcg` ran on both providers there was no case left for it — **this
-   deployment has no internet route at all**, so an external-S3 backend would just
-   time out here regardless. The role also creates a default Velero `Schedule` CR
+   supports. An external cloud S3 bucket backend was considered early on but
+   removed: **this deployment has no internet route at all**, so an external-S3
+   backend would just time out. The role also creates a default Velero `Schedule` CR
    (`oadp_backup_schedule_name`/`oadp_backup_schedule_cron`/`oadp_backup_ttl`/
    `oadp_backup_excluded_namespaces`) — a once-daily, 30-day-retention full backup as
    a general-purpose baseline, not a customer-confirmed RPO/RTO; override per
