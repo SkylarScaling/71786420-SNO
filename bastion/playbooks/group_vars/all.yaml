@@ -1,0 +1,6 @@
+---
+# Placeholder — overwritten by unpack_bastion_bundle at bundle-extract time from
+# staging's resolved config (staging/inventory/inventory.yaml). Do not hand-edit this
+# file directly in a real bundle-driven run; your changes will be replaced the next
+# time a bundle is unpacked. Edit staging/inventory/inventory.yaml instead and
+# re-package/re-transfer the bundle.

@@ -1,0 +1,142 @@
+---
+# Runs on staging (hosts: localhost), after stage_mirror_content. Builds the single
+# self-sufficient artifact the bastion needs: mirrored registry content, the
+# openshift-install/oc/oc-mirror/mirror-registry binaries (the bastion has no
+# internet route to fetch any of this itself), the entire bastion/ automation tree
+# (playbooks + roles — the bastion has no other way to get the code), and a flattened
+# resolved-vars file carrying every per-environment value out of
+# staging/inventory/inventory.yaml.
+#
+# This replaces the old sync_mirror_to_bastion role's rsync-with-cross-host-polling
+# dance entirely. That complexity only existed because a single Ansible controller
+# used to orchestrate both the mirror-staging host and the bastion in one play; now
+# staging only ever acts on itself and (optionally) pushes outward, so there's no
+# cross-host delegation left to manage.
+- name: Ensure the bundle export directory exists
+  file:
+    path: "{{ bastion_bundle_export_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Render the flattened per-environment vars file for the bastion
+  template:
+    src: bastion-resolved-vars.yaml.j2
+    dest: "{{ bastion_bundle_export_dir }}/bastion-resolved-vars.yaml"
+    mode: '0600'
+
+- name: Confirm the bastion/ tree is present to bundle
+  stat:
+    path: "{{ bastion_tree_dir }}"
+  register: _bastion_tree_stat
+
+- name: Fail fast if the bastion/ tree can't be found
+  fail:
+    msg: >
+      bastion_tree_dir ({{ bastion_tree_dir }}) doesn't exist. package_bastion_bundle
+      needs the sibling bastion/ checkout to bundle it alongside the mirrored
+      content — set bastion_tree_dir explicitly if staging/ and bastion/ aren't
+      siblings in this checkout.
+  when: not _bastion_tree_stat.stat.exists
+
+# Staged into one directory first (rather than a multi-source `archive:` call) so the
+# resulting tar.gz extracts cleanly at the bastion checkout's root with predictable
+# top-level entries (bastion/, mirror-content/, mirror-installers/,
+# bastion-resolved-vars.yaml) regardless of each source's own absolute path.
+- name: Ensure a clean staging-root directory for assembling the bundle contents
+  file:
+    path: "{{ bastion_bundle_export_dir }}/bundle-root"
+    state: "{{ item }}"
+    mode: '0755'
+  loop: [absent, directory]
+
+- name: Copy the bastion/ automation tree into the bundle root
+  copy:
+    src: "{{ bastion_tree_dir }}/"
+    dest: "{{ bastion_bundle_export_dir }}/bundle-root/bastion/"
+    mode: preserve
+
+- name: Copy the mirrored content archive into the bundle root
+  copy:
+    src: "{{ mirror_sync_source_dir }}/"
+    dest: "{{ bastion_bundle_export_dir }}/bundle-root/mirror-content/"
+    mode: preserve
+  # Same exclusion sync_mirror_to_bastion used to apply: stage_mirror_content's own
+  # "mirror to disk" scratch output, which deploy_mirror_registry's "disk to mirror"
+  # push never reads (it regenerates its own working-dir from the tar chunks).
+  # ansible.builtin.copy has no --exclude, so this dir is removed right after.
+
+- name: Remove the oc-mirror working-dir scratch output from the bundled copy (not needed on the bastion)
+  file:
+    path: "{{ bastion_bundle_export_dir }}/bundle-root/mirror-content/working-dir"
+    state: absent
+
+- name: Copy the installer tarballs (oc-mirror, mirror-registry, openshift-install, oc) into the bundle root
+  copy:
+    src: "{{ mirror_installers_dir }}/"
+    dest: "{{ bastion_bundle_export_dir }}/bundle-root/mirror-installers/"
+    mode: preserve
+
+- name: Copy the flattened resolved-vars file into the bundle root
+  copy:
+    src: "{{ bastion_bundle_export_dir }}/bastion-resolved-vars.yaml"
+    dest: "{{ bastion_bundle_export_dir }}/bundle-root/bastion-resolved-vars.yaml"
+    mode: '0600'
+    remote_src: true
+
+- name: Archive the assembled bundle root into one tar.gz
+  archive:
+    path: "{{ bastion_bundle_export_dir }}/bundle-root/*"
+    dest: "{{ bastion_bundle_export_dir }}/{{ bastion_bundle_name }}"
+    format: gz
+
+- name: Report the media-transfer next step
+  debug:
+    msg: >
+      Bundle packaged to {{ bastion_bundle_export_dir }}/{{ bastion_bundle_name }}.
+      Copy it to removable media, carry it to the bastion, and extract it into an empty
+      working directory there (e.g. ~/sno-deploy/) — it unpacks to bastion/,
+      mirror-content/, mirror-installers/, and bastion-resolved-vars.yaml, a complete,
+      self-sufficient checkout. Then cd into bastion/playbooks and run
+      unpack_bastion_bundle (via provision-sno.yaml).
+  when: bastion_transfer_method == 'media'
+
+- name: Stage the SSH private key here for the rsync push to the bastion
+  copy:
+    src: "{{ bastion_transfer_ssh_key }}"
+    dest: "/tmp/.bastion_bundle_transfer_key"
+    mode: '0600'
+  when: bastion_transfer_method == 'rsync'
+
+- name: Fail fast if rsync transfer was requested without a target host
+  fail:
+    msg: "bastion_transfer_method is 'rsync' but bastion_transfer_host is unset."
+  when:
+    - bastion_transfer_method == 'rsync'
+    - not bastion_transfer_host
+
+# One-directional push FROM staging (the only side acting) — no delegate_to dance
+# needed, unlike the old sync_mirror_to_bastion role: there's no single controller
+# spanning both hosts anymore for the module to get confused about which side is
+# "local".
+- name: Rsync the bundle to the bastion
+  command: >
+    rsync -a
+    --rsh="ssh -i /tmp/.bastion_bundle_transfer_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+    {{ bastion_bundle_export_dir }}/{{ bastion_bundle_name }}
+    {{ bastion_transfer_user }}@{{ bastion_transfer_host }}:{{ bastion_transfer_dest_dir }}/
+  when: bastion_transfer_method == 'rsync'
+
+- name: Remove the staged relay key
+  file:
+    path: "/tmp/.bastion_bundle_transfer_key"
+    state: absent
+  when: bastion_transfer_method == 'rsync'
+
+- name: Report the rsync-transfer next step
+  debug:
+    msg: >
+      Bundle pushed to {{ bastion_transfer_user }}@{{ bastion_transfer_host }}:
+      {{ bastion_transfer_dest_dir }}/{{ bastion_bundle_name }}. Extract it into an
+      empty working directory on the bastion, then run unpack_bastion_bundle (via
+      bastion/playbooks/provision-sno.yaml).
+  when: bastion_transfer_method == 'rsync'

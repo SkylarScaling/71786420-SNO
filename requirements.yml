@@ -2,5 +2,4 @@
 collections:
   - name: kubernetes.core
   - name: community.general
-  - name: amazon.aws
   - name: ansible.posix

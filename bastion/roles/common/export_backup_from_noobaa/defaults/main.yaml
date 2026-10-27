@@ -1,0 +1,11 @@
+---
+# Which application buckets to export. Empty by default — this is application-
+# specific and must be set per-environment (inventory vars block), not defaulted here.
+backup_export_buckets: []
+
+backup_export_workspace: /opt/backup-export
+
+# Same bin_dir convention used elsewhere in this repo (role defaults aren't shared
+# across roles, so duplicated rather than centralized).
+bin_dir: "~/.local/bin"
+rclone_download_url: "https://downloads.rclone.org/rclone-current-linux-amd64.zip"

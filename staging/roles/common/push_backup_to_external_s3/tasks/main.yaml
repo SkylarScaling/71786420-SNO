@@ -1,0 +1,44 @@
+---
+# Final step of the backup-export relay — runs on staging (hosts: localhost), the
+# only side of this split with real internet access, pushing the data
+# unpack_staging_backup_bundle just extracted up to the real external S3 target
+# (backup_external_s3_endpoint/bucket/access_key/secret_key, plain per-environment
+# inventory vars). See roles/ocp/configure_mcg_backup_export/README.md for the full
+# picture.
+- name: Ensure bin_dir exists
+  file:
+    path: "{{ bin_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Check for the rclone binary
+  command: "{{ bin_dir }}/rclone version"
+  register: rclone_check
+  failed_when: false
+  changed_when: false
+
+- name: Download and install rclone
+  when: rclone_check.rc != 0
+  block:
+    - name: Download the rclone zip
+      get_url:
+        url: "{{ rclone_download_url }}"
+        dest: /tmp/rclone.zip
+        mode: '0644'
+
+    - name: Extract the rclone binary (flatten the versioned subdirectory the zip contains)
+      shell: "unzip -j -o /tmp/rclone.zip '*/rclone' -d {{ bin_dir }}"
+      args:
+        creates: "{{ bin_dir }}/rclone"
+
+    - name: Make rclone executable
+      file:
+        path: "{{ bin_dir }}/rclone"
+        mode: '0755'
+
+- name: Push the relayed backup data to the external S3 target
+  no_log: true
+  command: >
+    {{ bin_dir }}/rclone sync
+    "{{ backup_push_source_dir }}"
+    ":s3,provider=Other,env_auth=false,access_key_id={{ backup_external_s3_access_key }},secret_access_key={{ backup_external_s3_secret_key }},endpoint={{ backup_external_s3_endpoint }}:{{ backup_external_s3_bucket }}"

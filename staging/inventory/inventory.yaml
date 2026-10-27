@@ -1,0 +1,97 @@
+---
+# The single source of per-environment config for this entire deployment — staging
+# AND the bastion. staging always runs on localhost (this automation is executed
+# directly on the internet-connected staging host). package_bastion_bundle flattens
+# every var in this file's vars: block into a resolved-vars file bundled into the
+# tar.gz; unpack_bastion_bundle writes it verbatim to bastion/group_vars/all.yaml on
+# the bastion. Don't maintain a second, independent copy of these vars under
+# bastion/ — edit them here only.
+all:
+  vars:
+    # --- Identity ---
+    cluster_name: sno-test
+    openshift_version: "4.22.17"
+    infra_provider: baremetal   # This repo is bare-metal only.
+    base_domain: example.com     # TODO: override per environment
+
+    # --- Credentials / keys ---
+    ssh_key: "{{ lookup('file', '~/.ssh/id_ed25519.pub') }}"
+    ssh_private_key: "~/.ssh/id_ed25519"
+    # Kept as the raw JSON text (not parsed with | from_json) — generate_install_config's
+    # install-config.yaml.j2 embeds this directly as `pullSecret: '{{ pull_secret }}'`,
+    # which needs the literal JSON string, not a dict.
+    pull_secret: "{{ lookup('file', '~/pull-secret.json') }}"
+
+    # --- Working directories (bastion-side; meaningful once unpacked there) ---
+    tmp_dir: "/tmp/{{ cluster_name }}"
+    install_dir: "{{ tmp_dir }}/install"
+    sno_kubeconfig: "{{ install_dir }}/auth/kubeconfig"
+
+    # --- Single-switch / single-subnet network emulation ---
+    machine_network_cidr: "10.0.0.0/24"
+    cluster_network_cidr: "10.128.0.0/14"
+    service_network_cidr: "172.30.0.0/16"
+
+    # --- Dell iDRAC BMC (roles/baremetal/baremetal_boot_node_via_bmc) ---
+    bmc_address: 192.168.1.20        # TODO: iDRAC address
+    bmc_username: root               # TODO: iDRAC credentials
+    bmc_password: changeme           # TODO: iDRAC credentials — move to ansible-vault before committing a real value
+    iso_http_url: "http://192.168.1.10/sno-iso/agent.x86_64.iso"   # TODO: matches configure_bastion_services' iso_serve_dir on the bastion above
+
+    # --- Agent-based install networking (roles/baremetal/baremetal_generate_agent_iso) ---
+    rendezvous_ip: 192.168.1.30      # TODO: the SNO node's static IP
+    sno_mac_address: "AA:BB:CC:DD:EE:FF"   # TODO: the SNO node's primary NIC MAC
+    default_gateway: 192.168.1.1     # TODO: customer-provided gateway
+    dns_server: 192.168.1.2          # TODO: customer-provided Windows DNS server — see bastion/README.md's "DNS records to request" section
+    ntp_server: 192.168.1.3          # TODO: customer-provided NTP server
+
+    # Single switch (default) — leave sno_network_topology unset/single_switch and
+    # ignore the two vars below. Dual switch (opt-in, requires a second physical NIC
+    # on the SNO node, cabled to a second ToR switch) — set sno_network_topology:
+    # dual_switch and uncomment/fill these in. See
+    # bastion/roles/baremetal/baremetal_generate_agent_iso/README.md — this does not
+    # extend to the bastion, which isn't network-configured by this automation at all.
+    # sno_network_topology: dual_switch
+    # sno_interface_name_secondary: eno2
+    # sno_mac_address_secondary: "AA:BB:CC:DD:EE:00"
+
+    # --- Storage (roles/ocp/configure_lvms, roles/ocp/configure_mcg) ---
+    # The RAID5 virtual disk presents as a single block device to the OS — point
+    # LVMS at that device path once confirmed on the real hardware (RAID5 is the
+    # redundancy layer; LVMS/MCG don't need their own replication on top of it).
+    lvms_device_paths: []            # TODO: e.g. ["/dev/sda"] — the RAID5 VD, confirm actual device name on the real server
+
+    # --- MetalLB (roles/ocp/configure_metallb) — non-HTTP TCP middleware only ---
+    metallb_address_pool: "192.168.1.240-192.168.1.250"   # TODO: customer-provided range
+
+    # --- Email alerting (roles/ocp/configure_alerting) ---
+    alert_smtp_host: 192.168.1.4     # TODO: customer-provided mail server
+    alert_email_to: "ocp-alerts@customer.example.com"   # TODO: real distribution list
+
+    # --- Disconnected mirroring (always on — see docs/architectural-decisions.md #2) ---
+    # This is the registry install-config.yaml always points at; there is no
+    # connected-install path.
+    mirror_registry_quay_hostname: "mirror.{{ base_domain }}"
+    mirror_registry_quay_port: 8443
+
+    # --- Backup / DR target (in-cluster) ---
+    # configure_oadp_backup always targets the in-cluster NooBaa provided by
+    # configure_mcg — the only backend it supports.
+    backup_s3_bucket: "{{ cluster_name }}-oadp-backup"
+
+    # --- Backup/log export egress (roles/ocp/configure_mcg_backup_export) ---
+    # A separate concern from the in-cluster OADP target above: this relays staged
+    # S3 data back OUT to a real external target via the staging host (the only
+    # side of this split with real internet access), see
+    # docs/bare-metal-architecture.md §8.
+    backup_egress_mode: both   # network | media | both — this customer wants both available
+    backup_external_s3_endpoint: ""   # TODO: real external S3 target
+    backup_external_s3_bucket: ""     # TODO
+    backup_external_s3_access_key: "" # TODO — move to ansible-vault before committing a real value
+    backup_external_s3_secret_key: "" # TODO — move to ansible-vault before committing a real value
+
+    # --- Log forwarding target ---
+    log_forward_endpoint: "https://siem.example.com:9200"
+  hosts:
+    localhost:
+      ansible_connection: local

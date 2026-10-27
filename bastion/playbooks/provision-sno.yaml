@@ -1,0 +1,38 @@
+---
+# Bare-metal provisioning entry point — runs directly on the bastion (hosts:
+# localhost everywhere below) after the staging-produced bundle has been physically
+# copied (or rsynced) over. Previously this was split across a separate
+# mirror-staging host, a separate bastion host, and an implicit third "controller"
+# host with BMC/cluster network access — see docs/architectural-decisions.md and the
+# root README for why that's gone: this automation now runs where it's actually
+# executed from.
+- name: Provision the bare-metal SNO environment
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: true
+  tags: [provision_sno, baremetal]
+  tasks:
+    - include_role:
+        name: unpack_bastion_bundle
+
+    - include_role:
+        name: baremetal_prepare_bastion
+
+    - include_role:
+        name: deploy_mirror_registry
+
+    - include_role:
+        name: configure_bastion_services
+
+    - include_role:
+        name: generate_install_config
+
+    - include_role:
+        name: baremetal_generate_agent_iso
+
+    - include_role:
+        name: baremetal_boot_node_via_bmc
+
+    - include_role:
+        name: wait_for_sno_install

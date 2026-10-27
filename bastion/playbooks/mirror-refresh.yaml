@@ -1,0 +1,29 @@
+---
+# Bastion-side half of a standalone mirror-content refresh (e.g. to pick up new
+# operator channels on an existing bastion) — the staging-side half is
+# staging/playbooks/stage-and-package.yaml. The initial mirror done during
+# provisioning (provision-sno.yaml) already runs unpack_bastion_bundle +
+# deploy_mirror_registry; use this playbook afterward, once a freshly-packaged bundle
+# has been copied over, to refresh content without re-provisioning infrastructure.
+# See docs/architectural-decisions.md #2.
+- name: Refresh the bastion's mirror registry from a freshly-copied bundle
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: true
+  tags: [mirror_content, registry]
+  tasks:
+    - include_role:
+        name: unpack_bastion_bundle
+
+    - include_role:
+        name: deploy_mirror_registry
+
+- name: Deploy the on-cluster, highly available Quay registry for application workloads
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [mirror_content, onprem_quay]
+  tasks:
+    - include_role:
+        name: configure_onprem_quay

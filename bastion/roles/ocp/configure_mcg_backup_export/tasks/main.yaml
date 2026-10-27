@@ -1,0 +1,45 @@
+---
+# There is no in-cluster CR that can replicate NooBaa bucket data straight to an
+# external S3 endpoint — the SNO node has no internet route at all; it's fully
+# air-gapped. A NooBaa BackingStore pointed at an external endpoint would sit
+# permanently non-Ready. The actual export path reuses the same two-host relay the
+# inbound mirroring pipeline uses, just reversed: bastion (same private network as the
+# SNO node) pulls from NooBaa, relays to mirror-staging (the only host with real
+# internet), which pushes to the real external target.
+# That relay is bastion/playbooks/export-backup.yaml (roles/common/export_backup_from_noobaa
+# → package_staging_bundle/unpack_staging_backup_bundle → push_backup_to_external_s3) — run periodically/on-demand,
+# not continuously, since there's no always-on path out of a disconnected cluster.
+# This role only validates the external-target vars are set and points at that
+# playbook; it applies no CRs.
+- name: Fail fast if the external S3 target isn't configured for network-based export
+  fail:
+    msg: >
+      backup_egress_mode is '{{ backup_egress_mode }}' but backup_external_s3_endpoint/
+      bucket/access_key/secret_key aren't all set. Set them in
+      inventory/<provider>/inventory.yaml's vars block.
+  when:
+    - backup_egress_mode in ['network', 'both']
+    - not (backup_external_s3_endpoint and backup_external_s3_bucket and backup_external_s3_access_key and backup_external_s3_secret_key)
+
+- name: Fail fast if the internal on-prem backup target isn't configured
+  fail:
+    msg: >
+      backup_egress_mode is 'internal' but backup_internal_target_endpoint/bucket/
+      access_key/secret_key aren't all set. Set them in
+      inventory/<provider>/inventory.yaml's vars block.
+  when:
+    - backup_egress_mode == 'internal'
+    - not (backup_internal_target_endpoint | default('') and backup_internal_target_bucket | default('') and backup_internal_target_access_key | default('') and backup_internal_target_secret_key | default(''))
+
+- name: Report the backup export configuration
+  debug:
+    msg:
+      - "backup_egress_mode: {{ backup_egress_mode }}"
+      - "External S3 target (network mode): {{ backup_external_s3_endpoint | default('(not set)') }} / {{ backup_external_s3_bucket | default('(not set)') }}"
+      - "Internal on-prem target (internal mode): {{ backup_internal_target_endpoint | default('(not set)') }} / {{ backup_internal_target_bucket | default('(not set)') }}"
+      - "This role only validates configuration — it applies no CRs (the cluster has no"
+      - "route to either target). Run bastion/playbooks/export-backup.yaml periodically"
+      - "(or on your own schedule) to actually relay data out via the bastion. See"
+      - "roles/common/export_backup_from_noobaa/README.md,"
+      - "roles/common/push_backup_to_internal_target/README.md, and"
+      - "roles/common/push_backup_to_external_s3/README.md."

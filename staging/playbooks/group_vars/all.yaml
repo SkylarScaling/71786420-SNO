@@ -1,0 +1,12 @@
+---
+# Non-secret, generic defaults shared by every staging playbook. Per-environment
+# overrides (base_domain, BMC creds, cluster_name, backup targets, etc.) all live in
+# staging/inventory/inventory.yaml instead — NOT here. Ansible's precedence puts this
+# file ABOVE inline inventory-file vars, so a default here would silently win over an
+# inventory override; see staging/inventory/inventory.yaml's own header comment.
+#
+# Currently empty: every var this repo needs is genuinely per-environment and
+# belongs in staging/inventory/inventory.yaml. Kept as a placeholder file (rather
+# than removed) so the auto-load convention — plays directly under
+# staging/playbooks/ get this file for free — is documented and ready if a real
+# shared default is ever needed.

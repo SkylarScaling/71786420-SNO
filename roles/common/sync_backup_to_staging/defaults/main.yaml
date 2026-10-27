@@ -1,3 +1,0 @@
----
-backup_sync_source_dir: "{{ backup_export_workspace | default('/opt/backup-export') }}"
-backup_sync_dest_dir: /opt/backup-export-staged

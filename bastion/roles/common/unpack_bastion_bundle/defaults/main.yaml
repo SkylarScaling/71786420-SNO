@@ -1,0 +1,15 @@
+---
+# Where the staging-produced bundle (or its individually-extracted contents) lives on
+# the bastion once physically copied (or rsynced) over. Default assumes the operator
+# extracted the tar.gz into this directory already (e.g. `tar xzf
+# sno-bastion-bundle-*.tar.gz -C ~/sno-deploy`) — set this to wherever that landed.
+bastion_bundle_dir: "~/sno-deploy"
+
+bin_dir: "~/.local/bin"
+
+# Same variable name (and default path) deploy_mirror_registry reads this back out
+# of — must match, since that's the only thing tying "where this role writes the
+# content" to "where deploy_mirror_registry reads it from" (role defaults aren't
+# shared across roles, so duplicated rather than centralized).
+mirror_archive_dir: /opt/mirror-content/archive
+mirror_installers_dir: /opt/mirror-installers

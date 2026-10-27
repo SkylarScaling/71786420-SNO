@@ -1,0 +1,74 @@
+---
+# Runs on the bastion (hosts: localhost), first thing in
+# bastion/playbooks/provision-sno.yaml — lays down everything
+# package_bastion_bundle assembled on staging: mirrored content, install-time
+# binaries, and the flattened per-environment vars.
+- name: Fail fast if the expected bundle contents aren't present
+  stat:
+    path: "{{ bastion_bundle_dir }}/bastion-resolved-vars.yaml"
+  register: _bundle_vars_stat
+
+- name: Fail with guidance if the bundle hasn't been extracted here yet
+  fail:
+    msg: >
+      {{ bastion_bundle_dir }}/bastion-resolved-vars.yaml not found. Extract the
+      staging-produced tar.gz (sno-bastion-bundle-*.tar.gz) into
+      {{ bastion_bundle_dir }} before running this playbook — see
+      package_bastion_bundle's README on the staging side.
+  when: not _bundle_vars_stat.stat.exists
+
+- name: Write the bundled resolved vars to bastion/group_vars/all.yaml
+  copy:
+    src: "{{ bastion_bundle_dir }}/bastion-resolved-vars.yaml"
+    dest: "{{ playbook_dir }}/group_vars/all.yaml"
+    remote_src: true
+    mode: '0600'
+
+- name: Ensure the mirror content destination exists
+  file:
+    path: "{{ mirror_archive_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Copy the bundled mirror content into place
+  copy:
+    src: "{{ bastion_bundle_dir }}/mirror-content/"
+    dest: "{{ mirror_archive_dir }}/"
+    remote_src: true
+    mode: preserve
+
+- name: Ensure the installers destination exists
+  file:
+    path: "{{ mirror_installers_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Copy the bundled installer tarballs/RPMs into place
+  copy:
+    src: "{{ bastion_bundle_dir }}/mirror-installers/"
+    dest: "{{ mirror_installers_dir }}/"
+    remote_src: true
+    mode: preserve
+
+- name: Ensure bin_dir exists
+  file:
+    path: "{{ bin_dir }}"
+    state: directory
+    mode: '0755'
+
+# oc-mirror/mirror-registry are extracted from this same mirror_installers_dir
+# directly by deploy_mirror_registry itself (unchanged behavior) — only
+# openshift-install/oc are extracted here, since no other role does so for them.
+- name: Extract openshift-install from the bundled tarball
+  unarchive:
+    src: "{{ mirror_installers_dir }}/openshift-install-linux.tar.gz"
+    dest: "{{ bin_dir }}"
+    remote_src: true
+    mode: '0755'
+
+- name: Extract the oc client from the bundled tarball
+  unarchive:
+    src: "{{ mirror_installers_dir }}/openshift-client-linux.tar.gz"
+    dest: "{{ bin_dir }}"
+    remote_src: true
+    mode: '0755'

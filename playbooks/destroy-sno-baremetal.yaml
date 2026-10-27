@@ -1,3 +1,0 @@
----
-# Bare-metal teardown entry point.
-- import_playbook: ./infra_providers/baremetal/destroy.yaml

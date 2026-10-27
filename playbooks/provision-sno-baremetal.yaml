@@ -1,3 +1,0 @@
----
-# Bare-metal provisioning entry point.
-- import_playbook: ./infra_providers/baremetal/provision.yaml

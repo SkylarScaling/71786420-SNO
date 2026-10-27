@@ -1,0 +1,29 @@
+---
+# Runs on staging (hosts: localhost), first task in
+# staging/playbooks/receive-backup.yaml — the staging-side counterpart of the
+# bastion's package_staging_bundle. Extracts the tar.gz the bastion produced so
+# push_backup_to_external_s3 has something to relay on.
+- name: Fail fast if the expected backup bundle isn't present
+  stat:
+    path: "{{ staging_backup_bundle_path }}"
+  register: _staging_backup_bundle_stat
+
+- name: Fail with guidance if the bundle hasn't arrived yet
+  fail:
+    msg: >
+      {{ staging_backup_bundle_path }} not found. Physically copy (or rsync) the
+      bastion-produced sno-staging-backup-bundle-*.tar.gz here first — see
+      package_staging_bundle's README on the bastion side.
+  when: not _staging_backup_bundle_stat.stat.exists
+
+- name: Ensure the extraction destination exists
+  file:
+    path: "{{ backup_push_source_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Extract the backup bundle
+  unarchive:
+    src: "{{ staging_backup_bundle_path }}"
+    dest: "{{ backup_push_source_dir }}"
+    remote_src: true

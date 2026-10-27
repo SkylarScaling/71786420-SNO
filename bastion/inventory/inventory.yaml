@@ -1,0 +1,11 @@
+---
+# Minimal — this automation always runs directly on the bastion itself (hosts:
+# localhost), after the staging-produced bundle has been physically copied over and
+# extracted here. All per-environment config (BMC creds, base_domain, cluster_name,
+# etc.) lives in staging/inventory/inventory.yaml and is written into
+# bastion/group_vars/all.yaml by unpack_bastion_bundle at extract time — don't
+# hand-edit per-environment values here.
+all:
+  hosts:
+    localhost:
+      ansible_connection: local

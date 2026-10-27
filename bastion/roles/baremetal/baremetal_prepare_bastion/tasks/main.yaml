@@ -1,0 +1,52 @@
+---
+# The bare-metal bastion is existing hardware, not something we provision — this just
+# validates the local environment this automation is now running on top of. This
+# role runs directly on the bastion itself (hosts: localhost) after the
+# staging-produced bundle has been physically copied over and unpacked by
+# unpack_bastion_bundle — there is no remote reachability to check anymore, since
+# there's no longer a separate controller SSHing in. The bastion is the disconnected
+# target (see docs/architectural-decisions.md #2): it gets its content exclusively
+# via the staging bundle + deploy_mirror_registry, never directly from the internet.
+- name: Confirm the bastion cannot reach the public internet directly (expected — it's disconnected)
+  uri:
+    url: "https://{{ registry_reachability_check_host | default('registry.redhat.io') }}"
+    method: HEAD
+    validate_certs: true
+  register: internet_check
+  failed_when: false
+
+- name: Warn if the bastion unexpectedly has direct internet access
+  debug:
+    msg: >
+      WARNING: bastion reached {{ registry_reachability_check_host | default('registry.redhat.io') }}
+      directly. This environment is treated as fully disconnected — all cluster content
+      is expected to come from the mirror registry deployed by deploy_mirror_registry,
+      not the public internet. Review the bastion's network path if this is unexpected.
+  when: internet_check.status is defined and internet_check.status == 200
+
+# Every roles/ocp/* role below uses kubernetes.core.k8s* modules, which need the
+# `kubernetes`/`openshift` Python packages importable by whatever Python interpreter
+# Ansible is using on the bastion. Unlike openshift-install/oc (plain binaries
+# shipped inside the bundle by package_bastion_bundle/unpack_bastion_bundle), these
+# are Python packages that would normally come from PyPI — the bastion has no
+# internet route to reach PyPI, so a plain `pip install` task here would just hang
+# or fail. This is a known gap, not fixed by this automation: the bastion's base
+# image/build must already have `kubernetes`/`openshift` importable (e.g. installed
+# from an internal PyPI mirror or vendored wheels during bastion imaging), the same
+# "assume pre-existing, only validate" treatment this role already gives the rest of
+# the bastion's prerequisites.
+- name: Fail fast if the kubernetes/openshift Python modules aren't already importable
+  command: "{{ ansible_python_interpreter | default('python3') }} -c 'import kubernetes, openshift'"
+  register: _k8s_python_modules_check
+  changed_when: false
+  failed_when: false
+
+- name: Fail with guidance if kubernetes/openshift Python modules are missing
+  fail:
+    msg: >
+      The 'kubernetes'/'openshift' Python modules aren't importable by this bastion's
+      Ansible Python interpreter, and the bastion has no internet route to `pip
+      install` them. Every roles/ocp/* role needs these for kubernetes.core.k8s*
+      modules to work. Pre-install them on the bastion (internal PyPI mirror,
+      vendored wheels baked into the bastion image, etc.) before re-running.
+  when: _k8s_python_modules_check.rc != 0

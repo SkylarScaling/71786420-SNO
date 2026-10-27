@@ -1,0 +1,16 @@
+---
+# Full bare-metal production rollout, bastion side: provisioning, storage (LVMS +
+# MCG), MetalLB (non-HTTP TCP middleware), logging (LokiStack + Grafana), tracing
+# (OpenTelemetry + Tempo), email alerting, backup/DR (OADP), and the Day 2
+# application platform (RabbitMQ/Postgres/Redis/Keycloak). Assumes the
+# staging-produced bundle has already been copied here — run
+# staging/playbooks/full-staging-setup.yaml first, physically carry (or rsync) the
+# resulting tar.gz over, extract it, then run this.
+- import_playbook: ./provision-sno.yaml
+- import_playbook: ./configure-storage.yaml
+- import_playbook: ./configure-metallb.yaml
+- import_playbook: ./configure-logging.yaml
+- import_playbook: ./configure-tracing.yaml
+- import_playbook: ./configure-alerting.yaml
+- import_playbook: ./configure-backup-dr.yaml
+- import_playbook: ./configure-middleware.yaml

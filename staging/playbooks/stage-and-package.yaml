@@ -1,0 +1,18 @@
+---
+# Runs directly on staging (hosts: localhost — this automation is executed directly
+# on the internet-connected staging host). Produces the one artifact the bastion
+# needs: mirrors release/operator content and install-time binaries to disk, then
+# packages them (plus the entire bastion/ tree and resolved per-environment config)
+# into a single tar.gz, physically carried to the bastion by default (see
+# package_bastion_bundle's README for the rsync opt-in).
+- name: Stage mirror content and package the bastion bundle
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  tags: [provision_sno, baremetal, stage, package]
+  tasks:
+    - include_role:
+        name: stage_mirror_content
+
+    - include_role:
+        name: package_bastion_bundle

@@ -1,0 +1,53 @@
+---
+# Runs directly on the bastion (hosts: localhost).
+
+# Installed from the local RPMs unpack_bastion_bundle already extracted here, not via
+# the package module's online repo resolution — this host has no internet route at
+# all, and a plain `package:`/`dnf install dnsmasq httpd` here fails
+# with a RHUI mirrorlist timeout (confirmed against a real run). disablerepo: '*'
+# ensures dnf never even attempts a network repo lookup; mirror_installers_dir/
+# bastion-rpms already contains the full dependency closure, not just these two
+# packages, so nothing else needs to be resolved.
+- name: Find the synced bastion RPMs
+  find:
+    paths: "{{ mirror_installers_dir }}/bastion-rpms"
+    patterns: "*.rpm"
+  register: bastion_rpm_files
+
+- name: Install bastion packages from the synced local RPMs
+  dnf:
+    name: "{{ bastion_rpm_files.files | map(attribute='path') | list }}"
+    state: present
+    disablerepo: '*'
+  become: true
+
+- name: Configure DNS records for the SNO cluster (requires a known static node IP)
+  template:
+    src: dnsmasq-sno.conf.j2
+    dest: /etc/dnsmasq.d/sno.conf
+    mode: '0644'
+  become: true
+  notify: restart dnsmasq
+  when: sno_node_ip is defined
+
+- name: Ensure ISO-hosting directory exists (for bare-metal BMC virtual media boot)
+  file:
+    path: "{{ iso_serve_dir }}"
+    state: directory
+    mode: '0755'
+  become: true
+
+- name: Enable and start dnsmasq
+  service:
+    name: dnsmasq
+    state: started
+    enabled: true
+  become: true
+  when: sno_node_ip is defined
+
+- name: Enable and start httpd (serves the agent ISO for BMC virtual media)
+  service:
+    name: httpd
+    state: started
+    enabled: true
+  become: true

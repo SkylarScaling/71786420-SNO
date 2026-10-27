@@ -1,0 +1,22 @@
+---
+# media (default): just produce the tar.gz and print instructions for a human to
+# carry it to staging on removable media. rsync (opt-in): also push it directly to a
+# configured staging address, for the case where a temporary network path genuinely
+# exists.
+staging_transfer_method: media
+
+staging_bundle_export_dir: /tmp/bastion-export
+staging_bundle_name: "sno-staging-backup-bundle-{{ cluster_name }}.tar.gz"
+
+# Same default path export_backup_from_noobaa stages data into (role defaults aren't
+# shared across roles, so duplicated rather than centralized).
+backup_sync_source_dir: "{{ backup_export_workspace | default('/opt/backup-export') }}"
+
+# rsync opt-in transfer target — only used when staging_transfer_method == 'rsync'.
+# One-directional push FROM the bastion TO staging; no cross-host delegation needed
+# since the bastion is the only side acting (contrast with the old
+# sync_backup_to_staging role's dual-host delegate_to dance).
+staging_transfer_host: ""
+staging_transfer_user: root
+staging_transfer_ssh_key: "{{ ssh_private_key }}"
+staging_transfer_dest_dir: /root
