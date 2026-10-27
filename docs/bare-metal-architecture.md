@@ -11,8 +11,8 @@ OpenShift (SNO) platform this repo builds — what's deployed, why, and which
 role/playbook owns it. It's written to be shared with the customer as well as used
 internally — parameters are described generically (as the variables this repo
 already uses), with real per-environment values (IPs, hostnames, credentials) living
-only in `inventory/baremetal/inventory.yaml`, never in this document, per this repo's
-reusability rule (see `CLAUDE.md`).
+only in `inventory/baremetal/inventory.yaml`, never in this document, so the
+automation stays reusable across environments/deployments.
 
 This document describes the bare-metal production target only, and can be lifted
 out of this repo on its own (alongside `architectural-decisions.md`) as the

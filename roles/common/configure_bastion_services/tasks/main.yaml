@@ -1,11 +1,9 @@
 ---
-# Runs against the `bastion` group on both providers — on AWS that's the
-# just-created EC2 instance (added to the in-memory inventory by
-# aws_provision_bastion); on bare metal it's the existing physical bastion.
+# Runs against the `bastion` group — the existing physical bastion.
 
 # Installed from the local RPMs sync_mirror_to_bastion already synced here, not via
 # the package module's online repo resolution — this host has no internet route at
-# all (see CLAUDE.md), and a plain `package:`/`dnf install dnsmasq httpd` here fails
+# all, and a plain `package:`/`dnf install dnsmasq httpd` here fails
 # with a RHUI mirrorlist timeout (confirmed against a real run). disablerepo: '*'
 # ensures dnf never even attempts a network repo lookup; mirror_installers_dir/
 # bastion-rpms already contains the full dependency closure, not just these two

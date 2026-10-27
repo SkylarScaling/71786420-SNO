@@ -36,7 +36,7 @@
   become: true
 
 # Unarchived from the tarball sync_mirror_to_bastion already synced here, not
-# downloaded — this host has no internet route at all (see CLAUDE.md). Idempotent
+# downloaded — this host has no internet route at all. Idempotent
 # (unarchive skips re-extracting an unchanged source), so safe to run every time
 # rather than gating it on an install-state check.
 - name: Extract the mirror-registry installer from the synced tarball
@@ -292,7 +292,7 @@
 
 # Unarchived from the tarball sync_mirror_to_bastion already synced here (this host
 # is separate from wherever stage_mirror_content ran, and has no internet route of
-# its own — see CLAUDE.md).
+# its own).
 - name: Extract the oc-mirror binary from the synced tarball
   unarchive:
     src: "{{ mirror_installers_dir }}/oc-mirror.tar.gz"

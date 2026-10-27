@@ -16,11 +16,9 @@ network as the bastion. See `backup_egress_mode` below.
 
 An earlier version of this role created a NooBaa `BackingStore` pointed directly at
 the external endpoint, intending continuous in-cluster replication. That doesn't
-work: **the SNO node has no internet route on either provider** — AWS's
-machine-network subnet has no NAT/IGW, and bare metal is fully air-gapped (see the
-top-level `CLAUDE.md`'s "always fully disconnected" invariant). A BackingStore
-pointed at an external endpoint would never reach `Ready`; nothing in this
-architecture reconciles that, so don't re-add it.
+work: **the SNO node has no internet route at all** — it's fully air-gapped. A
+BackingStore pointed at an external endpoint would never reach `Ready`; nothing in
+this architecture reconciles that, so don't re-add it.
 
 This role now only fails fast if `backup_egress_mode` requires the external S3 target
 and `backup_external_s3_endpoint/bucket/access_key/secret_key` aren't all set, and
@@ -76,12 +74,11 @@ on-demand refresh rather than part of `provision-sno-{aws,baremetal}.yaml`.
   genuine internet-reachable target, for `backup_egress_mode: network`/`both`.
 
 Both sets are deliberately left empty in their respective `defaults/main.yaml`. Set
-the real values in `inventory/<provider>/inventory.yaml`'s `vars:` block, **not** in
+the real values in `inventory/baremetal/inventory.yaml`'s `vars:` block, **not** in
 `playbooks/group_vars/all.yaml` or back into either role's defaults — Ansible's
 precedence puts playbook-adjacent `group_vars/all` above inline inventory-file
 vars, so a default set there would silently win over a per-environment inventory
-override (see the top-level `CLAUDE.md` for this repo's existing documentation of
-the same gotcha).
+override.
 
 ## Scope: application S3 data only
 

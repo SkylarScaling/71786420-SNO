@@ -3,8 +3,7 @@
 # middleware), logging (LokiStack + Grafana), tracing (OpenTelemetry + Tempo), email
 # alerting, backup/DR (OADP + external S3 export), and the Day 2 application platform
 # (RabbitMQ/Postgres/Redis/Keycloak). Assumes content has already been mirrored
-# (playbooks/mirror-content.yaml) — this is always a disconnected deployment, see
-# CLAUDE.md.
+# (playbooks/mirror-content.yaml) — this is always a disconnected deployment.
 - name: Install local prerequisites
   hosts: localhost
   connection: local

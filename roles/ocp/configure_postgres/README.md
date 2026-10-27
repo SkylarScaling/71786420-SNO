@@ -21,9 +21,8 @@ customer's stated priorities — no HA/replica set.
 
 ## pgAdmin image mirroring gap
 
-This is a disconnected-only repo (see top-level `CLAUDE.md`) — nothing reaches
-the cluster that wasn't staged through
-`roles/common/stage_mirror_content` → `sync_mirror_to_bastion` →
+This is a disconnected-only repo — nothing reaches the cluster that wasn't staged
+through `roles/common/stage_mirror_content` → `sync_mirror_to_bastion` →
 `deploy_mirror_registry`. That pipeline's `oc_mirror_operator_packages` var
 only handles **operator catalog images** (OLM bundles + their related images).
 `dpage/pgadmin4` is a plain Docker Hub container image with no operator

@@ -18,8 +18,8 @@ without this it fails immediately with `x509: certificate signed by unknown
 authority` before attempting any push (confirmed against a real run).
 
 Also extracts the `oc-mirror` binary into `{{ bin_dir }}` for the push, and the
-`mirror-registry` installer itself — this host has no internet route at all (see
-CLAUDE.md), so both are unarchived from the tarballs `sync_mirror_to_bastion` already
+`mirror-registry` installer itself — this host has no internet route at all, so both
+are unarchived from the tarballs `sync_mirror_to_bastion` already
 synced into `{{ mirror_installers_dir }}` (downloaded by `stage_mirror_content` on the
 internet-connected mirror-staging host) rather than fetched here directly. A real run
 once hit this the hard way: the original version of this role tried a plain

@@ -81,16 +81,12 @@
     dest: "{{ mirror_installers_dir }}/mirror-registry.tar.gz"
     mode: '0644'
 
-# The bastion has no internet route at all (see CLAUDE.md), so configure_bastion_services
-# can't `dnf install` dnsmasq/httpd directly there either — confirmed against a real
-# run: RHUI's own mirrorlist endpoint (AWS's built-in RHEL repo access) timed out from
-# the bastion's private subnet. Downloaded here instead, same pattern as the
-# oc-mirror/mirror-registry tarballs above: --downloadonly/--downloaddir resolves and
-# fetches the full dependency closure (not just the two named packages) into
-# mirror_installers_dir, which sync_mirror_to_bastion already carries over wholesale.
-# Both hosts run the same RHEL major.minor (see rhel_ami_name_filter in
-# aws_provision_mirror_staging_host/aws_provision_bastion's defaults — or, on bare
-# metal, whatever RHEL version both hosts are provisioned with), so RPMs resolved here
+# The bastion has no internet route at all, so configure_bastion_services can't
+# `dnf install` dnsmasq/httpd directly there either. Downloaded here instead, same
+# pattern as the oc-mirror/mirror-registry tarballs above: --downloadonly/--downloaddir
+# resolves and fetches the full dependency closure (not just the two named packages)
+# into mirror_installers_dir, which sync_mirror_to_bastion already carries over
+# wholesale. Both hosts must run the same RHEL major.minor, so RPMs resolved here
 # install cleanly there with all repos disabled.
 - name: Ensure the bastion-rpms directory exists
   file:

@@ -7,8 +7,8 @@
 cluster_name: sno-test
 openshift_version: "4.22.17"
 
-# This branch is bare-metal only (the AWS provisioning layer has been removed
-# entirely — see CLAUDE.md). Hardcoded rather than left to inventory: Ansible's
+# This repo is bare-metal only (the AWS provisioning layer has been removed
+# entirely). Hardcoded rather than left to inventory: Ansible's
 # precedence puts this file ABOVE inline inventory-file vars (same reason
 # base_domain isn't defaulted here either — see below), so a stray "aws" default
 # here would silently win over inventory/baremetal/inventory.yaml's own value.

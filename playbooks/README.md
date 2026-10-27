@@ -12,7 +12,9 @@ committing them in plain text.
 
 Shared defaults live in `group_vars/all.yaml`; per-environment values (`base_domain`,
 BMC details, etc.) live in `inventory/baremetal/inventory.yaml`'s `vars:` block —
-never add defaults for those back into `group_vars/all.yaml` (see CLAUDE.md for why).
+never add defaults for those back into `group_vars/all.yaml`. Ansible's precedence
+puts `group_vars/all` above inline inventory-file vars, so a default set there would
+silently win over any real per-environment override.
 
 | Variable | Used by | Notes |
 |---|---|---|
@@ -68,6 +70,6 @@ ansible-playbook destroy-sno-baremetal.yaml -i ../inventory/baremetal/inventory.
 ansible-playbook mirror-content.yaml -i ../inventory/baremetal/inventory.yaml
 
 # Relay app S3 data out to the external backup target (periodic/on-demand — there's no
-# always-on path from the cluster to the internet, see CLAUDE.md)
+# always-on path from the cluster to the internet)
 ansible-playbook export-backup.yaml -i ../inventory/baremetal/inventory.yaml
 ```

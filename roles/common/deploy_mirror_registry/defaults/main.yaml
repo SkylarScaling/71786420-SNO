@@ -20,7 +20,7 @@ bin_dir: "~/.local/bin"
 # mirror" push.
 oc_mirror_cache_dir: "{{ mirror_registry_install_dir }}/oc-mirror-cache"
 
-# The bastion has no internet route at all (see CLAUDE.md) — unlike
+# The bastion has no internet route at all — unlike
 # stage_mirror_content's mirror-staging host, it can't download oc-mirror or
 # mirror-registry itself. Both are unarchived from the tarballs
 # sync_mirror_to_bastion already synced here. Same default path as

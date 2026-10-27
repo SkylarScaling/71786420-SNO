@@ -1,12 +1,11 @@
 ---
 # There is no in-cluster CR that can replicate NooBaa bucket data straight to an
-# external S3 endpoint — the SNO node has no internet route on either provider (AWS's
-# subnet has no NAT/IGW; bare metal is fully air-gapped, see CLAUDE.md's "always fully
-# disconnected" invariant). A NooBaa BackingStore pointed at an external endpoint
-# would sit permanently non-Ready. The actual export path reuses the same two-host
-# relay the inbound mirroring pipeline uses, just reversed: bastion (same private
-# network as the SNO node) pulls from NooBaa, relays to mirror-staging (the only host
-# with real internet on either provider), which pushes to the real external target.
+# external S3 endpoint — the SNO node has no internet route at all; it's fully
+# air-gapped. A NooBaa BackingStore pointed at an external endpoint would sit
+# permanently non-Ready. The actual export path reuses the same two-host relay the
+# inbound mirroring pipeline uses, just reversed: bastion (same private network as the
+# SNO node) pulls from NooBaa, relays to mirror-staging (the only host with real
+# internet), which pushes to the real external target.
 # That relay is playbooks/export-backup.yaml (roles/common/export_backup_from_noobaa
 # → sync_backup_to_staging → push_backup_to_external_s3) — run periodically/on-demand,
 # not continuously, since there's no always-on path out of a disconnected cluster.

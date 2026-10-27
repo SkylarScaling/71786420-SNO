@@ -23,10 +23,10 @@ runs `openshift-install agent create image` to produce the boot ISO that
 
 **This role only controls the SNO node's own networking — the bastion's NICs are not
 configured by this automation at all** (`baremetal_prepare_bastion` only validates
-reachability; the bastion is pre-existing, pre-configured customer hardware per
-CLAUDE.md). If the bastion also needs dual-switch bonding for the same
-redundancy, that's done manually/out-of-band by the customer's own network admin —
-there is nothing in this repo to toggle for it.
+reachability; the bastion is pre-existing, pre-configured customer hardware). If the
+bastion also needs dual-switch bonding for the same redundancy, that's done
+manually/out-of-band by the customer's own network admin — there is nothing in this
+repo to toggle for it.
 
 **Unverified against real hardware** — no live dual-NIC server has been available to
 test the bonded nmstate config against yet, consistent with the same caveat already

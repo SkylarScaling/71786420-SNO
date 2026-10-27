@@ -13,11 +13,11 @@ ocp_mirror_url: "https://mirror.openshift.com/pub/openshift-v4/clients/ocp/{{ op
 
 # Raw tool tarballs (oc-mirror, mirror-registry) are downloaded here, not extracted
 # directly from the URL — kept on disk so sync_mirror_to_bastion can carry them to the
-# bastion alongside the content archive. The bastion has no internet route at all
-# (see CLAUDE.md), so deploy_mirror_registry can't fetch either tool itself the way
-# this role does; it unarchives from the synced copy instead. Same default path
-# duplicated in sync_mirror_to_bastion/deploy_mirror_registry's defaults (role
-# defaults aren't shared across roles).
+# bastion alongside the content archive. The bastion has no internet route at all, so
+# deploy_mirror_registry can't fetch either tool itself the way this role does; it
+# unarchives from the synced copy instead. Same default path duplicated in
+# sync_mirror_to_bastion/deploy_mirror_registry's defaults (role defaults aren't
+# shared across roles).
 mirror_installers_dir: /opt/mirror-installers
 
 # mirror.openshift.com/pub/cgw/mirror-registry/latest/mirror-registry.tar.gz (the
@@ -46,11 +46,10 @@ bastion_packages:
 # true-SNO storage), OADP (configure_oadp_backup), cluster logging
 # (configure_log_forwarding), and the ODF operator in standalone MCG mode
 # (configure_mcg — not full ODF/Ceph, which is the scale-out alternative to LVMS and
-# not applicable to true SNO, see CLAUDE.md). Override in
-# inventory/<provider>/inventory.yaml's vars block to mirror a different set, or trim
-# this down if you're not exercising every feature. [] mirrors the ENTIRE
-# redhat-operator-index catalog instead — large and slow (see the volume-size notes in
-# roles/aws/aws_provision_mirror_staging_host and aws_provision_bastion's defaults).
+# not applicable to true SNO). Override in inventory/baremetal/inventory.yaml's vars
+# block to mirror a different set, or trim this down if you're not exercising every
+# feature. [] mirrors the ENTIRE redhat-operator-index catalog instead — large and
+# slow, so size the mirror-staging host's and bastion's disks accordingly.
 #
 # Entries can be a bare string (default catalog, default channel) or a dict with
 # `name`, optional `channel` (pin a non-default channel), and optional `catalog`

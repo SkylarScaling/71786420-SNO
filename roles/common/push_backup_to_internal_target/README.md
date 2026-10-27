@@ -23,6 +23,7 @@ Only runs when `backup_egress_mode` is `internal` (gated in
 `backup_internal_target_endpoint`, `backup_internal_target_bucket`,
 `backup_internal_target_access_key`, `backup_internal_target_secret_key` are
 deliberately left empty in `defaults/main.yaml` — set the real values in
-`inventory/<provider>/inventory.yaml`'s `vars:` block, **not** in
-`playbooks/group_vars/all.yaml` (see the top-level `CLAUDE.md` for why that
-precedence gotcha matters here).
+`inventory/baremetal/inventory.yaml`'s `vars:` block, **not** in
+`playbooks/group_vars/all.yaml`. Ansible's precedence puts `group_vars/all` above
+inline inventory-file vars, so a default set there would silently win over a
+per-environment inventory override.

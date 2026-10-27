@@ -1,17 +1,13 @@
 # configure_bastion_services
 
-Runs against the `bastion` group on both providers — on AWS that's the just-created
-EC2 instance (added to the in-memory inventory by `aws_provision_bastion`); on bare
-metal it's the existing physical bastion. Installs `dnsmasq` (DNS for the SNO cluster,
-only when `sno_node_ip` is known) and `httpd` (serves the agent ISO for bare-metal BMC
-virtual media boot).
+Runs against the `bastion` group — the existing physical bastion. Installs `dnsmasq`
+(DNS for the SNO cluster, only when `sno_node_ip` is known) and `httpd` (serves the
+agent ISO for BMC virtual media boot).
 
 ## Why the packages come from a synced local directory, not `dnf install`
 
-The bastion has no internet route at all (see `CLAUDE.md`'s "always fully
-disconnected" rule) — a plain `package:`/`dnf install dnsmasq httpd` here fails with a
-RHUI mirrorlist timeout (`Failed to connect to rhui.<region>.aws.ce.redhat.com ...
-Connection timed out`, confirmed against a real run). `dnsmasq`/`httpd` aren't
+The bastion has no internet route at all — a plain `package:`/`dnf install dnsmasq
+httpd` here fails since there's no repo it can reach. `dnsmasq`/`httpd` aren't
 container images, so they're outside `oc-mirror`'s content-mirroring pipeline
 entirely — instead, `roles/common/stage_mirror_content` downloads them (and their
 full dependency closure, via `dnf install --downloadonly --downloaddir=...`, not just

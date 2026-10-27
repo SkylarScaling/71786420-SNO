@@ -75,14 +75,8 @@
 # oc-mirror version picks up a fix), not to suspect this sync step.
 - name: Rsync the mirror archive directly to the bastion (requires a reachable network path)
   vars:
-    # bastion_ssh_user is a role default of aws_provision_bastion, set in a
-    # different play earlier in this same playbook run — role defaults don't cross
-    # play boundaries even when the include_role was public, but the ansible_user
-    # that aws_provision_bastion's add_host task attached to this bastion hostvars
-    # entry does persist globally, so read it from there instead (also correct
-    # as-is on bare metal, where it's simply the inventory-defined ansible_user).
     _bastion_addr: "{{ hostvars['localhost']['bastion_host'] | default(bastion_host) }}"
-    _bastion_user: "{{ hostvars[_bastion_addr].ansible_user | default('ec2-user') }}"
+    _bastion_user: "{{ hostvars[_bastion_addr].ansible_user | default('root') }}"
   command: >
     rsync -a --delete --exclude=working-dir
     --rsh="ssh -i /tmp/.mirror_sync_relay_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
@@ -125,13 +119,13 @@
 
 # Small (tens of MB) compared to the content archive, so this runs synchronously
 # rather than async/polled like the archive sync above — reuses the same staged relay
-# key and self-delegate pattern. The bastion has no internet route (see CLAUDE.md), so
+# key and self-delegate pattern. The bastion has no internet route, so
 # deploy_mirror_registry can't fetch oc-mirror/mirror-registry itself; this is what
 # lets it unarchive them locally instead.
 - name: Rsync the oc-mirror/mirror-registry installer tarballs to the bastion
   vars:
     _bastion_addr: "{{ hostvars['localhost']['bastion_host'] | default(bastion_host) }}"
-    _bastion_user: "{{ hostvars[_bastion_addr].ansible_user | default('ec2-user') }}"
+    _bastion_user: "{{ hostvars[_bastion_addr].ansible_user | default('root') }}"
   command: >
     rsync -a --rsh="ssh -i /tmp/.mirror_sync_relay_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
     {{ mirror_installers_dir }}/ {{ _bastion_user }}@{{ _bastion_addr }}:{{ mirror_installers_dir }}/
@@ -151,9 +145,9 @@
     format: gz
   when: mirror_sync_method == 'media'
 
-# The bastion has no internet route (see CLAUDE.md) — deploy_mirror_registry can't
-# fetch oc-mirror/mirror-registry itself, so these must travel via media here too,
-# not just the content archive above.
+# The bastion has no internet route — deploy_mirror_registry can't fetch
+# oc-mirror/mirror-registry itself, so these must travel via media here too, not just
+# the content archive above.
 - name: Package the installer tarballs for manual/physical media transfer
   archive:
     path: "{{ mirror_installers_dir }}"
