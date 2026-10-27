@@ -1,0 +1,40 @@
+---
+# Day 2 application platform: the middleware the customer's microservices app runs
+# on. Depends on configure-storage.yaml (LVMS for PVCs) and, if any *_expose_external
+# var is set, configure-metallb.yaml having already run. Keycloak depends on Postgres
+# being up first (its database backend).
+- name: Configure RabbitMQ
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [configure_middleware, configure_rabbitmq]
+  tasks:
+    - include_role:
+        name: configure_rabbitmq
+
+- name: Configure Postgres (and pgAdmin)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [configure_middleware, configure_postgres]
+  tasks:
+    - include_role:
+        name: configure_postgres
+
+- name: Configure Redis
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [configure_middleware, configure_redis]
+  tasks:
+    - include_role:
+        name: configure_redis
+
+- name: Configure Keycloak
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [configure_middleware, configure_keycloak]
+  tasks:
+    - include_role:
+        name: configure_keycloak

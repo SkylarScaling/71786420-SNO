@@ -1,0 +1,11 @@
+---
+# Cluster health alerting via email, using the customer's own on-site SMTP server
+# (assumed reachable directly — see roles/ocp/configure_alerting/README.md).
+- name: Configure email alerting
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [configure_alerting]
+  tasks:
+    - include_role:
+        name: configure_alerting

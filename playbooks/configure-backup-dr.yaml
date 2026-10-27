@@ -1,0 +1,24 @@
+---
+# Backup, restoration and DR strategy with an offsite target. configure_mcg_backup_export
+# here only validates the external-S3 target config — the cluster has no internet
+# route on either provider, so it can't replicate there itself. The actual data
+# relay (through the bastion and mirror-staging host) is playbooks/export-backup.yaml,
+# run periodically/on-demand, not as part of this setup. Depends on
+# configure-storage.yaml having run configure_mcg first.
+- name: Configure OADP backup / DR
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [configure_backup]
+  tasks:
+    - include_role:
+        name: configure_oadp_backup
+
+- name: Validate external S3 backup export configuration
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [configure_backup, configure_mcg_backup_export]
+  tasks:
+    - include_role:
+        name: configure_mcg_backup_export

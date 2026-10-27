@@ -1,0 +1,63 @@
+---
+- name: Install Keycloak Operator (namespace, operator group, subscription)
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: keycloak-subscription.yaml.j2
+
+- name: Wait for Keycloak operator deployment to be ready
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: apps/v1
+    kind: Deployment
+    namespace: "{{ keycloak_namespace }}"
+    name: keycloak-operator
+  register: keycloak_operator_deploy
+  until: >
+    keycloak_operator_deploy.resources | length > 0
+    and keycloak_operator_deploy.resources[0].status.readyReplicas | default(0) | int > 0
+  retries: 30
+  delay: 20
+
+- name: Create Keycloak instance CR
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: keycloak-instance.yaml.j2
+
+- name: Wait for Keycloak deployment to be ready
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: apps/v1
+    kind: Deployment
+    namespace: "{{ keycloak_namespace }}"
+    name: keycloak
+  register: keycloak_deploy
+  until: >
+    keycloak_deploy.resources | length > 0
+    and keycloak_deploy.resources[0].status.readyReplicas | default(0) | int > 0
+  retries: 30
+  delay: 20
+
+# The realm JSON is read here in tasks (not inside the template) so the
+# lookup is resolved exactly once, in Ansible, against a user-supplied local
+# path — the template just receives the already-rendered content as a plain
+# var. This differs slightly from how group_vars/all.yaml inlines
+# lookup('file', ...) directly in ssh_key/pull_secret's var values, but is
+# cleaner here because the realm content needs to be indented/embedded inside
+# a YAML block scalar inside the CR, which is easier to get right in one
+# place (tasks) than re-derived inside the template each time it's rendered.
+- name: Load app-specific realm JSON export when keycloak_realm_file is set
+  ansible.builtin.set_fact:
+    # KeycloakRealmImport's spec.realm field is a nested object matching the
+    # Keycloak realm representation, not a raw string — parse the JSON export
+    # and re-render it as YAML so it can be embedded directly in the CR.
+    keycloak_realm_content: "{{ lookup('file', keycloak_realm_file) | from_json | to_nice_yaml(indent=2) }}"
+  when: keycloak_realm_file != ""
+
+- name: Create KeycloakRealmImport
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: keycloak-realm-import.yaml.j2
+  when: keycloak_realm_file != ""

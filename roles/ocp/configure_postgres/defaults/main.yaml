@@ -1,0 +1,26 @@
+---
+# Confirmed via `oc-mirror list operators --v1 --catalog
+# registry.redhat.io/redhat/certified-operator-index:v4.18 --package
+# crunchy-postgres-operator` — v5 is the current default channel.
+# crunchy-postgres-operator isn't in redhat-operator-index, hence
+# certified-operators below.
+postgres_operator_channel: v5
+postgres_catalog_source: certified-operators
+postgres_catalog_source_namespace: openshift-marketplace
+
+postgres_namespace: postgres
+postgres_replicas: 1
+postgres_storage_size: 20Gi
+# Retain, not the shared vg1 Delete-reclaim default — protects the DB volume from
+# being wiped by an accidental namespace/PostgresCluster deletion, closing the gap
+# between OADP backup windows. See roles/ocp/configure_lvms's README.
+postgres_storage_class: "{{ lvms_retain_storage_class_name | default((lvms_vg_name | default('vg1')) + '-retain') }}"
+
+# pgAdmin has no operator — it's a plain Deployment+Service+Route templated
+# directly by this role. See README for the container-image mirroring gap.
+pgadmin_enabled: true
+pgadmin_image: "docker.io/dpage/pgadmin4:latest"
+pgadmin_default_email: "admin@example.com"
+pgadmin_default_password: "changeme"
+
+postgres_expose_external: false

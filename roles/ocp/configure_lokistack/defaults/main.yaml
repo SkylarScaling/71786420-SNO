@@ -1,0 +1,44 @@
+---
+# Confirmed via `oc-mirror list operators --v1 --catalog
+# registry.redhat.io/redhat/redhat-operator-index:v4.22 --package loki-operator` —
+# stable-6.6 is the current default channel for openshift_version 4.22 (this
+# channel string moves with every OCP minor — re-verify with the same command
+# against the new version's index whenever openshift_version changes).
+loki_channel: stable-6.6
+
+# Smallest documented LokiStack size tier, intended for demo/single-small-node use —
+# NOT for production log volumes. `1x.demo` trades HA/replica count for the smallest
+# possible resource footprint (single replica per component) and is the closest fit
+# for a true SNO node with limited spare capacity. Bump to `1x.extra-small` or larger
+# per-environment once real log volume is known.
+lokistack_size: 1x.demo
+
+# LokiStack CRD field path for retention is spec.limits.global.retention.days (plain
+# integer, no unit suffix) — VERIFY against `oc explain lokistack.spec.limits` on a
+# live cluster, field names/paths have shifted across loki-operator releases.
+loki_retention_days: 30
+
+# See README: LokiStack's retention model is a single global day-count plus optional
+# per-stream overrides (spec.limits.global.retention.streams[]) — there is no native
+# "hot tier vs total retention" concept. This value is used as a per-stream override
+# selector approximation of a "hot" window, not a second storage tier.
+loki_hot_retention_days: 7
+
+loki_bucket_name: "{{ cluster_name }}-loki"
+
+# Namespace shared with configure_log_forwarding's Cluster Logging operator — kept
+# identical so the gateway/query-frontend Services configure_grafana and
+# configure_log_forwarding both reference live in a single namespace on this
+# single-node cluster.
+loki_namespace: openshift-logging
+
+# Block storage class backing LokiStack's own WAL/index PVCs (distinct from the
+# object storage bucket below, which NooBaa provides). Falls back to configure_lvms's
+# default VG name, same pattern as configure_onprem_quay's quay_storage_class.
+loki_storage_class: "{{ lvms_vg_name | default('vg1') }}"
+
+# Standard LokiStack-generated Service name convention: `<LokiStack name>-<component>-http`.
+# This role, configure_grafana's Loki datasource, and configure_log_forwarding's
+# lokiStack output must all agree on this LokiStack CR name — don't rename without
+# updating the other two roles.
+loki_lokistack_name: "{{ cluster_name }}-loki"

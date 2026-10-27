@@ -1,0 +1,25 @@
+apiVersion: quay.redhat.com/v1
+kind: QuayRegistry
+metadata:
+  name: {{ cluster_name }}-quay
+  namespace: openshift-quay
+spec:
+  configBundleSecret: {{ cluster_name }}-quay-config-bundle
+  components:
+    - kind: objectstorage
+      managed: false
+    # Vulnerability scanning — real weight (its own Postgres-backed service) for no
+    # requirement that calls for it at this scale. Flip to managed: true if the
+    # customer wants image scanning later.
+    - kind: clair
+      managed: false
+    - kind: horizontalpodautoscaler
+      managed: false
+    # Quay's own built-in repo-mirroring worker — unused, this repo's content flow is
+    # oc-mirror, not Quay's mirroring feature.
+    - kind: mirror
+      managed: false
+    - kind: route
+      managed: true
+    - kind: tls
+      managed: true

@@ -1,0 +1,17 @@
+apiVersion: rabbitmq.com/v1beta1
+kind: RabbitmqCluster
+metadata:
+  name: rabbitmq
+  namespace: {{ rabbitmq_namespace }}
+spec:
+  replicas: {{ rabbitmq_replicas }}
+  persistence:
+    storageClassName: {{ rabbitmq_storage_class }}
+    storage: {{ rabbitmq_storage_size }}
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi

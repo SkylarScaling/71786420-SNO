@@ -1,0 +1,13 @@
+---
+sno_hostname: sno-master-0
+sno_interface_name: eno1
+sno_prefix_length: 24
+
+# single_switch (default): one NIC, no bonding — matches the current production
+# topology. dual_switch: bonds sno_interface_name (primary) and
+# sno_interface_name_secondary across two ToR switches for switch-level redundancy —
+# see README for the NIC-count prerequisite and why this is SNO-node-only (the
+# bastion side of dual-switch is a manual/physical concern, not automated here).
+sno_network_topology: single_switch
+sno_bond_name: bond0
+sno_bond_mode: active-backup

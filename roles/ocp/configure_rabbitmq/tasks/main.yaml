@@ -1,0 +1,47 @@
+---
+- name: Install RabbitMQ Cluster Operator (namespace, operator group, subscription)
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: rabbitmq-subscription.yaml.j2
+
+- name: Wait for RabbitMQ Cluster Operator deployment to be ready
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: apps/v1
+    kind: Deployment
+    namespace: "{{ rabbitmq_namespace }}"
+    name: rabbitmq-cluster-operator
+  register: rabbitmq_operator_deploy
+  until: >
+    rabbitmq_operator_deploy.resources | length > 0
+    and rabbitmq_operator_deploy.resources[0].status.readyReplicas | default(0) | int > 0
+  retries: 30
+  delay: 20
+
+- name: Create RabbitmqCluster
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: rabbitmqcluster.yaml.j2
+
+- name: Wait for RabbitmqCluster StatefulSet to be ready
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: apps/v1
+    kind: StatefulSet
+    namespace: "{{ rabbitmq_namespace }}"
+    name: rabbitmq-server
+  register: rabbitmq_statefulset
+  until: >
+    rabbitmq_statefulset.resources | length > 0
+    and rabbitmq_statefulset.resources[0].status.readyReplicas | default(0) | int > 0
+  retries: 30
+  delay: 20
+
+- name: Expose RabbitMQ AMQP externally via LoadBalancer Service
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: rabbitmq-lb-service.yaml.j2
+  when: rabbitmq_expose_external

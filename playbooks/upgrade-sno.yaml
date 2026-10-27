@@ -1,0 +1,10 @@
+---
+# Minimal-downtime SNO upgrade with rollback awareness.
+- name: Upgrade SNO cluster
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [upgrade_sno]
+  tasks:
+    - include_role:
+        name: sno_upgrade

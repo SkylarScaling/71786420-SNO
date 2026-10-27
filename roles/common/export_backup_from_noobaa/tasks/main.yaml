@@ -1,0 +1,83 @@
+---
+# Runs on the bastion — same private network/switch as the SNO node on both
+# providers, so it can reach NooBaa's S3 Route without any internet route. Re-reads
+# the NooBaa credentials/endpoint itself (rather than depending on configure_mcg's
+# localhost facts) since this role is meant to run as its own playbook invocation
+# (playbooks/export-backup.yaml), on a schedule separate from the initial cluster
+# setup, where those in-memory facts from an earlier run no longer exist.
+- name: Read the NooBaa S3 endpoint and credentials
+  delegate_to: localhost
+  block:
+    - name: Read the auto-generated NooBaa admin credentials
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ sno_kubeconfig }}"
+        api_version: v1
+        kind: Secret
+        namespace: openshift-storage
+        name: noobaa-admin
+      register: _noobaa_admin_secret
+
+    - name: Read the NooBaa S3 Route
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ sno_kubeconfig }}"
+        api_version: route.openshift.io/v1
+        kind: Route
+        namespace: openshift-storage
+        name: s3
+      register: _noobaa_s3_route
+
+    - name: Set facts for this play's use
+      set_fact:
+        noobaa_s3_endpoint: "https://{{ _noobaa_s3_route.resources[0].spec.host }}"
+        noobaa_s3_access_key: "{{ _noobaa_admin_secret.resources[0].data.AWS_ACCESS_KEY_ID | b64decode }}"
+        noobaa_s3_secret_key: "{{ _noobaa_admin_secret.resources[0].data.AWS_SECRET_ACCESS_KEY | b64decode }}"
+      delegate_facts: true
+
+- name: Ensure the backup export workspace exists, owned by the connecting user (/opt requires root to create)
+  file:
+    path: "{{ backup_export_workspace }}"
+    state: directory
+    mode: '0700'
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+  become: true
+
+- name: Ensure bin_dir exists
+  file:
+    path: "{{ bin_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Check for the rclone binary
+  command: "{{ bin_dir }}/rclone version"
+  register: rclone_check
+  failed_when: false
+  changed_when: false
+
+- name: Download and install rclone (this host is separate from wherever install_ocp_prerequisites ran)
+  when: rclone_check.rc != 0
+  block:
+    - name: Download the rclone zip
+      get_url:
+        url: "{{ rclone_download_url }}"
+        dest: /tmp/rclone.zip
+        mode: '0644'
+
+    - name: Extract the rclone binary (flatten the versioned subdirectory the zip contains)
+      shell: "unzip -j -o /tmp/rclone.zip '*/rclone' -d {{ bin_dir }}"
+      args:
+        creates: "{{ bin_dir }}/rclone"
+
+    - name: Make rclone executable
+      file:
+        path: "{{ bin_dir }}/rclone"
+        mode: '0755'
+
+- name: Export each configured bucket from NooBaa to the local workspace
+  no_log: true
+  command: >
+    {{ bin_dir }}/rclone sync
+    ":s3,provider=Other,env_auth=false,access_key_id={{ hostvars['localhost'].noobaa_s3_access_key }},secret_access_key={{ hostvars['localhost'].noobaa_s3_secret_key }},endpoint={{ hostvars['localhost'].noobaa_s3_endpoint }}:{{ item }}"
+    "{{ backup_export_workspace }}/{{ item }}"
+  loop: "{{ backup_export_buckets }}"
+  when: backup_export_buckets | length > 0

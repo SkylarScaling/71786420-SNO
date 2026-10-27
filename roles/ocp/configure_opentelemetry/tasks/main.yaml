@@ -1,0 +1,101 @@
+---
+- name: Install OpenTelemetry operator (namespace, operator group, subscription)
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: otel-subscription.yaml.j2
+
+- name: Install Tempo operator (namespace, operator group, subscription)
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: tempo-subscription.yaml.j2
+
+- name: Wait for OpenTelemetry operator deployment to be ready
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: apps/v1
+    kind: Deployment
+    namespace: "{{ otel_namespace }}"
+    name: opentelemetry-operator-controller-manager
+  register: otel_operator_deploy
+  until: >
+    otel_operator_deploy.resources | length > 0
+    and otel_operator_deploy.resources[0].status.readyReplicas | default(0) | int > 0
+  retries: 30
+  delay: 20
+
+- name: Wait for Tempo operator deployment to be ready
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: apps/v1
+    kind: Deployment
+    namespace: "{{ tempo_namespace }}"
+    name: tempo-operator-controller
+  register: tempo_operator_deploy
+  until: >
+    tempo_operator_deploy.resources | length > 0
+    and tempo_operator_deploy.resources[0].status.readyReplicas | default(0) | int > 0
+  retries: 30
+  delay: 20
+
+- name: Create an ObjectBucketClaim backed by NooBaa for Tempo's trace storage
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: tempo-obc.yaml.j2
+
+- name: Wait for the ObjectBucketClaim to be bound
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: objectbucket.io/v1alpha1
+    kind: ObjectBucketClaim
+    namespace: "{{ tempo_namespace }}"
+    name: "{{ tempo_bucket_name }}"
+  register: tempo_obc_status
+  until: >
+    tempo_obc_status.resources | length > 0
+    and tempo_obc_status.resources[0].status.phase | default('') == 'Bound'
+  retries: 30
+  delay: 15
+
+- name: Read the generated NooBaa connection details
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: v1
+    kind: ConfigMap
+    namespace: "{{ tempo_namespace }}"
+    name: "{{ tempo_bucket_name }}"
+  register: obc_configmap
+
+- name: Read the generated NooBaa access credentials
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: v1
+    kind: Secret
+    namespace: "{{ tempo_namespace }}"
+    name: "{{ tempo_bucket_name }}"
+  register: obc_secret
+
+- name: Create Tempo's object storage secret
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: tempo-storage-secret.yaml.j2
+
+- name: Create TempoStack
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: tempostack.yaml.j2
+
+- name: Create OpenTelemetryCollector
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: otel-collector.yaml.j2
+
+# Readiness of the TempoStack's own component Deployments (distributor, ingester,
+# compactor, query-frontend) and the Collector Deployment isn't polled here — add a
+# wait on a specific Deployment once its exact generated name is confirmed against a
+# live cluster, same caveat as configure_lokistack.

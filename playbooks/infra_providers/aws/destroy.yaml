@@ -1,0 +1,11 @@
+---
+- name: Destroy AWS SNO test environment
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [destroy_sno, aws]
+  vars_files:
+    - ../../group_vars/all.yaml
+  tasks:
+    - include_role:
+        name: aws_destroy_sno

@@ -1,0 +1,77 @@
+---
+- name: Install Loki operator (namespace, operator group, subscription)
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: loki-subscription.yaml.j2
+
+- name: Wait for Loki operator deployment to be ready
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: apps/v1
+    kind: Deployment
+    namespace: "{{ loki_namespace }}"
+    name: loki-operator-controller-manager
+  register: loki_operator_deploy
+  until: >
+    loki_operator_deploy.resources | length > 0
+    and loki_operator_deploy.resources[0].status.readyReplicas | default(0) | int > 0
+  retries: 30
+  delay: 20
+
+- name: Create an ObjectBucketClaim backed by NooBaa for Loki's chunk/object storage
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: loki-obc.yaml.j2
+
+- name: Wait for the ObjectBucketClaim to be bound
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: objectbucket.io/v1alpha1
+    kind: ObjectBucketClaim
+    namespace: "{{ loki_namespace }}"
+    name: "{{ loki_bucket_name }}"
+  register: loki_obc_status
+  until: >
+    loki_obc_status.resources | length > 0
+    and loki_obc_status.resources[0].status.phase | default('') == 'Bound'
+  retries: 30
+  delay: 15
+
+- name: Read the generated NooBaa connection details
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: v1
+    kind: ConfigMap
+    namespace: "{{ loki_namespace }}"
+    name: "{{ loki_bucket_name }}"
+  register: obc_configmap
+
+- name: Read the generated NooBaa access credentials
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: v1
+    kind: Secret
+    namespace: "{{ loki_namespace }}"
+    name: "{{ loki_bucket_name }}"
+  register: obc_secret
+
+- name: Create Loki's object storage secret
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: loki-storage-secret.yaml.j2
+
+- name: Create LokiStack
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: lokistack.yaml.j2
+
+# Readiness of the LokiStack's own component Deployments/StatefulSets isn't polled
+# here — the operator creates several (distributor, ingester StatefulSet,
+# query-frontend, gateway, etc.) and which ones exist depends on `lokistack_size`.
+# Add a wait on a specific component (e.g. the query-frontend Deployment,
+# `{{ loki_lokistack_name }}-query-frontend`) once that naming is confirmed against a
+# live cluster.

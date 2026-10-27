@@ -1,0 +1,50 @@
+---
+# Periodic/on-demand backup-data egress out of a fully disconnected cluster — there is
+# no always-on path from the cluster to the internet on either provider, so this is a
+# separate, re-runnable playbook (same pattern as mirror-content.yaml being separate
+# from provision-sno-{aws,baremetal}.yaml), not something wired into full-*-setup.yaml.
+# Schedule it however fits the environment (cron on whatever host runs Ansible against
+# it, etc).
+# See roles/ocp/configure_mcg_backup_export/README.md for the full design rationale —
+# the cluster has no internet route, so data always stages on the bastion first
+# (same private network as the SNO node), then one of three paths out, selected by
+# backup_egress_mode: 'media' (manual removable-media handoff from the bastion,
+# default), 'internal' (push straight to an on-prem backup target already on the
+# same disconnected network — no internet needed), or 'network'/'both' (relay
+# through the mirror-staging host, the one host with real internet on either
+# provider, reversing the inbound mirroring pipeline — unlikely to apply on a truly
+# disconnected production deployment).
+- name: Pull application S3 data from NooBaa to the bastion
+  hosts: bastion
+  gather_facts: true
+  tags: [configure_backup_export]
+  tasks:
+    - include_role:
+        name: export_backup_from_noobaa
+
+- name: Push staged backup data to the internal on-prem backup target
+  hosts: bastion
+  gather_facts: true
+  tags: [configure_backup_export]
+  tasks:
+    - include_role:
+        name: push_backup_to_internal_target
+      when: backup_egress_mode == 'internal'
+
+- name: Relay staged backup data from the bastion to the mirror-staging host
+  hosts: bastion
+  gather_facts: true
+  tags: [configure_backup_export]
+  tasks:
+    - include_role:
+        name: sync_backup_to_staging
+      when: backup_egress_mode in ['network', 'both']
+
+- name: Push relayed backup data to the external S3 target
+  hosts: mirror_staging_host
+  gather_facts: true
+  tags: [configure_backup_export]
+  tasks:
+    - include_role:
+        name: push_backup_to_external_s3
+      when: backup_egress_mode in ['network', 'both']

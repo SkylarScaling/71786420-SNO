@@ -1,0 +1,66 @@
+---
+- name: Install ODF operator (namespace, operator group, subscription) for MCG/NooBaa
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: mcg-subscription.yaml.j2
+
+- name: Wait for ODF operator deployment to be ready
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: apps/v1
+    kind: Deployment
+    namespace: openshift-storage
+    name: odf-operator-controller-manager
+  register: mcg_odf_deploy
+  until: >
+    mcg_odf_deploy.resources | length > 0
+    and mcg_odf_deploy.resources[0].status.readyReplicas | default(0) | int > 0
+  retries: 30
+  delay: 20
+
+- name: Create standalone NooBaa CR (no StorageCluster/CephCluster)
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: noobaa.yaml.j2
+
+- name: Wait for NooBaa to report Ready
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: noobaa.io/v1alpha1
+    kind: NooBaa
+    namespace: openshift-storage
+    name: noobaa
+  register: mcg_noobaa_status
+  until: >
+    mcg_noobaa_status.resources | length > 0
+    and mcg_noobaa_status.resources[0].status.phase | default('') == 'Ready'
+  retries: 30
+  delay: 20
+
+- name: Read the auto-generated NooBaa admin credentials
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: v1
+    kind: Secret
+    namespace: openshift-storage
+    name: noobaa-admin
+  register: mcg_admin_secret
+
+- name: Read the NooBaa S3 Route
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: route.openshift.io/v1
+    kind: Route
+    namespace: openshift-storage
+    name: s3
+  register: mcg_s3_route
+
+- name: Expose MCG S3 endpoint and credentials as facts for downstream roles
+  set_fact:
+    mcg_s3_endpoint: "https://{{ mcg_s3_route.resources[0].spec.host }}"
+    mcg_s3_access_key: "{{ mcg_admin_secret.resources[0].data.AWS_ACCESS_KEY_ID | b64decode }}"
+    mcg_s3_secret_key: "{{ mcg_admin_secret.resources[0].data.AWS_SECRET_ACCESS_KEY | b64decode }}"
+  delegate_to: localhost
+  delegate_facts: true

@@ -1,0 +1,41 @@
+---
+# Included recursively from main.yaml's "Poll and report oc-mirror progress" task
+# until the async oc-mirror job finishes. Not meant to be run standalone — relies on
+# _stage_mirror_job (set in main.yaml).
+
+- name: Check whether the oc-mirror run has finished
+  async_status:
+    jid: "{{ _stage_mirror_job.ansible_job_id }}"
+  register: _stage_mirror_status
+  # The underlying command module auto-fails this check on a non-zero rc, which
+  # would abort the play here instead of at the explicit "Fail if..." task in
+  # main.yaml that reports a clearer message — defer the failure decision to there.
+  failed_when: false
+
+# v2 doesn't write a single well-known per-blob log the way v1's .oc-mirror.log did
+# (it logs per-component under archive/working-dir/logs/, filenames not yet verified
+# against a real run) — report growth of the destination directory's total size
+# instead, which works regardless of v2's internal log layout.
+- name: Measure archive bytes written so far
+  shell: "du -sb {{ oc_mirror_workspace }}/archive 2>/dev/null | cut -f1 || echo 0"
+  register: _stage_mirror_progress
+  changed_when: false
+  when: not _stage_mirror_status.finished
+
+- name: Print oc-mirror progress
+  vars:
+    _bytes_written: "{{ _stage_mirror_progress.stdout | default('0') }}"
+  debug:
+    msg: >-
+      oc-mirror progress: {{ (_bytes_written | int / 1048576) | round(1) }} MiB
+      written to the local archive so far.
+  when: not _stage_mirror_status.finished
+
+- name: Wait before checking again
+  pause:
+    seconds: 15
+  when: not _stage_mirror_status.finished
+
+- name: Repeat until the transfer finishes
+  include_tasks: _poll_oc_mirror_progress.yml
+  when: not _stage_mirror_status.finished

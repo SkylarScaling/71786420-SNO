@@ -1,0 +1,94 @@
+---
+# AWS is always provisioned disconnected, to mirror the bare-metal pattern exactly
+# (see docs/architectural-decisions.md #2) — there is no connected-install mode.
+#
+# Each play below explicitly loads playbooks/group_vars/all.yaml via vars_files.
+# Ansible's group_vars auto-loading is relative to each individual playbook file's own
+# directory, not the top-level playbook that was invoked — so plays in this
+# import_playbook-included file (two directories below playbooks/) never see
+# playbooks/group_vars/all.yaml unless it's loaded explicitly like this.
+- name: Provision network and mirror-staging host
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [provision_sno, aws]
+  vars_files:
+    - ../../group_vars/all.yaml
+  tasks:
+    - name: Build the VPC (public subnet for staging, route-less private subnet for everything else)
+      include_role:
+        name: aws_provision_network
+
+    - name: Provision the internet-connected mirror-staging host
+      include_role:
+        name: aws_provision_mirror_staging_host
+        public: true   # exposes mirror_staging_ssh_user (role default) to the debug task below — include_role keeps role vars private to its own tasks otherwise
+
+    - name: Provision bastion EC2 instance in the private subnet (stands in for the target single bastion)
+      include_role:
+        name: aws_provision_bastion
+        public: true   # exposes bastion_ssh_user (role default) to the debug task below, same reason
+
+    - name: Print connection info
+      debug:
+        msg:
+          - "=================================================================="
+          - "Mirror-staging host and bastion provisioned"
+          - "=================================================================="
+          - "Mirror-staging public IP:  {{ mirror_staging_public_ip }}"
+          - "Mirror-staging private IP: {{ mirror_staging_private_ip }}"
+          - "SSH (mirror-staging):      ssh -i {{ ssh_private_key }} {{ mirror_staging_ssh_user }}@{{ mirror_staging_public_ip }}"
+          - "------------------------------------------------------------------"
+          - "Bastion private IP:        {{ bastion_private_ip }}"
+          - "SSH (bastion, via proxy):  ssh -i {{ ssh_private_key }} -o ProxyCommand=\"ssh -i {{ ssh_private_key }} -W %h:%p -q {{ mirror_staging_ssh_user }}@{{ mirror_staging_public_ip }}\" {{ bastion_ssh_user }}@{{ bastion_private_ip }}"
+          - "------------------------------------------------------------------"
+          - "stage_mirror_content runs next (oc-mirror, long-running) — if you want"
+          - "to watch it or re-run it manually after an SSH disconnect, SSH in above"
+          - "and run it inside tmux so it survives the session dropping:"
+          - "  tmux new-session -s mirror"
+          - "  cd {{ oc_mirror_workspace | default('/opt/oc-mirror-workspace') }}"
+          - "  {{ bin_dir | default('~/.local/bin') }}/oc-mirror --v2 --config archive/imageset-config.yaml --cache-dir cache file://archive"
+          - "  (reattach with: tmux attach -t mirror)"
+
+- name: Stage mirror content on the internet-connected host
+  hosts: mirror_staging_host
+  gather_facts: true
+  tags: [provision_sno, aws]
+  vars_files:
+    - ../../group_vars/all.yaml
+  tasks:
+    - include_role:
+        name: stage_mirror_content
+
+    - name: Sync the mirror archive to the disconnected bastion
+      include_role:
+        name: sync_mirror_to_bastion
+
+- name: Deploy the mirror registry and shared bastion services
+  hosts: bastion
+  gather_facts: true
+  tags: [provision_sno, aws]
+  vars_files:
+    - ../../group_vars/all.yaml
+  tasks:
+    - include_role:
+        name: deploy_mirror_registry
+
+    - name: Configure bastion services (shared with the bare-metal path)
+      include_role:
+        name: configure_bastion_services
+
+- name: Provision the SNO cluster
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [provision_sno, aws]
+  vars_files:
+    - ../../group_vars/all.yaml
+  tasks:
+    - name: Provision SNO cluster via IPI (single control-plane node, zero workers)
+      include_role:
+        name: aws_provision_sno_ipi
+
+    - include_role:
+        name: wait_for_sno_install

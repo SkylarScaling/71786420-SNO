@@ -1,0 +1,61 @@
+apiVersion: v1alpha1
+kind: AgentConfig
+metadata:
+  name: {{ cluster_name }}
+rendezvousIP: {{ rendezvous_ip }}
+hosts:
+  - hostname: {{ sno_hostname }}
+    interfaces:
+      - name: {{ sno_interface_name }}
+        macAddress: "{{ sno_mac_address }}"
+{% if sno_network_topology == 'dual_switch' %}
+      - name: {{ sno_interface_name_secondary }}
+        macAddress: "{{ sno_mac_address_secondary }}"
+{% endif %}
+    networkConfig:
+      interfaces:
+{% if sno_network_topology == 'dual_switch' %}
+        - name: {{ sno_interface_name }}
+          type: ethernet
+          state: up
+          mac-address: "{{ sno_mac_address }}"
+        - name: {{ sno_interface_name_secondary }}
+          type: ethernet
+          state: up
+          mac-address: "{{ sno_mac_address_secondary }}"
+        - name: {{ sno_bond_name }}
+          type: bond
+          state: up
+          link-aggregation:
+            mode: {{ sno_bond_mode }}
+            port:
+              - {{ sno_interface_name }}
+              - {{ sno_interface_name_secondary }}
+          ipv4:
+            enabled: true
+            address:
+              - ip: {{ rendezvous_ip }}
+                prefix-length: {{ sno_prefix_length }}
+            dhcp: false
+{% else %}
+        - name: {{ sno_interface_name }}
+          type: ethernet
+          state: up
+          mac-address: "{{ sno_mac_address }}"
+          ipv4:
+            enabled: true
+            address:
+              - ip: {{ rendezvous_ip }}
+                prefix-length: {{ sno_prefix_length }}
+            dhcp: false
+{% endif %}
+      dns-resolver:
+        config:
+          server:
+            - {{ dns_server }}
+      routes:
+        config:
+          - destination: 0.0.0.0/0
+            next-hop-address: {{ default_gateway }}
+            next-hop-interface: {{ sno_bond_name if sno_network_topology == 'dual_switch' else sno_interface_name }}
+            table-id: 254

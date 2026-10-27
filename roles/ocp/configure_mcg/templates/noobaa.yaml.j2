@@ -1,0 +1,26 @@
+apiVersion: noobaa.io/v1alpha1
+kind: NooBaa
+metadata:
+  name: noobaa
+  namespace: openshift-storage
+spec:
+  # Standalone mode: no StorageCluster/CephCluster reference anywhere in this spec.
+  # The default backing store is a PV-pool (plain PVC, provisioned by whatever
+  # storage class is named below — LVMS in this repo) instead of Ceph RGW/object
+  # storage, which is what makes this "standalone NooBaa" rather than "full ODF".
+  dbStorageClass: {{ mcg_backing_storage_class }}
+  # VERIFY: pvPoolDefaultStorageClass is the documented NooBaa CR field for pointing
+  # the default PV-pool backing store at a given StorageClass, but field names have
+  # moved around across ODF releases. Confirm this against
+  # `oc explain noobaa.spec` on the live cluster once the ODF operator is installed
+  # (see README "Known gaps" section) — there is no live cluster to test this against
+  # yet.
+  pvPoolDefaultStorageClass: {{ mcg_backing_storage_class }}
+  # VERIFY: the default PV-pool backing store NooBaa auto-creates from the fields
+  # above typically defaults to a fixed per-volume size (historically 50Gi) rather
+  # than reading mcg_backing_pvc_size. If the live CRD doesn't expose a size field
+  # directly on this NooBaa CR, size control may require creating an explicit
+  # BackingStore CR (type pv-pool) referencing mcg_backing_pvc_size instead of
+  # relying on the NooBaa CR's auto-created default — confirm against the live
+  # operator and adjust this role accordingly.
+

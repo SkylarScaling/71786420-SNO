@@ -1,0 +1,20 @@
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDatasource
+metadata:
+  name: {{ cluster_name }}-tempo-datasource
+  namespace: {{ grafana_namespace }}
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: "{{ grafana_instance_name }}"
+  datasource:
+    name: Tempo
+    type: tempo
+    access: proxy
+    # Standard TempoStack-generated query-frontend Service, created by
+    # configure_opentelemetry. VERIFY the exact Service name/port against a live
+    # cluster (`oc get svc -n <tempo namespace>`) once the Tempo Operator CRD is
+    # installed — TempoStack Service naming has shifted across operator releases.
+    url: "http://{{ tempo_query_service }}.{{ grafana_namespace }}.svc.cluster.local:{{ tempo_query_port }}"
+    isDefault: false
+    editable: false

@@ -1,0 +1,16 @@
+---
+# sno_node_ip must be a known, static address before this role runs — on AWS that's
+# the Elastic IP / private IP assigned to the instance; on bare metal it's
+# rendezvous_ip. Both providers set it before calling this role.
+sno_node_ip: "{{ rendezvous_ip | default(omit) }}"
+iso_serve_dir: /var/www/html/sno-iso
+
+# The bastion has no internet route at all (see CLAUDE.md), so dnsmasq/httpd can't be
+# `dnf install`ed directly here — confirmed against a real run: RHUI's mirrorlist
+# endpoint timed out from the bastion's private subnet. stage_mirror_content downloads
+# these (with full dependency closure) on the internet-connected mirror-staging host
+# and sync_mirror_to_bastion carries them here; installed below from that local copy
+# with all repos disabled. Same default path as stage_mirror_content/
+# sync_mirror_to_bastion/deploy_mirror_registry's mirror_installers_dir (role defaults
+# aren't shared across roles).
+mirror_installers_dir: /opt/mirror-installers

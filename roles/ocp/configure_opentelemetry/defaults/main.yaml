@@ -1,0 +1,26 @@
+---
+otel_namespace: openshift-opentelemetry
+otel_channel: stable
+
+# Reuse the same namespace as the Collector by default — simplest layout for a single
+# small cluster. Override to split them if that's ever needed.
+tempo_namespace: "{{ otel_namespace }}"
+tempo_channel: stable
+
+tempo_bucket_name: "{{ cluster_name }}-tempo"
+
+# Smallest documented TempoStack size tier — see configure_lokistack's equivalent
+# choice for LokiStack. Bump per-environment once real trace volume is known.
+tempo_size: 1x.extra-small
+
+tempo_stack_name: "{{ cluster_name }}-tempo"
+
+# Block storage for TempoStack's own local/WAL storage, same cross-role fallback
+# pattern as configure_lokistack's loki_storage_class.
+tempo_storage_class: "{{ lvms_vg_name | default('vg1') }}"
+
+# Master switch consumed by configure_grafana to gate its Tempo datasource — keep
+# this name identical in both roles.
+opentelemetry_tempo_enabled: true
+
+otel_collector_name: "{{ cluster_name }}-otel-collector"

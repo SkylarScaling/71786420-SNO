@@ -1,0 +1,13 @@
+---
+lvms_channel: stable
+lvms_device_paths: []
+lvms_vg_name: vg1
+lvms_thin_pool_name: thin-pool-1
+
+# A plain StorageClass pointed at the same vg1 device class via topolvm's
+# topolvm.io/device-class parameter, not a second LVMCluster deviceClass — LVMS's own
+# per-deviceClass StorageClass (vg1) has an immutable reclaimPolicy (Delete), and a
+# second deviceClass would carve out a second physical thin pool for no reason. See
+# README.
+lvms_retain_storage_class_enabled: true
+lvms_retain_storage_class_name: "{{ lvms_vg_name }}-retain"

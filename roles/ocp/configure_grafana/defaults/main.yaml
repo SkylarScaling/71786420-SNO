@@ -1,0 +1,35 @@
+---
+# Confirmed via `oc-mirror list operators --v1 --catalog
+# registry.redhat.io/redhat/community-operator-index:v4.18 --package
+# grafana-operator` — v5 is the current default channel. grafana-operator isn't in
+# redhat-operator-index, hence grafana_catalog_source below.
+grafana_channel: v5
+grafana_catalog_source: community-operators
+grafana_catalog_source_namespace: openshift-marketplace
+
+# Reuse configure_lokistack's namespace — simplest layout for a single small cluster
+# (one logging/observability namespace instead of spreading Grafana across its own).
+# If that ever needs to change, update loki_namespace/grafana_namespace consistently.
+grafana_namespace: openshift-logging
+
+grafana_instance_name: "{{ cluster_name }}-grafana"
+
+# Must match configure_lokistack's `loki_lokistack_name` — this role doesn't read
+# that role's defaults directly (roles don't share var files), so keep these two
+# values in sync by convention. Service name follows the standard LokiStack-generated
+# naming: `<LokiStack name>-query-frontend-http`. See configure_lokistack's README
+# for why this datasource targets query-frontend directly rather than the gateway.
+loki_lokistack_name: "{{ cluster_name }}-loki"
+loki_query_service: "{{ loki_lokistack_name }}-query-frontend-http"
+loki_query_port: 3100
+
+# Must match configure_opentelemetry's `tempo_stack_name` — same cross-role
+# convention as the Loki values above. Standard TempoStack-generated Service naming:
+# `<TempoStack name>-query-frontend`.
+tempo_stack_name: "{{ cluster_name }}-tempo"
+tempo_query_service: "{{ tempo_stack_name }}-query-frontend"
+tempo_query_port: 3200
+
+# Gate the Tempo datasource off when tracing isn't deployed in a given environment —
+# matches configure_opentelemetry's own enable flag of the same name.
+opentelemetry_tempo_enabled: true

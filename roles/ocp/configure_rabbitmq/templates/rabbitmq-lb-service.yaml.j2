@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq-amqp-external
+  namespace: {{ rabbitmq_namespace }}
+  annotations:
+    metallb.io/address-pool: default
+spec:
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: rabbitmq
+  ports:
+    - name: amqp
+      port: 5672
+      targetPort: 5672

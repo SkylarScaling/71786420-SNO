@@ -1,0 +1,36 @@
+---
+- name: Ensure install dir exists
+  file:
+    path: "{{ install_dir }}"
+    state: directory
+    mode: '0700'
+
+- name: Parse the base pull secret
+  set_fact:
+    _base_pull_secret: "{{ pull_secret | from_json }}"
+  no_log: true
+
+# Without this, openshift-install's own "Mirror registry ... is not found in
+# pullSecret" warning is fatal in practice — confirmed against a real run: nothing on
+# the node (kubelet, crio, machine-config-daemon-pull) can authenticate to pull
+# release/operator images from the mirror registry, and it manifests as bootstrapping
+# timing out after 45 minutes rather than a clear auth error. mirror_registry_auth_b64
+# is exposed by deploy_mirror_registry, which must run before this role on both
+# providers (same mirror registry either way, so this isn't provider-specific).
+- name: Merge the mirror registry's auth into the pull secret
+  set_fact:
+    _merged_pull_secret: >-
+      {{
+        _base_pull_secret
+        | combine({'auths': _base_pull_secret.auths | combine({
+            (mirror_registry_quay_hostname ~ ':' ~ mirror_registry_quay_port): {'auth': mirror_registry_auth_b64}
+          })})
+        | to_json
+      }}
+  no_log: true
+
+- name: Render install-config.yaml (always disconnected — see template header)
+  template:
+    src: install-config.yaml.j2
+    dest: "{{ install_dir }}/install-config.yaml"
+    mode: '0600'

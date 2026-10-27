@@ -1,0 +1,5 @@
+---
+# mirror_registry_quay_hostname, mirror_registry_quay_port: set in group_vars/all.yaml.
+# mirror_registry_ca_cert: not defaulted here — it's a fact set by deploy_mirror_registry,
+# which must run before this role. There's no "connected" fallback; every install
+# renders imageContentSources + additionalTrustBundle (see docs/architectural-decisions.md #2).

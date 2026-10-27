@@ -1,0 +1,23 @@
+---
+rabbitmq_operator_channel: stable
+
+# Confirmed via `oc-mirror list operators --v1 --catalog
+# registry.redhat.io/redhat/community-operator-index:v4.18 --package
+# rabbitmq-cluster-operator` — stable is the current default channel.
+# rabbitmq-cluster-operator isn't in redhat-operator-index, hence
+# community-operators below.
+rabbitmq_catalog_source: community-operators
+rabbitmq_catalog_source_namespace: openshift-marketplace
+
+rabbitmq_namespace: rabbitmq
+rabbitmq_replicas: 1
+rabbitmq_storage_size: 10Gi
+# Cross-role default: reuses the LVMS volume group name from configure_lvms
+# when that role has already set lvms_vg_name as a fact/var; falls back to
+# the same literal default LVMS itself uses otherwise.
+rabbitmq_storage_class: "{{ lvms_vg_name | default('vg1') }}"
+
+# Keep cheap/simple: no LoadBalancer Service unless explicitly requested, and
+# only useful once roles/ocp/configure_metallb has provisioned an
+# IPAddressPool for type: LoadBalancer Services to bind an external IP from.
+rabbitmq_expose_external: false

@@ -1,0 +1,31 @@
+---
+keycloak_operator_channel: stable
+# Package name varies by catalog/version — Red Hat's own build of Keycloak
+# ships as `rhbk-operator` in redhat-operators on recent OCP versions, but
+# older/community catalogs use `keycloak-operator`. Verify the exact package
+# name against the mirrored catalog before first run.
+keycloak_operator_package: rhbk-operator
+keycloak_catalog_source: redhat-operators
+keycloak_catalog_source_namespace: openshift-marketplace
+
+keycloak_namespace: keycloak
+keycloak_replicas: 1
+keycloak_storage_class: "{{ lvms_vg_name | default('vg1') }}"
+
+# Expected to point at the Service Crunchy PGO generates for the
+# configure_postgres role's PostgresCluster (named "postgres" in namespace
+# "postgres" by that role's defaults). Crunchy's convention is
+# "<clustername>-primary.<namespace>.svc". This is an ASSUMPTION — verify the
+# actual Service name once both roles have run against a live cluster, since
+# it isn't documented as a stable public contract.
+keycloak_db_host: "postgres-primary.{{ postgres_namespace | default('postgres') }}.svc"
+keycloak_db_port: 5432
+keycloak_db_name: keycloak
+keycloak_db_secret_name: "postgres-pguser-keycloak"
+
+# Empty by default: a real deployment should point this at a path containing
+# the app-specific realm JSON export. Authoring that realm config is
+# app-specific and out of scope for this repo.
+keycloak_realm_file: ""
+
+keycloak_expose_external: false

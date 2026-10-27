@@ -1,0 +1,33 @@
+---
+- name: Install LVM Storage operator (namespace, operator group, subscription)
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: lvms-subscription.yaml.j2
+
+- name: Wait for LVM Storage operator deployment to be ready
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: apps/v1
+    kind: Deployment
+    namespace: openshift-storage
+    name: lvms-operator
+  register: lvms_deploy
+  until: >
+    lvms_deploy.resources | length > 0
+    and lvms_deploy.resources[0].status.readyReplicas | default(0) | int > 0
+  retries: 30
+  delay: 20
+
+- name: Create LVMCluster
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: lvmcluster.yaml.j2
+
+- name: Create Retain-policy StorageClass against the same device class
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: retain-storageclass.yaml.j2
+  when: lvms_retain_storage_class_enabled

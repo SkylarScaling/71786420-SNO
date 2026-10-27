@@ -1,0 +1,23 @@
+---
+- name: Confirm kubeconfig was generated
+  stat:
+    path: "{{ sno_kubeconfig }}"
+  register: kubeconfig_stat
+  until: kubeconfig_stat.stat.exists
+  retries: 30
+  delay: 30
+
+- name: Wait for the cluster API to come up and report a completed version
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: config.openshift.io/v1
+    kind: ClusterVersion
+    name: version
+  register: cv_status
+  until: >
+    cv_status.resources | length > 0
+    and cv_status.resources[0].status.conditions
+      | selectattr('type', 'equalto', 'Available')
+      | map(attribute='status') | first == 'True'
+  retries: 40
+  delay: 30

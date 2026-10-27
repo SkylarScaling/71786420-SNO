@@ -1,0 +1,41 @@
+apiVersion: observability.openshift.io/v1
+kind: ClusterLogForwarder
+metadata:
+  name: {{ cluster_name }}-forwarder
+  namespace: openshift-logging
+spec:
+  serviceAccount:
+    name: log-collector
+  outputs:
+    - name: siem-output
+      type: {{ log_forward_type }}
+      {{ log_forward_type }}:
+        url: "{{ log_forward_endpoint }}"
+{% if loki_output_enabled | default(true) %}
+    - name: lokistack-output
+      type: lokiStack
+      lokiStack:
+        target:
+          name: {{ loki_lokistack_name }}
+          namespace: {{ loki_namespace }}
+        authentication:
+          token:
+            from: serviceAccount
+{% endif %}
+  pipelines:
+    - name: forward-to-siem
+      inputRefs:
+        - application
+        - infrastructure
+        - audit
+      outputRefs:
+        - siem-output
+{% if loki_output_enabled | default(true) %}
+    - name: forward-to-lokistack
+      inputRefs:
+        - application
+        - infrastructure
+        - audit
+      outputRefs:
+        - lokistack-output
+{% endif %}

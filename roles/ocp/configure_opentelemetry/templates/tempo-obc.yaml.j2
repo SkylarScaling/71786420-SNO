@@ -1,0 +1,10 @@
+apiVersion: objectbucket.io/v1alpha1
+kind: ObjectBucketClaim
+metadata:
+  name: {{ tempo_bucket_name }}
+  namespace: {{ tempo_namespace }}
+spec:
+  generateBucketName: {{ tempo_bucket_name }}
+  # Same standalone-NooBaa StorageClass name used by configure_onprem_quay and
+  # configure_lokistack's OBCs — provisioned by configure_mcg.
+  storageClassName: openshift-storage.noobaa.io

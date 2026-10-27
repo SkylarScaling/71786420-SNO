@@ -1,0 +1,46 @@
+---
+# Included recursively from main.yaml's "Poll and report rsync transfer progress"
+# task until the async rsync job finishes. Not meant to be run standalone — relies on
+# _mirror_sync_job/_mirror_sync_total_size (set in main.yaml) and _bastion_addr
+# (passed in as a task var).
+
+- name: Check whether the rsync transfer has finished
+  async_status:
+    jid: "{{ _mirror_sync_job.ansible_job_id }}"
+  register: _mirror_sync_status
+  # The underlying command module auto-fails this check on a non-zero rc, which
+  # would abort the play here instead of at the explicit "Fail if..." task in
+  # main.yaml that reports a clearer message — defer the failure decision to there.
+  failed_when: false
+
+- name: Measure bytes transferred to the bastion so far
+  shell: "du -sb {{ mirror_sync_dest_dir }} 2>/dev/null | cut -f1 || echo 0"
+  register: _mirror_sync_dest_size
+  changed_when: false
+  delegate_to: "{{ _bastion_addr }}"
+  when: not _mirror_sync_status.finished
+
+- name: Print transfer progress
+  debug:
+    msg: >-
+      Mirror sync progress:
+      {{ (_mirror_sync_dest_size.stdout | default('0') | trim | int / 1048576) | round(1) }} MiB
+      of {{ (_mirror_sync_total_size.stdout | default('0') | trim | int / 1048576) | round(1) }} MiB
+      ({{ _mirror_sync_total_size.stdout | default('0') | trim | int > 0
+          and ((_mirror_sync_dest_size.stdout | default('0') | trim | int
+                / (_mirror_sync_total_size.stdout | trim | int)) * 100) | round(1)
+          or 0 }}%)
+  when: not _mirror_sync_status.finished
+
+- name: Wait before checking again
+  pause:
+    seconds: 15
+  when: not _mirror_sync_status.finished
+
+# _bastion_addr is already in scope from main.yaml's include_tasks call and doesn't
+# need (and must NOT) be re-declared here — include_tasks inherits the including
+# task's vars automatically, and redeclaring a var as "{{ itself }}" makes Jinja try
+# to resolve it against its own not-yet-assigned value, infinitely.
+- name: Repeat until the transfer finishes
+  include_tasks: _poll_rsync_progress.yml
+  when: not _mirror_sync_status.finished

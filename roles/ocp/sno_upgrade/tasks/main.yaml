@@ -1,0 +1,62 @@
+---
+- name: Require explicit upgrade target
+  fail:
+    msg: "Set -e sno_upgrade_channel=... -e sno_upgrade_target_version=..."
+  when: sno_upgrade_channel is not defined or sno_upgrade_target_version is not defined
+
+- name: Acknowledge admin gate if required for the target version
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: patched
+    api_version: v1
+    kind: ConfigMap
+    name: admin-acks
+    namespace: openshift-config
+    definition:
+      data:
+        "ack-{{ sno_upgrade_ack_key }}": "true"
+  when: sno_upgrade_ack_key is defined
+
+- name: Switch to the target update channel
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: patched
+    api_version: config.openshift.io/v1
+    kind: ClusterVersion
+    name: version
+    definition:
+      spec:
+        channel: "{{ sno_upgrade_channel }}"
+
+- name: Trigger the upgrade
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: patched
+    api_version: config.openshift.io/v1
+    kind: ClusterVersion
+    name: version
+    definition:
+      spec:
+        desiredUpdate:
+          version: "{{ sno_upgrade_target_version }}"
+          force: false
+
+- name: Wait for the upgrade to complete (single node, so this is also the downtime window)
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: config.openshift.io/v1
+    kind: ClusterVersion
+    name: version
+  register: cv_status
+  until: >
+    cv_status.resources[0].status.history[0].state == 'Completed'
+    and cv_status.resources[0].status.history[0].version == sno_upgrade_target_version
+  retries: 90
+  delay: 60
+
+# This is a disk-constrained, single-node cluster on a fixed RAID5 pool — superseded
+# release/operator/machine-os images from before the upgrade aren't purged
+# automatically, and accumulate across every upgrade if left alone.
+- name: Prune superseded release/operator images after the upgrade
+  command: "{{ bin_dir | default('~/.local/bin') }}/oc --kubeconfig {{ sno_kubeconfig }} adm prune images --confirm"
+  when: sno_upgrade_prune_images

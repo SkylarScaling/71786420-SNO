@@ -1,0 +1,4 @@
+---
+# AWS-only entry point. See provision-sno-aws.yaml for why this is a separate
+# playbook rather than one infra_provider-dispatched file.
+- import_playbook: ./infra_providers/aws/destroy.yaml

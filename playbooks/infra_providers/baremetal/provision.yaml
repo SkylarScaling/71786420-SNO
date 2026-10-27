@@ -1,0 +1,58 @@
+---
+# Each play below explicitly loads playbooks/group_vars/all.yaml via vars_files —
+# see the comment at the top of ../aws/provision.yaml for why this is needed.
+- name: Stage mirror content on the internet-connected host
+  hosts: mirror_staging_host
+  gather_facts: true
+  tags: [provision_sno, baremetal]
+  vars_files:
+    - ../../group_vars/all.yaml
+  tasks:
+    - include_role:
+        name: stage_mirror_content
+
+    - name: Sync the mirror archive to the disconnected bastion
+      include_role:
+        name: sync_mirror_to_bastion
+
+- name: Validate the bastion, deploy the mirror registry and shared bastion services
+  hosts: bastion
+  gather_facts: true
+  tags: [provision_sno, baremetal]
+  vars_files:
+    - ../../group_vars/all.yaml
+  tasks:
+    - include_role:
+        name: baremetal_prepare_bastion
+
+    - include_role:
+        name: deploy_mirror_registry
+
+    - name: Configure bastion services (shared with the AWS path)
+      include_role:
+        name: configure_bastion_services
+
+- name: Generate agent-based installer ISO
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [provision_sno, baremetal]
+  vars_files:
+    - ../../group_vars/all.yaml
+  tasks:
+    - include_role:
+        name: baremetal_generate_agent_iso
+
+- name: Boot node from ISO via BMC and wait for install
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [provision_sno, baremetal]
+  vars_files:
+    - ../../group_vars/all.yaml
+  tasks:
+    - include_role:
+        name: baremetal_boot_node_via_bmc
+
+    - include_role:
+        name: wait_for_sno_install

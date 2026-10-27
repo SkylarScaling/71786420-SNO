@@ -1,0 +1,89 @@
+---
+# The only internet-connected host in the whole stack — exists solely to run
+# stage_mirror_content (oc mirror "mirror to disk"). Lives in the public subnet.
+
+- block:
+    - name: Find the latest RHEL 9 AMI for aws_region (skipped if mirror_staging_ami_id is set)
+      amazon.aws.ec2_ami_info:
+        owners:
+          - "{{ rhel_ami_owner }}"
+        filters:
+          name: "{{ rhel_ami_name_filter }}"
+          state: available
+      register: rhel_amis
+      when: not mirror_staging_ami_id
+
+    - name: Use the most recently published matching AMI
+      set_fact:
+        mirror_staging_ami_id: "{{ (rhel_amis.images | sort(attribute='creation_date', reverse=true) | first).image_id }}"
+      when: not mirror_staging_ami_id
+
+    - name: Create security group for the mirror-staging host (SSH from the internet — the only host in this stack that needs it)
+      amazon.aws.ec2_security_group:
+        name: "{{ cluster_name }}-mirror-staging"
+        description: "Allow SSH to the internet-connected mirror-staging host"
+        vpc_id: "{{ sno_vpc_id }}"
+        rules:
+          - proto: tcp
+            ports: [22]
+            cidr_ip: 0.0.0.0/0
+        tags:
+          Name: "{{ cluster_name }}-mirror-staging-sg"
+      register: mirror_staging_sg
+      when: not mirror_staging_security_groups
+
+    - name: Use the auto-created security group (unless mirror_staging_security_groups was set explicitly)
+      set_fact:
+        mirror_staging_security_groups: ["{{ mirror_staging_sg.group_id }}"]
+      when: not mirror_staging_security_groups
+
+    - name: Expose the mirror-staging security group id for aws_provision_bastion's ingress rule
+      set_fact:
+        mirror_staging_security_group_id: "{{ mirror_staging_security_groups[0] }}"
+
+    - name: Provision the mirror-staging EC2 instance
+      amazon.aws.ec2_instance:
+        name: "{{ cluster_name }}-mirror-staging"
+        instance_type: "{{ mirror_staging_instance_type }}"
+        image_id: "{{ mirror_staging_ami_id }}"
+        key_name: "{{ aws_key_pair }}"
+        vpc_subnet_id: "{{ sno_public_subnet_id }}"
+        security_groups: "{{ mirror_staging_security_groups }}"
+        volumes:
+          - device_name: /dev/sda1
+            ebs:
+              volume_size: "{{ mirror_staging_root_volume_size_gb }}"
+              volume_type: gp3
+              delete_on_termination: true
+        tags:
+          role: mirror-staging
+          cluster: "{{ cluster_name }}"
+        wait: true
+        state: present
+      register: mirror_staging_instance
+  module_defaults:
+    group/aws:
+      access_key: "{{ aws_access_key_id }}"
+      secret_key: "{{ aws_secret_access_key }}"
+      region: "{{ aws_region }}"
+
+- name: Record mirror-staging host addresses
+  set_fact:
+    mirror_staging_public_ip: "{{ mirror_staging_instance.instances[0].public_ip_address }}"
+    mirror_staging_private_ip: "{{ mirror_staging_instance.instances[0].private_ip_address }}"
+
+# This group's inventory_hostname (below) is deliberately the PUBLIC IP, since the
+# controller itself needs internet reachability to run stage_mirror_content here.
+# But the bastion (no internet route) can only reach this host over the private VPC
+# network, via its private IP — generic name so roles/common/sync_backup_to_staging
+# can use it without any AWS-specific logic of its own; bare metal has no
+# public/private split, so that role falls back to the group's own address there.
+- name: Record the address other hosts on the private network use to reach the mirror-staging host
+  set_fact:
+    mirror_staging_relay_address: "{{ mirror_staging_private_ip }}"
+
+- name: Add mirror-staging host to in-memory inventory for this run
+  add_host:
+    name: "{{ mirror_staging_public_ip }}"
+    groups: mirror_staging_host
+    ansible_user: "{{ mirror_staging_ssh_user }}"

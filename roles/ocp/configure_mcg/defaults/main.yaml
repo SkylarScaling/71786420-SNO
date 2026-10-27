@@ -1,0 +1,13 @@
+---
+mcg_channel: stable   # the odf-operator package's channel
+
+# Sized to fit comfortably under the hardware RAID5 array's usable capacity, with
+# headroom left for LVMS-backed PVs used by other workloads on the same volume group.
+# Override per-environment in inventory — this default is a placeholder, not a sizing
+# recommendation for any specific array.
+mcg_backing_pvc_size: 500Gi
+
+# Cross-role default reference, same pattern as configure_onprem_quay's
+# quay_storage_class: fall back to configure_lvms's default VG name so this role
+# "just works" against the default LVMS setup, but still override-able per-environment.
+mcg_backing_storage_class: "{{ lvms_vg_name | default('vg1') }}"

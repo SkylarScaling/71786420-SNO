@@ -1,0 +1,26 @@
+---
+- name: Install Cluster Logging operator (namespace, operator group, subscription)
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: logging-subscription.yaml.j2
+
+- name: Wait for Cluster Logging operator deployment to be ready
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: apps/v1
+    kind: Deployment
+    namespace: openshift-logging
+    name: cluster-logging-operator
+  register: logging_deploy
+  until: >
+    logging_deploy.resources | length > 0
+    and logging_deploy.resources[0].status.readyReplicas | default(0) | int > 0
+  retries: 30
+  delay: 20
+
+- name: Create ClusterLogForwarder to the external SIEM endpoint
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: clusterlogforwarder.yaml.j2

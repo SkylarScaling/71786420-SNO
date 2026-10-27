@@ -1,0 +1,27 @@
+---
+- name: Create Redis namespace, StatefulSet, and Services
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: redis-statefulset.yaml.j2
+
+- name: Wait for Redis StatefulSet to be ready
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: apps/v1
+    kind: StatefulSet
+    namespace: "{{ redis_namespace }}"
+    name: redis
+  register: redis_statefulset
+  until: >
+    redis_statefulset.resources | length > 0
+    and redis_statefulset.resources[0].status.readyReplicas | default(0) | int > 0
+  retries: 30
+  delay: 20
+
+- name: Expose Redis externally via LoadBalancer Service
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: redis-lb-service.yaml.j2
+  when: redis_expose_external

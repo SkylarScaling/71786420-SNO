@@ -1,0 +1,59 @@
+---
+- name: Refuse to run unless explicitly confirmed
+  fail:
+    msg: "Set -e simulate_node_failure_confirm=true -e sno_node_name=<node> to run this destructive SNO drill."
+  when: not (simulate_node_failure_confirm | default(false) | bool) or sno_node_name is not defined
+
+- name: Cordon the SNO node
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: patched
+    api_version: v1
+    kind: Node
+    name: "{{ sno_node_name }}"
+    definition:
+      spec:
+        unschedulable: true
+
+- name: Reboot the node to simulate unscheduled downtime
+  command: "oc --kubeconfig={{ sno_kubeconfig }} debug node/{{ sno_node_name }} -- chroot /host systemctl reboot"
+  async: 1
+  poll: 0
+  ignore_errors: true   # the debug pod's connection is expected to drop mid-reboot
+
+- name: Wait for the node to report NotReady (failure detected)
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: v1
+    kind: Node
+    name: "{{ sno_node_name }}"
+  register: node_down
+  until: >
+    node_down.resources[0].status.conditions
+      | selectattr('type', 'equalto', 'Ready') | map(attribute='status') | first != 'True'
+  retries: 20
+  delay: 15
+
+- name: Wait for the node to return Ready (recovery)
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: v1
+    kind: Node
+    name: "{{ sno_node_name }}"
+  register: node_up
+  until: >
+    node_up.resources[0].status.conditions
+      | selectattr('type', 'equalto', 'Ready') | map(attribute='status') | first == 'True'
+  retries: 60
+  delay: 30
+
+- name: Uncordon the SNO node
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: patched
+    api_version: v1
+    kind: Node
+    name: "{{ sno_node_name }}"
+    definition:
+      spec:
+        unschedulable: false

@@ -1,0 +1,75 @@
+---
+# Second step of the backup-export relay — the literal reverse of
+# sync_mirror_to_bastion: instead of mirror-staging -> bastion, this goes
+# bastion -> mirror-staging, since mirror-staging is the only host with real
+# internet access on either provider (see roles/ocp/configure_mcg_backup_export's
+# README for the full picture). Runs with hosts: bastion, delegating the actual
+# transfer to whichever host is in the mirror_staging_host inventory group (works
+# identically whether that's AWS's in-memory-added EC2 instance or bare metal's
+# static inventory host).
+- name: Ensure the backup staging destination exists on the mirror-staging host, owned by the connecting user (/opt requires root to create)
+  file:
+    path: "{{ backup_sync_dest_dir }}"
+    state: directory
+    mode: '0755'
+    owner: "{{ hostvars[groups['mirror_staging_host'][0]].ansible_user }}"
+    group: "{{ hostvars[groups['mirror_staging_host'][0]].ansible_user }}"
+  become: true
+  delegate_to: "{{ groups['mirror_staging_host'][0] }}"
+
+# ansible.posix.synchronize's "local" side (the rsync source in the default push
+# mode) is the Ansible CONTROLLER unless delegate_to overrides it — backup_sync_source_dir
+# only exists on this play's own host (the bastion), not the controller, so
+# delegate_to here must self-reference this host (forcing "local" = here) rather
+# than the mirror-staging host, or the module rsyncs from the wrong filesystem in
+# the wrong direction (the same bug fixed in sync_mirror_to_bastion's matching task —
+# see that role's tasks/main.yaml for the full explanation).
+#
+# dest is addressed explicitly at the mirror-staging host. groups['mirror_staging_host'][0]
+# is that host's PUBLIC IP on AWS (needed for the controller's own reachability) —
+# unreachable from the bastion (no internet route) — so prefer
+# mirror_staging_relay_address (AWS: the private IP; unset on bare metal, where the
+# group's own address is already reachable over the flat local network).
+- name: Stage the SSH private key here for the direct rsync hop to the mirror-staging host (same keypair both instances already trust)
+  copy:
+    src: "{{ ssh_private_key }}"
+    dest: "/tmp/.backup_sync_relay_key"
+    mode: '0600'
+
+- name: Measure the staged backup data size so progress can be reported as a percentage
+  shell: "du -sb {{ backup_sync_source_dir }} 2>/dev/null | cut -f1"
+  register: _backup_sync_total_size
+  changed_when: false
+
+# ansible.posix.synchronize is an action plugin, not a real module — it does not
+# support async at all ("This action does not support async"). A direct rsync
+# invocation via the command module is used instead specifically so it CAN be
+# launched async/poll:0 (fire-and-forget) — see sync_mirror_to_bastion's matching
+# task/README for why this gives no progress of its own otherwise. async: 7200 is a
+# generous ceiling, not an expected duration.
+- name: Rsync staged backup data from the bastion to the mirror-staging host
+  vars:
+    _staging_addr: "{{ hostvars['localhost'].mirror_staging_relay_address | default(groups['mirror_staging_host'][0]) }}"
+    _staging_user: "{{ hostvars[groups['mirror_staging_host'][0]].ansible_user }}"
+  command: >
+    rsync -a --rsh="ssh -i /tmp/.backup_sync_relay_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+    {{ backup_sync_source_dir }}/ {{ _staging_user }}@{{ _staging_addr }}:{{ backup_sync_dest_dir }}/
+  delegate_to: "{{ inventory_hostname }}"
+  async: 7200
+  poll: 0
+  register: _backup_sync_job
+
+- name: Poll and report rsync transfer progress until it completes
+  include_tasks: _poll_rsync_progress.yml
+  vars:
+    _staging_addr: "{{ hostvars['localhost'].mirror_staging_relay_address | default(groups['mirror_staging_host'][0]) }}"
+
+- name: Fail if the rsync transfer itself failed
+  fail:
+    msg: "Backup sync to the mirror-staging host failed (rc={{ _backup_sync_status.rc }}): {{ _backup_sync_status.stderr | default(_backup_sync_status.msg) | default('no stderr captured') }}"
+  when: _backup_sync_status.rc | default(0) != 0
+
+- name: Remove the staged relay key
+  file:
+    path: "/tmp/.backup_sync_relay_key"
+    state: absent

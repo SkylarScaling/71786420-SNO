@@ -1,0 +1,16 @@
+---
+logging_channel: stable
+log_forward_type: syslog   # syslog | http | kafka — matches your SIEM's intake method
+
+# Adds a second output alongside the SIEM one above, sending the same
+# application/infrastructure/audit logs to the in-cluster LokiStack created by
+# roles/ocp/configure_lokistack. Set false to keep only the SIEM forward (e.g. an
+# environment that doesn't deploy LokiStack at all).
+loki_output_enabled: true
+
+# Must match configure_lokistack's `loki_lokistack_name` default — the lokiStack
+# output type references the LokiStack CR directly (the ClusterLogForwarder
+# authenticates to its gateway via a ServiceAccount token, so no Service hostname is
+# needed here, unlike configure_grafana's datasource).
+loki_lokistack_name: "{{ cluster_name }}-loki"
+loki_namespace: openshift-logging

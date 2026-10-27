@@ -1,0 +1,18 @@
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: {{ oadp_backup_schedule_name }}
+  namespace: openshift-adp
+spec:
+  schedule: "{{ oadp_backup_schedule_cron }}"
+  template:
+    includedNamespaces:
+      - "*"
+    excludedNamespaces:
+{% for ns in oadp_backup_excluded_namespaces %}
+      - {{ ns }}
+{% endfor %}
+    includeClusterResources: true
+    snapshotVolumes: true
+    defaultVolumesToFsBackup: true
+    ttl: {{ oadp_backup_ttl }}

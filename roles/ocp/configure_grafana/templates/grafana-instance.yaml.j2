@@ -1,0 +1,15 @@
+apiVersion: grafana.integreatly.org/v1beta1
+kind: Grafana
+metadata:
+  name: {{ grafana_instance_name }}
+  namespace: {{ grafana_namespace }}
+  labels:
+    dashboards: "{{ grafana_instance_name }}"
+spec:
+  config:
+    log:
+      mode: "console"
+    auth:
+      disable_login_form: "false"
+  route:
+    enabled: true

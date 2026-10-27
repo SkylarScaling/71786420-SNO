@@ -1,0 +1,10 @@
+apiVersion: objectbucket.io/v1alpha1
+kind: ObjectBucketClaim
+metadata:
+  name: {{ loki_bucket_name }}
+  namespace: {{ loki_namespace }}
+spec:
+  generateBucketName: {{ loki_bucket_name }}
+  # Same standalone-NooBaa StorageClass name configure_onprem_quay's OBC uses —
+  # provisioned by configure_mcg, not a full ODF StorageCluster.
+  storageClassName: openshift-storage.noobaa.io

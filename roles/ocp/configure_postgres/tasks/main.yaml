@@ -1,0 +1,49 @@
+---
+- name: Install Crunchy PostgreSQL Operator (namespace, operator group, subscription)
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: postgres-subscription.yaml.j2
+
+- name: Wait for Crunchy PGO deployment to be ready
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: apps/v1
+    kind: Deployment
+    namespace: "{{ postgres_namespace }}"
+    name: pgo
+  register: pgo_deploy
+  until: >
+    pgo_deploy.resources | length > 0
+    and pgo_deploy.resources[0].status.readyReplicas | default(0) | int > 0
+  retries: 30
+  delay: 20
+
+- name: Create PostgresCluster
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: postgrescluster.yaml.j2
+
+- name: Wait for PostgresCluster primary instance StatefulSet to be ready
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: apps/v1
+    kind: StatefulSet
+    namespace: "{{ postgres_namespace }}"
+    label_selectors:
+      - "postgres-operator.crunchydata.com/cluster=postgres"
+      - "postgres-operator.crunchydata.com/instance-set=instance1"
+  register: postgres_statefulset
+  until: >
+    postgres_statefulset.resources | length > 0
+    and postgres_statefulset.resources[0].status.readyReplicas | default(0) | int > 0
+  retries: 30
+  delay: 20
+
+- name: Deploy pgAdmin (plain Deployment+Service+Route, no operator)
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: pgadmin-deployment.yaml.j2
+  when: pgadmin_enabled

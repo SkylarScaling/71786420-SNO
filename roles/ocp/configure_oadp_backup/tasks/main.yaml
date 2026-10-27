@@ -1,0 +1,72 @@
+---
+- name: Install OADP operator (namespace, operator group, subscription)
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: oadp-subscription.yaml.j2
+
+- name: Wait for OADP operator deployment to be ready
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: apps/v1
+    kind: Deployment
+    namespace: openshift-adp
+    name: openshift-adp-controller-manager
+  register: oadp_deploy
+  until: >
+    oadp_deploy.resources | length > 0
+    and oadp_deploy.resources[0].status.readyReplicas | default(0) | int > 0
+  retries: 30
+  delay: 20
+
+- name: Look up the in-cluster NooBaa admin credentials
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: v1
+    kind: Secret
+    namespace: "{{ noobaa_namespace }}"
+    name: noobaa-admin
+  register: noobaa_admin_secret
+
+- name: Create cloud-credentials secret from NooBaa admin credentials
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: cloud-credentials
+        namespace: openshift-adp
+      type: Opaque
+      stringData:
+        cloud: |
+          [default]
+          aws_access_key_id={{ noobaa_admin_secret.resources[0].data.AWS_ACCESS_KEY_ID | b64decode }}
+          aws_secret_access_key={{ noobaa_admin_secret.resources[0].data.AWS_SECRET_ACCESS_KEY | b64decode }}
+
+- name: Create DataProtectionApplication
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: dataprotectionapplication.yaml.j2
+
+- name: Wait for Velero deployment to be ready
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: apps/v1
+    kind: Deployment
+    namespace: openshift-adp
+    name: velero
+  register: velero_deploy
+  until: >
+    velero_deploy.resources | length > 0
+    and velero_deploy.resources[0].status.readyReplicas | default(0) | int > 0
+  retries: 30
+  delay: 20
+
+- name: Create default daily backup Schedule
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: schedule.yaml.j2

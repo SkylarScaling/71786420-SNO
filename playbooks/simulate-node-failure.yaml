@@ -1,0 +1,11 @@
+---
+# Node maintenance/replacement drill. Destructive by nature on a single node —
+# requires simulate_node_failure_confirm=true (see role for the guard).
+- name: Simulate SNO node failure and recovery
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [simulate_node_failure]
+  tasks:
+    - include_role:
+        name: simulate_node_failure

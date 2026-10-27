@@ -1,0 +1,14 @@
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: middleware-pool
+  namespace: {{ metallb_namespace }}
+spec:
+  addresses:
+{% if metallb_address_pool is string %}
+    - {{ metallb_address_pool }}
+{% else %}
+{% for address in metallb_address_pool %}
+    - {{ address }}
+{% endfor %}
+{% endif %}

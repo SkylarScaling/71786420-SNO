@@ -1,0 +1,32 @@
+apiVersion: postgres-operator.crunchydata.com/v1beta1
+kind: PostgresCluster
+metadata:
+  name: postgres
+  namespace: {{ postgres_namespace }}
+spec:
+  postgresVersion: 16
+  instances:
+    - name: instance1
+      replicas: {{ postgres_replicas }}
+      dataVolumeClaimSpec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: {{ postgres_storage_class }}
+        resources:
+          requests:
+            storage: {{ postgres_storage_size }}
+  # Local PVC-backed backups only — kept simple on purpose. Real backup/DR
+  # policy (retention, offsite copy) is handled by roles/ocp/configure_oadp_backup
+  # instead of wiring pgBackRest to S3 here.
+  backups:
+    pgbackrest:
+      repos:
+        - name: repo1
+          volume:
+            volumeClaimSpec:
+              accessModes:
+                - ReadWriteOnce
+              storageClassName: {{ postgres_storage_class }}
+              resources:
+                requests:
+                  storage: {{ postgres_storage_size }}

@@ -1,0 +1,21 @@
+apiVersion: tempo.grafana.com/v1alpha1
+kind: TempoStack
+metadata:
+  name: {{ tempo_stack_name }}
+  namespace: {{ tempo_namespace }}
+spec:
+  storageSize: 10Gi
+  storageClassName: {{ tempo_storage_class }}
+  resources:
+    total:
+      limits:
+        memory: 2Gi
+        cpu: "1"
+  template:
+    queryFrontend:
+      jaegerQuery:
+        enabled: true
+  storage:
+    secret:
+      name: {{ tempo_bucket_name }}-s3
+      type: s3

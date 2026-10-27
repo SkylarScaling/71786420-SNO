@@ -1,0 +1,100 @@
+apiVersion: v1
+baseDomain: {{ base_domain }}
+metadata:
+  name: {{ cluster_name }}
+{% if infra_provider == 'aws' %}
+controlPlane:
+  name: master
+  replicas: 1
+  platform:
+    aws:
+      type: {{ aws_sno_instance_type }}
+compute:
+- name: worker
+  replicas: 0
+{% else %}
+compute:
+- name: worker
+  replicas: 0
+controlPlane:
+  name: master
+  replicas: 1
+{% endif %}
+networking:
+  clusterNetwork:
+  - cidr: {{ cluster_network_cidr }}
+    hostPrefix: 23
+  machineNetwork:
+  - cidr: {{ machine_network_cidr }}
+{% if infra_provider == 'aws' %}
+  # Every subnet listed in platform.aws.vpc.subnets below must fall inside
+  # networking.machineNetwork (confirmed against a real run: "subnet's CIDR range
+  # start ... is outside of the specified machine networks") — the public subnet now
+  # has to be listed there too (see publish: External below), so its CIDR has to be
+  # added here as well, even though no cluster machines actually live in it.
+  - cidr: {{ sno_public_subnet_cidr }}
+{% endif %}
+  networkType: OVNKubernetes
+  serviceNetwork:
+  - {{ service_network_cidr }}
+platform:
+{% if infra_provider == 'aws' %}
+  aws:
+    region: {{ aws_region }}
+    # Both subnets must be listed for an existing-VPC install: the installer
+    # classifies each by its route table (has an IGW route -> public, doesn't ->
+    # private) and places the external API/ingress load balancers in the public one,
+    # the control-plane instance in the private one. publish: External below is what
+    # requires this — see the comment on that setting for why.
+    subnets:
+      - {{ sno_private_subnet_id }}
+      - {{ sno_public_subnet_id }}
+{% else %}
+  none: {}
+{% endif %}
+{% if infra_provider == 'aws' %}
+# publish: Internal would keep the API/ingress load balancers VPC-private, but this
+# repo's Ansible controller runs outside AWS entirely (not on an in-VPC host), so it
+# could never resolve or reach a private-only Route53 zone to run `create cluster` or
+# any later oc/kubernetes.core module call against the cluster (confirmed against a
+# real run: dial tcp: lookup api.<cluster>.<base_domain> ... no such host). External
+# only changes inbound reachability of the API/ingress endpoints (still auth/TLS
+# gated) — it does NOT give the SNO node itself any outbound internet route, so the
+# "always fully disconnected" node-egress guarantee in CLAUDE.md is untouched, and
+# operator/cluster-update image pulls still go through imageContentSources to the
+# bastion's mirror registry either way, never the internet. This is AWS-test-loop
+# specific (see docs/aws-test-environment-architecture.md); bare metal's `platform:
+# none` has no publish/Route53 concept at all.
+publish: External
+# Manual, not the default Mint mode: cloud-credential-operator running Mint mode
+# tries to call iam.amazonaws.com directly from inside the cluster to create IAM
+# users at runtime — confirmed against a real run, every CredentialsRequest failed
+# identically with an i/o timeout, since the SNO node has no internet route and IAM
+# has no VPC endpoint at all (unlike EC2/S3/ELB/STS). roles/aws/
+# aws_configure_manual_credentials provisions ccoctl-issued STS/OIDC roles instead,
+# which authenticate via STS (which DOES have a VPC endpoint) without CCO ever
+# calling IAM at runtime. See that role's README for the full explanation, including
+# why this alone does not fix ingress's separate Route53 DNS problem.
+credentialsMode: Manual
+{% endif %}
+pullSecret: '{{ _merged_pull_secret }}'
+sshKey: |
+  {{ ssh_key }}
+# Every deployment is treated as disconnected (see docs/architectural-decisions.md #2)
+# — content always comes from the mirror registry on the bastion, never directly
+# from registry.redhat.io/quay.io.
+imageContentSources:
+  - mirrors:
+      - "{{ mirror_registry_quay_hostname }}:{{ mirror_registry_quay_port }}/openshift/release-images"
+    source: quay.io/openshift-release-dev/ocp-release
+  - mirrors:
+      - "{{ mirror_registry_quay_hostname }}:{{ mirror_registry_quay_port }}/openshift/release"
+    source: quay.io/openshift-release-dev/ocp-v4.0-art-dev
+additionalTrustBundle: |
+{{ mirror_registry_ca_cert | indent(2, true) }}
+{% if ntp_server is defined %}
+# Customer-provided NTP server (bare-metal production only — AWS test runs rely on
+# the platform's own time sync and don't set ntp_server).
+additionalNTPSources:
+  - {{ ntp_server }}
+{% endif %}

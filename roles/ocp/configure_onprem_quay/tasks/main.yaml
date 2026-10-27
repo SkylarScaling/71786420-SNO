@@ -1,0 +1,95 @@
+---
+- name: Install Quay operator (namespace, operator group, subscription)
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: quay-subscription.yaml.j2
+
+- name: Wait for Quay operator deployment to be ready
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: apps/v1
+    kind: Deployment
+    namespace: openshift-quay
+    name: quay-operator.v{{ quay_channel | regex_replace('^stable-', '') }}.0
+  register: quay_deploy
+  until: quay_deploy.resources | length > 0
+  retries: 30
+  delay: 20
+  ignore_errors: true   # operator deployment name includes a patch version we can't predict exactly
+
+- name: Create an ObjectBucketClaim backed by ODF/NooBaa for Quay's registry storage
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: quay-storage-obc.yaml.j2
+
+- name: Wait for the ObjectBucketClaim to be bound
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: objectbucket.io/v1alpha1
+    kind: ObjectBucketClaim
+    namespace: openshift-quay
+    name: "{{ cluster_name }}-quay-storage"
+  register: obc_status
+  until: >
+    obc_status.resources | length > 0
+    and obc_status.resources[0].status.phase | default('') == 'Bound'
+  retries: 30
+  delay: 15
+
+- name: Read the generated NooBaa connection details
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: v1
+    kind: ConfigMap
+    namespace: openshift-quay
+    name: "{{ cluster_name }}-quay-storage"
+  register: obc_configmap
+
+- name: Read the generated NooBaa access credentials
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: v1
+    kind: Secret
+    namespace: openshift-quay
+    name: "{{ cluster_name }}-quay-storage"
+  register: obc_secret
+
+- name: Create Quay's config bundle secret (DISTRIBUTED_STORAGE_CONFIG pointed at NooBaa)
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: quay-config-bundle.yaml.j2
+
+- name: Create QuayRegistry
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: quayregistry.yaml.j2
+
+# horizontalpodautoscaler stays unmanaged (no autoscaling) but that alone doesn't pin
+# an exact replica count — the operator's own base Deployment default isn't something
+# this role controls directly. Wait for it to exist, then explicitly scale it, so
+# quay_replicas is the actual source of truth rather than an unused default.
+- name: Wait for the quay-app Deployment to exist
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: apps/v1
+    kind: Deployment
+    namespace: openshift-quay
+    label_selectors:
+      - "quay-component=quay-app"
+  register: quay_app_deploy
+  until: quay_app_deploy.resources | length > 0
+  retries: 30
+  delay: 20
+
+- name: Scale quay-app to quay_replicas
+  kubernetes.core.k8s_scale:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: apps/v1
+    kind: Deployment
+    namespace: openshift-quay
+    name: "{{ quay_app_deploy.resources[0].metadata.name }}"
+    replicas: "{{ quay_replicas }}"

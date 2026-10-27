@@ -1,0 +1,84 @@
+---
+# Runs on an internet-connected host — the AWS mirror-staging EC2 instance, or a
+# connected RHEL host for bare metal. Produces an oc-mirror archive ("mirror to
+# disk"); no registry needs to run on this host.
+oc_mirror_workspace: /opt/oc-mirror-workspace
+
+# This host is separate from wherever install_ocp_prerequisites ran (localhost), so
+# the oc-mirror binary it needs isn't there — fetched here instead. Same dir/URL
+# convention as install_ocp_prerequisites's bin_dir/ocp_mirror_url (role defaults
+# aren't shared across roles, so duplicated rather than centralized).
+bin_dir: "~/.local/bin"
+ocp_mirror_url: "https://mirror.openshift.com/pub/openshift-v4/clients/ocp/{{ openshift_version }}"
+
+# Raw tool tarballs (oc-mirror, mirror-registry) are downloaded here, not extracted
+# directly from the URL — kept on disk so sync_mirror_to_bastion can carry them to the
+# bastion alongside the content archive. The bastion has no internet route at all
+# (see CLAUDE.md), so deploy_mirror_registry can't fetch either tool itself the way
+# this role does; it unarchives from the synced copy instead. Same default path
+# duplicated in sync_mirror_to_bastion/deploy_mirror_registry's defaults (role
+# defaults aren't shared across roles).
+mirror_installers_dir: /opt/mirror-installers
+
+# mirror.openshift.com/pub/cgw/mirror-registry/latest/mirror-registry.tar.gz (the
+# previous URL here) 404s — Red Hat moved this distribution behind
+# developers.redhat.com/content-gateway and the filename is now
+# architecture-qualified (mirror-registry-amd64.tar.gz, not mirror-registry.tar.gz).
+# The content-gateway's own "latest" alias 400s under a plain get_url (it needs a
+# cookie carried across its redirect chain); a pinned version number redirects
+# cleanly instead, so pin like oc_mirror_operator_packages' channels and re-verify
+# against https://mirror.openshift.com/pub/cgw/mirror-registry/ periodically (newer
+# patch versions appear there as subdirectories).
+mirror_registry_version: "2.0.12"
+mirror_registry_url: "https://developers.redhat.com/content-gateway/file/pub/cgw/mirror-registry/{{ mirror_registry_version }}/mirror-registry-amd64.tar.gz"
+
+# RPM packages configure_bastion_services needs installed on the bastion, which has
+# no internet route to reach RHUI/dnf repos itself — downloaded here (with their full
+# dependency closure, not just these two names) and synced over the same way as the
+# tool tarballs above. Same default list duplicated in configure_bastion_services's
+# defaults (role defaults aren't shared across roles) purely for documentation; only
+# this role's copy is actually used to drive the download.
+bastion_packages:
+  - dnsmasq
+  - httpd
+
+# The standard set this repo's feature roles install: LVM Storage (configure_lvms —
+# true-SNO storage), OADP (configure_oadp_backup), cluster logging
+# (configure_log_forwarding), and the ODF operator in standalone MCG mode
+# (configure_mcg — not full ODF/Ceph, which is the scale-out alternative to LVMS and
+# not applicable to true SNO, see CLAUDE.md). Override in
+# inventory/<provider>/inventory.yaml's vars block to mirror a different set, or trim
+# this down if you're not exercising every feature. [] mirrors the ENTIRE
+# redhat-operator-index catalog instead — large and slow (see the volume-size notes in
+# roles/aws/aws_provision_mirror_staging_host and aws_provision_bastion's defaults).
+#
+# Entries can be a bare string (default catalog, default channel) or a dict with
+# `name`, optional `channel` (pin a non-default channel), and optional `catalog`
+# (redhat|certified|community|marketplace, default redhat — which index this
+# package actually ships from). Keep each entry's channel/catalog in sync with the
+# matching roles/ocp/configure_* role's own *_channel/*_catalog_source default
+# vars; this list only controls what's mirrored, the role's Subscription template
+# is what actually requests that channel/CatalogSource at install time.
+#
+# Catalog/channel values below for loki-operator, grafana-operator,
+# rabbitmq-cluster-operator, and crunchy-postgres-operator are confirmed via
+# `oc-mirror list operators --v1 --catalog <index>[:vX.Y] [--package <name>]`
+# against the redhat/certified/community operator indexes for the openshift_version
+# actually configured for this environment (4.22 as of this writing) — these are
+# NOT catalog-version-independent. loki-operator's default channel in particular
+# moves with every OCP minor (stable-6.4 on 4.18, stable-6.6 on 4.22) — re-verify
+# with the same command against the new version's index whenever openshift_version
+# changes, don't assume the pinned channel here still exists.
+oc_mirror_operator_packages:
+  - lvms-operator
+  - redhat-oadp-operator
+  - cluster-logging
+  - odf-operator                                                              # configure_mcg
+  - { name: loki-operator, channel: stable-6.6 }                              # configure_lokistack — pinned for openshift_version 4.22, re-verify on upgrade
+  - { name: grafana-operator, catalog: community, channel: v5 }               # configure_grafana — not in redhat-operator-index
+  - opentelemetry-product                                                     # configure_opentelemetry
+  - tempo-product                                                             # configure_opentelemetry
+  - metallb-operator                                                          # configure_metallb
+  - { name: rabbitmq-cluster-operator, catalog: community, channel: stable }  # configure_rabbitmq — not in redhat-operator-index
+  - { name: crunchy-postgres-operator, catalog: certified, channel: v5 }      # configure_postgres — not in redhat-operator-index
+  - rhbk-operator                                                             # configure_keycloak

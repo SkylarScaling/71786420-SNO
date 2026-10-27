@@ -1,0 +1,12 @@
+---
+# Application-level distributed tracing (OpenTelemetry Collector + Tempo), S3-backed
+# by MCG — depends on configure-storage.yaml having run configure_mcg first. Wired
+# into Grafana (configure-logging.yaml) via its Tempo datasource.
+- name: Configure OpenTelemetry tracing
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [configure_tracing]
+  tasks:
+    - include_role:
+        name: configure_opentelemetry

@@ -1,0 +1,4 @@
+---
+backup_push_source_dir: "{{ backup_sync_dest_dir | default('/opt/backup-export-staged') }}"
+bin_dir: "~/.local/bin"
+rclone_download_url: "https://downloads.rclone.org/rclone-current-linux-amd64.zip"

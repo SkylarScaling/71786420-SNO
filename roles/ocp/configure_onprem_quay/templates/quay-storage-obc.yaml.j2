@@ -1,0 +1,8 @@
+apiVersion: objectbucket.io/v1alpha1
+kind: ObjectBucketClaim
+metadata:
+  name: {{ cluster_name }}-quay-storage
+  namespace: openshift-quay
+spec:
+  generateBucketName: {{ cluster_name }}-quay
+  storageClassName: openshift-storage.noobaa.io

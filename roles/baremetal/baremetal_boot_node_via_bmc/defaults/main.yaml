@@ -1,0 +1,8 @@
+---
+# iDRAC (and most Redfish BMCs with a single Manager/System) only ever expose one
+# of each, but redfish_command still requires naming it on some firmware versions.
+# Confirmed resource IDs for Dell iDRAC9/10: Manager "iDRAC.Embedded.1", System
+# "System.Embedded.1". Override if a different BMC vendor is ever used.
+bmc_manager_resource_id: iDRAC.Embedded.1
+bmc_system_resource_id: System.Embedded.1
+bmc_boot_mode: Uefi   # Uefi | Legacy — match the server's configured boot mode

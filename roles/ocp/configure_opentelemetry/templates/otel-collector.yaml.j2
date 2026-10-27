@@ -1,0 +1,32 @@
+apiVersion: opentelemetry.io/v1alpha1
+kind: OpenTelemetryCollector
+metadata:
+  name: {{ otel_collector_name }}
+  namespace: {{ otel_namespace }}
+spec:
+  mode: deployment
+  config: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    processors:
+      batch: {}
+    exporters:
+      # Standard TempoStack-generated distributor Service, listening for OTLP gRPC
+      # trace ingest. VERIFY exact Service name/port against a live cluster
+      # (`oc get svc -n {{ tempo_namespace }}`) once the Tempo Operator CRD is
+      # installed — naming has shifted across operator releases.
+      otlp:
+        endpoint: "{{ tempo_stack_name }}-distributor.{{ tempo_namespace }}.svc.cluster.local:4317"
+        tls:
+          insecure: true
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [otlp]

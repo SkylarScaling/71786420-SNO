@@ -1,0 +1,21 @@
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDatasource
+metadata:
+  name: {{ cluster_name }}-loki-datasource
+  namespace: {{ grafana_namespace }}
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: "{{ grafana_instance_name }}"
+  datasource:
+    name: Loki
+    type: loki
+    access: proxy
+    # Standard LokiStack-generated query-frontend Service — bypasses the tenant
+    # gateway/OpenShift OAuth for simplicity on a single test cluster. VERIFY this is
+    # actually reachable/authorized under configure_lokistack's
+    # `spec.tenants.mode: openshift-logging` on a live cluster (see that role's
+    # README) — it may need to go through the gateway with a bearer token instead.
+    url: "http://{{ loki_query_service }}.{{ grafana_namespace }}.svc.cluster.local:{{ loki_query_port }}"
+    isDefault: true
+    editable: false

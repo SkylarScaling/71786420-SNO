@@ -1,0 +1,23 @@
+---
+# Storage architecture. LVM Storage (LVMS) is the default for true single-node
+# deployments, providing block storage for everything else here (MCG's backing PVC,
+# RabbitMQ/Postgres/Redis/Keycloak's PVCs). MCG (configure_mcg) adds S3-compatible
+# object storage on top, standalone (no CephCluster) since hardware RAID5 already
+# provides disk redundancy — see roles/ocp/configure_mcg/README.md.
+- name: Configure LVM Storage
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [configure_storage, configure_lvms]
+  tasks:
+    - include_role:
+        name: configure_lvms
+
+- name: Configure MCG (S3-compatible object storage, standalone on LVMS)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [configure_storage, configure_mcg]
+  tasks:
+    - include_role:
+        name: configure_mcg

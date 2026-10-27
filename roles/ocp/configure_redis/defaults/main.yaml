@@ -1,0 +1,15 @@
+---
+redis_namespace: redis
+redis_replicas: 1
+redis_storage_size: 5Gi
+redis_storage_class: "{{ lvms_vg_name | default('vg1') }}"
+
+# No Redis Operator in use here (Redis Enterprise requires separate
+# licensing beyond the OperatorHub subscription model this repo otherwise
+# relies on) — a plain StatefulSet is "cheap and simple" per the customer's
+# stated priorities. Pick a real, Red Hat-distributed image and verify it is
+# actually present in the mirrored content set before first run; this is a
+# sensible default, not a confirmed-available reference.
+redis_image: "registry.redhat.io/rhscl/redis-6-rhel7"
+
+redis_expose_external: false

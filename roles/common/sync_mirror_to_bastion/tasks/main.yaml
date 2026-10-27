@@ -1,0 +1,172 @@
+---
+- name: Ensure the sync destination exists on the bastion, owned by the connecting user (/opt requires root to create)
+  file:
+    path: "{{ mirror_sync_dest_dir }}"
+    state: directory
+    mode: '0755'
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+  become: true
+  delegate_to: "{{ hostvars['localhost']['bastion_host'] | default(bastion_host) }}"
+  when: mirror_sync_method == 'rsync'
+
+# ansible.posix.synchronize's "local" side (the rsync source in the default push
+# mode) is the Ansible CONTROLLER unless delegate_to overrides it — mirror_sync_source_dir
+# only exists on this play's own host (the mirror-staging host), not the controller,
+# so delegate_to here must self-reference this host (forcing "local" = here) rather
+# than the bastion, or the module silently tries to rsync from the controller's own
+# filesystem and auto-targets dest at this host instead of the bastion (the bug that
+# produced "ssh: connect to host <mirror-staging public IP> ... Connection timed out" —
+# the bastion has no internet route to reach that address at all).
+#
+# dest is addressed explicitly at the bastion, reachable over the private VPC/LAN
+# route this host already shares with it directly (see README) — no proxy needed for
+# this hop, unlike the controller's own route to the bastion. That direct hop needs
+# SSH credentials on this host: both EC2 instances already trust the same
+# aws_key_pair keypair the controller itself uses (see aws_provision_mirror_staging_host/
+# aws_provision_bastion's key_name), so stage that identical private key here just for
+# this task and remove it immediately after — no new trust relationship introduced.
+- name: Stage the SSH private key here for the direct rsync hop to the bastion (same keypair both instances already trust)
+  copy:
+    src: "{{ ssh_private_key }}"
+    dest: "/tmp/.mirror_sync_relay_key"
+    mode: '0600'
+  when: mirror_sync_method == 'rsync'
+
+- name: Measure the mirror archive size so progress can be reported as a percentage
+  shell: "du -sb {{ mirror_sync_source_dir }} 2>/dev/null | cut -f1"
+  register: _mirror_sync_total_size
+  changed_when: false
+  when: mirror_sync_method == 'rsync'
+
+# ansible.posix.synchronize is an action plugin, not a real module — it does not
+# support async at all ("This action does not support async"). A direct rsync
+# invocation via the command module is used instead specifically so it CAN be
+# launched async/poll:0 (fire-and-forget), purely so this play can poll its progress
+# in between — the transfer itself still blocks on the whole rsync subprocess either
+# way and gives no incremental output of its own. async: 7200 is a generous ceiling
+# for a large archive over a slow link, not an expected duration.
+# --delete and --exclude=working-dir: without --delete, re-running this role across
+# multiple provisioning attempts (or the oc-mirror --v1 -> --v2 migration) leaves old
+# tar chunks/sequence archives piling up on the bastion forever (a plain rsync push
+# only adds/updates, never removes) — harmless to v1's self-describing archive, but
+# under v2 it means stale tar files from a PREVIOUS run sit in the same
+# mirror_sync_dest_dir as the current one, wasting disk and inviting exactly the kind
+# of confusion this comment originally (incorrectly) blamed for a real failure. This
+# role's source dir also contains a working-dir/ — stage_mirror_content's OWN "mirror
+# to disk" scratch output — which deploy_mirror_registry's "disk to mirror" push never
+# reads (it regenerates its own working-dir purely from the synced tar chunks), so
+# syncing it over is pure waste; excluded for that reason alone.
+#
+# Neither of these was actually the cause of a real "disk to mirror" push failure this
+# was initially suspected of fixing: a run failed with "reading manifest v4.22 in
+# 127.0.0.1:55000/redhat/certified-operator-index: manifest unknown" even AFTER both
+# the bastion's archive dir and this exact working-dir were fully cleared and
+# re-synced from scratch — ruling out stale state. The actual cause, confirmed by
+# direct inspection of the mirror-to-disk archive's internal docker-registry storage
+# layout (`tar -tvf mirror_000001.tar`): oc-mirror --v2, when mirroring three operator
+# catalogs (redhat/community/certified) in one invocation, left certified-operator-
+# index's "v4.22" tag pointing at a manifest digest whose blob was never actually
+# committed to the archive — a genuine oc-mirror v2 defect, not a pipeline bug.
+# Mirroring the certified catalog alone (reusing the same --cache-dir) produced a
+# complete, correct blob; re-running the full three-catalog mirror-to-disk with that
+# now-warmed cache also then produced a correct blob and the push succeeded. If this
+# recurs, the fix is to re-run stage_mirror_content (ideally after the underlying
+# oc-mirror version picks up a fix), not to suspect this sync step.
+- name: Rsync the mirror archive directly to the bastion (requires a reachable network path)
+  vars:
+    # bastion_ssh_user is a role default of aws_provision_bastion, set in a
+    # different play earlier in this same playbook run — role defaults don't cross
+    # play boundaries even when the include_role was public, but the ansible_user
+    # that aws_provision_bastion's add_host task attached to this bastion hostvars
+    # entry does persist globally, so read it from there instead (also correct
+    # as-is on bare metal, where it's simply the inventory-defined ansible_user).
+    _bastion_addr: "{{ hostvars['localhost']['bastion_host'] | default(bastion_host) }}"
+    _bastion_user: "{{ hostvars[_bastion_addr].ansible_user | default('ec2-user') }}"
+  command: >
+    rsync -a --delete --exclude=working-dir
+    --rsh="ssh -i /tmp/.mirror_sync_relay_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+    {{ mirror_sync_source_dir }}/ {{ _bastion_user }}@{{ _bastion_addr }}:{{ mirror_sync_dest_dir }}/
+  delegate_to: "{{ inventory_hostname }}"
+  async: 7200
+  poll: 0
+  register: _mirror_sync_job
+  when: mirror_sync_method == 'rsync'
+
+# async_status only reports finished/not-finished, not bytes moved — the destination
+# directory's own growing size (checked on the bastion, where rsync is writing) is
+# used as the progress signal instead. Recursion (rather than until/retries on this
+# single task) is needed because reporting progress takes more than one task per
+# check (status + size + debug); include_tasks recursion is the standard Ansible
+# idiom for "repeat a group of tasks until a condition holds."
+- name: Poll and report rsync transfer progress until it completes
+  include_tasks: _poll_rsync_progress.yml
+  vars:
+    _bastion_addr: "{{ hostvars['localhost']['bastion_host'] | default(bastion_host) }}"
+  when: mirror_sync_method == 'rsync'
+
+- name: Fail if the rsync transfer itself failed
+  fail:
+    msg: "Mirror sync to the bastion failed (rc={{ _mirror_sync_status.rc }}): {{ _mirror_sync_status.stderr | default(_mirror_sync_status.msg) | default('no stderr captured') }}"
+  when:
+    - mirror_sync_method == 'rsync'
+    - _mirror_sync_status.rc | default(0) != 0
+
+- name: Ensure the installers directory exists on the bastion, owned by the connecting user (/opt requires root to create)
+  file:
+    path: "{{ mirror_installers_dir }}"
+    state: directory
+    mode: '0755'
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+  become: true
+  delegate_to: "{{ hostvars['localhost']['bastion_host'] | default(bastion_host) }}"
+  when: mirror_sync_method == 'rsync'
+
+# Small (tens of MB) compared to the content archive, so this runs synchronously
+# rather than async/polled like the archive sync above — reuses the same staged relay
+# key and self-delegate pattern. The bastion has no internet route (see CLAUDE.md), so
+# deploy_mirror_registry can't fetch oc-mirror/mirror-registry itself; this is what
+# lets it unarchive them locally instead.
+- name: Rsync the oc-mirror/mirror-registry installer tarballs to the bastion
+  vars:
+    _bastion_addr: "{{ hostvars['localhost']['bastion_host'] | default(bastion_host) }}"
+    _bastion_user: "{{ hostvars[_bastion_addr].ansible_user | default('ec2-user') }}"
+  command: >
+    rsync -a --rsh="ssh -i /tmp/.mirror_sync_relay_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+    {{ mirror_installers_dir }}/ {{ _bastion_user }}@{{ _bastion_addr }}:{{ mirror_installers_dir }}/
+  delegate_to: "{{ inventory_hostname }}"
+  when: mirror_sync_method == 'rsync'
+
+- name: Remove the staged relay key
+  file:
+    path: "/tmp/.mirror_sync_relay_key"
+    state: absent
+  when: mirror_sync_method == 'rsync'
+
+- name: Package the mirror archive for manual/physical media transfer
+  archive:
+    path: "{{ mirror_sync_source_dir }}"
+    dest: "/tmp/mirror-content-{{ cluster_name }}.tar.gz"
+    format: gz
+  when: mirror_sync_method == 'media'
+
+# The bastion has no internet route (see CLAUDE.md) — deploy_mirror_registry can't
+# fetch oc-mirror/mirror-registry itself, so these must travel via media here too,
+# not just the content archive above.
+- name: Package the installer tarballs for manual/physical media transfer
+  archive:
+    path: "{{ mirror_installers_dir }}"
+    dest: "/tmp/mirror-installers-{{ cluster_name }}.tar.gz"
+    format: gz
+  when: mirror_sync_method == 'media'
+
+- name: Report media-transfer next step
+  debug:
+    msg: >
+      Mirror archive packaged to /tmp/mirror-content-{{ cluster_name }}.tar.gz and
+      installer tarballs packaged to /tmp/mirror-installers-{{ cluster_name }}.tar.gz.
+      Copy both to removable media and extract them to {{ mirror_sync_dest_dir }} and
+      {{ mirror_installers_dir }} respectively on the disconnected bastion — there's no
+      network path for this role to use.
+  when: mirror_sync_method == 'media'

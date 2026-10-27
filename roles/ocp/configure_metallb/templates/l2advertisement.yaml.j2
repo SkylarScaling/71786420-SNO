@@ -1,0 +1,8 @@
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: middleware-pool-l2
+  namespace: {{ metallb_namespace }}
+spec:
+  ipAddressPools:
+    - middleware-pool

@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ postgres_namespace }}
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: postgres-operator-group
+  namespace: {{ postgres_namespace }}
+spec:
+  targetNamespaces:
+    - {{ postgres_namespace }}
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: crunchy-postgres-operator
+  namespace: {{ postgres_namespace }}
+spec:
+  channel: {{ postgres_operator_channel }}
+  name: crunchy-postgres-operator
+  source: {{ postgres_catalog_source }}
+  sourceNamespace: {{ postgres_catalog_source_namespace }}
+  installPlanApproval: Automatic

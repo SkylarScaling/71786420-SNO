@@ -1,0 +1,13 @@
+---
+# MetalLB for non-HTTP TCP middleware (RabbitMQ/Postgres/Redis LoadBalancer
+# Services) — the app's own HTTP(S) traffic goes through the default OCP Ingress
+# Controller and doesn't need this. Bare-metal production only; the AWS test loop
+# doesn't run this playbook.
+- name: Configure MetalLB
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [configure_metallb]
+  tasks:
+    - include_role:
+        name: configure_metallb

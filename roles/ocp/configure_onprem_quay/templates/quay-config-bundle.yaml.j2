@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ cluster_name }}-quay-config-bundle
+  namespace: openshift-quay
+type: Opaque
+stringData:
+  config.yaml: |
+    DISTRIBUTED_STORAGE_CONFIG:
+      default:
+        - RadosGWStorage
+        - access_key: "{{ obc_secret.resources[0].data.AWS_ACCESS_KEY_ID | b64decode }}"
+          secret_key: "{{ obc_secret.resources[0].data.AWS_SECRET_ACCESS_KEY | b64decode }}"
+          bucket_name: "{{ obc_configmap.resources[0].data.BUCKET_NAME }}"
+          hostname: "{{ obc_configmap.resources[0].data.BUCKET_HOST }}"
+          port: "{{ obc_configmap.resources[0].data.BUCKET_PORT }}"
+          is_secure: true
+    DISTRIBUTED_STORAGE_DEFAULT_LOCATIONS: ["default"]
+    DISTRIBUTED_STORAGE_PREFERENCE: ["default"]

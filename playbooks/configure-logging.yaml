@@ -1,0 +1,31 @@
+---
+# Log retention/aggregation via an in-cluster Loki+Grafana stack (S3-backed by MCG —
+# depends on configure-storage.yaml having run configure_mcg first), plus optional
+# external forwarding to a SIEM/audit platform (configure_log_forwarding, still
+# active alongside the LokiStack output when log_forward_endpoint is set).
+- name: Configure Loki log storage
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [configure_logging, configure_lokistack]
+  tasks:
+    - include_role:
+        name: configure_lokistack
+
+- name: Configure Grafana
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [configure_logging, configure_grafana]
+  tasks:
+    - include_role:
+        name: configure_grafana
+
+- name: Configure log forwarding (SIEM + LokiStack outputs)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [configure_logging]
+  tasks:
+    - include_role:
+        name: configure_log_forwarding

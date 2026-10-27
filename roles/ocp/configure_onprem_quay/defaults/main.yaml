@@ -1,0 +1,9 @@
+---
+quay_channel: stable-3.13
+quay_storage_class: "{{ lvms_vg_name | default('vg1') }}"
+quay_storage_size: 200Gi
+# Single replica by default — no HA requirement at this scale, and keeping Quay
+# lightweight matters more than registry availability on a true SNO. Bump this (and
+# re-run) if that changes; horizontalpodautoscaler stays unmanaged either way (no
+# autoscaling), so this is the only replica control.
+quay_replicas: 1

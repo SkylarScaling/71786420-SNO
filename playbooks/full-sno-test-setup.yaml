@@ -1,0 +1,18 @@
+---
+# AWS test loop — proves out the same storage (LVMS + MCG) and logging
+# (LokiStack + Grafana) design before it hits real hardware. MetalLB, tracing,
+# alerting, and the Day 2 middleware platform are bare-metal-production-only (see
+# full-baremetal-production-setup.yaml) and deliberately not exercised here.
+- name: Install local prerequisites
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [prereqs]
+  tasks:
+    - include_role:
+        name: install_ocp_prerequisites
+
+- import_playbook: ./provision-sno-aws.yaml
+- import_playbook: ./configure-storage.yaml
+- import_playbook: ./configure-logging.yaml
+- import_playbook: ./configure-backup-dr.yaml

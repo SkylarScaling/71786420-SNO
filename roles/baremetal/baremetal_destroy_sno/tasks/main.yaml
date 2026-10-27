@@ -1,0 +1,12 @@
+---
+- name: Fail fast — destructive disk wipe requires real hardware access
+  fail:
+    msg: >
+      baremetal_destroy_sno is a scaffold (see README.md). It needs BMC-driven
+      power control and a disk-wipe step that can only be validated against real
+      hardware; implement it once hardware is available.
+
+- name: Clean up locally generated install artifacts
+  file:
+    path: "{{ install_dir }}"
+    state: absent

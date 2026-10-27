@@ -1,0 +1,7 @@
+---
+# AWS-only entry point. See provision-sno-baremetal.yaml for the bare-metal
+# equivalent — these are deliberately separate playbooks (not one dispatcher keyed
+# off infra_provider) so the AWS provisioning layer (playbooks/infra_providers/aws/,
+# roles/aws/) can be deleted wholesale from a bare-metal-only copy of this repo
+# without needing to edit any remaining playbook first.
+- import_playbook: ./infra_providers/aws/provision.yaml

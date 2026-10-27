@@ -1,0 +1,67 @@
+apiVersion: mirror.openshift.io/v2alpha1
+kind: ImageSetConfiguration
+# v2alpha1 (oc-mirror --v2) has no storageConfig block — v1's local metadata backend
+# is gone; v2 tracks state in its own cache dir instead (see --cache-dir on the
+# oc-mirror invocations in tasks/main.yaml / deploy_mirror_registry).
+mirror:
+  platform:
+    channels:
+      # minVersion/maxVersion must be pinned to the exact openshift_version — without
+      # them, oc-mirror mirrors whatever the LATEST release in this channel happens to
+      # be at mirror time, not the version install_ocp_prerequisites actually
+      # downloaded openshift-install/oc for. Confirmed against a real run: the channel
+      # drifted to 4.22.18 while openshift_version stayed pinned at 4.22.17, and the
+      # resulting version/digest mismatch made every release-image pull on the master
+      # fail with "manifest unknown" against the mirror — which silently manifested as
+      # bootstrapping timing out after 45 minutes, not a clear version-mismatch error.
+      - name: stable-{{ openshift_version.split('.')[:2] | join('.') }}
+        type: ocp
+        minVersion: {{ openshift_version }}
+        maxVersion: {{ openshift_version }}
+{% if oc_mirror_operator_packages %}
+{% set ocp_xy = openshift_version.split('.')[:2] | join('.') %}
+{#
+  Not every package here ships in redhat-operator-index — e.g. grafana-operator and
+  rabbitmq-cluster-operator are community-operators, crunchy-postgres-operator is
+  certified-operators (confirmed via `oc-mirror list operators --catalog ...`
+  against each index). Each package entry can set `catalog: redhat|certified|
+  community|marketplace` (default redhat) to pick which index it's mirrored from;
+  packages are grouped below so each distinct catalog gets its own entry under
+  mirror.operators, as required by the ImageSetConfiguration schema.
+#}
+{% set catalog_images = {
+     'redhat': 'registry.redhat.io/redhat/redhat-operator-index:v' ~ ocp_xy,
+     'certified': 'registry.redhat.io/redhat/certified-operator-index:v' ~ ocp_xy,
+     'community': 'registry.redhat.io/redhat/community-operator-index:v' ~ ocp_xy,
+     'marketplace': 'registry.redhat.io/redhat/redhat-marketplace-index:v' ~ ocp_xy,
+   } %}
+{% set pkgs_by_catalog = {} %}
+{% for pkg in oc_mirror_operator_packages %}
+{% set catalog_key = (pkg.catalog | default('redhat')) if pkg is mapping else 'redhat' %}
+{% if catalog_key not in pkgs_by_catalog %}
+{% set _ = pkgs_by_catalog.update({catalog_key: []}) %}
+{% endif %}
+{% set _ = pkgs_by_catalog[catalog_key].append(pkg) %}
+{% endfor %}
+  operators:
+{% for catalog_key, pkgs in pkgs_by_catalog.items() %}
+    - catalog: "{{ catalog_images[catalog_key] }}"
+      packages:
+{% for pkg in pkgs %}
+{% if pkg is mapping %}
+        - name: {{ pkg.name }}
+{% if pkg.channel is defined %}
+          channels:
+            - name: {{ pkg.channel }}
+{% endif %}
+{% else %}
+        - name: {{ pkg }}
+{% endif %}
+{% endfor %}
+{% endfor %}
+{% else %}
+  operators:
+    - catalog: "registry.redhat.io/redhat/redhat-operator-index:v{{ openshift_version.split('.')[:2] | join('.') }}"
+      packages: []   # empty mirrors the ENTIRE catalog — set oc_mirror_operator_packages in inventory to limit this
+{% endif %}
+  additionalImages: []

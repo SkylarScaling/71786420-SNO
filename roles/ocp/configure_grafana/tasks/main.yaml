@@ -1,0 +1,39 @@
+---
+- name: Install Grafana operator (namespace, operator group, subscription)
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: grafana-subscription.yaml.j2
+
+- name: Wait for Grafana operator deployment to be ready
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: apps/v1
+    kind: Deployment
+    namespace: "{{ grafana_namespace }}"
+    name: grafana-operator-controller-manager
+  register: grafana_operator_deploy
+  until: >
+    grafana_operator_deploy.resources | length > 0
+    and grafana_operator_deploy.resources[0].status.readyReplicas | default(0) | int > 0
+  retries: 30
+  delay: 20
+
+- name: Create Grafana instance
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: grafana-instance.yaml.j2
+
+- name: Create Loki datasource
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: grafana-datasource-loki.yaml.j2
+
+- name: Create Tempo datasource
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: grafana-datasource-tempo.yaml.j2
+  when: opentelemetry_tempo_enabled | default(true)

@@ -1,0 +1,37 @@
+apiVersion: loki.grafana.com/v1
+kind: LokiStack
+metadata:
+  name: {{ loki_lokistack_name }}
+  namespace: {{ loki_namespace }}
+spec:
+  size: {{ lokistack_size }}
+  storageClassName: {{ loki_storage_class }}
+  storage:
+    secret:
+      name: {{ loki_bucket_name }}-s3
+      type: s3
+    schemas:
+      - version: v13
+        effectiveDate: "2024-01-01"
+  # "openshift-logging" tenant mode wires the gateway up to OpenShift OAuth/RBAC for
+  # in-console log access (what configure_log_forwarding's lokiStack output type
+  # expects on the write path). NOTE: configure_grafana's Loki datasource in this
+  # scaffold targets the query-frontend Service directly (bypassing the gateway) for
+  # simplicity on a single test cluster — VERIFY that's actually reachable/authorized
+  # under this tenant mode on a live cluster; it may need a bearer token or the
+  # gateway endpoint with tenant query params instead.
+  tenants:
+    mode: openshift-logging
+  limits:
+    global:
+      retention:
+        # See README: this is the one supported global total-retention knob.
+        days: {{ loki_retention_days }}
+        # Approximation of a "hot" 7-day tier: an explicit shorter override for the
+        # noisiest/least-valuable stream (application logs), while the global 30-day
+        # figure above covers everything (including infrastructure/audit) overall.
+        # This is NOT a real hot/cold storage tier — see README caveat.
+        streams:
+          - days: {{ loki_hot_retention_days }}
+            priority: 1
+            selector: '{log_type="application"}'
