@@ -79,7 +79,7 @@ operator in standalone MCG mode, Loki/Grafana, OpenTelemetry/Tempo, MetalLB,
 RabbitMQ, Crunchy Postgres, and Keycloak — each entry either a bare package name
 (default catalog/channel) or a `{name, channel, catalog}` dict where a package needs
 a pinned channel or ships from a non-default operator index. Override this in
-`inventory/<provider>/inventory.yaml`'s vars block to mirror a different set, or trim
+`staging/inventory/inventory.yaml`'s vars block to mirror a different set, or trim
 the list if you're not exercising every feature. Set it to `[]` to mirror the
 *entire* operator catalog instead (large and slow).
 

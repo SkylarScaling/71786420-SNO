@@ -1,0 +1,13 @@
+---
+# Cluster-level teardown only — run this BEFORE aws-infra/playbooks/destroy-hosts.yaml
+# (which terminates the EC2 instances/VPC out from under the cluster otherwise,
+# leaking its AWS-side state). See aws_destroy_cluster's and aws_destroy_infra's
+# READMEs for why the order matters.
+- name: Destroy the AWS SNO cluster
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [destroy_sno, aws]
+  tasks:
+    - include_role:
+        name: aws_destroy_cluster

@@ -1,6 +1,6 @@
 ---
 # Runs on the bastion (hosts: localhost), first thing in
-# bastion/playbooks/provision-sno.yaml — lays down everything
+# bastion/playbooks/provision-sno-baremetal.yaml and provision-sno-aws.yaml — lays down everything
 # package_bastion_bundle assembled on staging: mirrored content, install-time
 # binaries, and the flattened per-environment vars.
 - name: Fail fast if the expected bundle contents aren't present

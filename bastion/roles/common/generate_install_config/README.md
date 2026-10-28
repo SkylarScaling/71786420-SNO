@@ -22,3 +22,18 @@ platform integration on bare metal.
 
 `additionalNTPSources` is set from `ntp_server` when defined (customer-provided NTP
 server, per `staging/inventory/inventory.yaml`).
+
+## AWS
+
+When `infra_provider: aws`, this template also renders a `platform.aws` stanza
+(`aws_sno_instance_type`, defaulted here; `aws_region`/`sno_vpc_id`/
+`sno_private_subnet_id`/`sno_public_subnet_id`/`sno_public_subnet_cidr`, genuinely
+per-environment — set in `staging/inventory/inventory.yaml` from
+`aws-infra/playbooks/provision-hosts.yaml`'s output), `publish: External`, and
+`credentialsMode: Manual`. See the template's own comments for why — in short,
+cluster creation runs from `staging` (the internet-connected host in this split, not
+a host inside the VPC), so the API/ingress load balancers must be externally
+reachable, and Mint-mode credentials can't work from a node with no internet route to
+IAM. `staging/roles/aws/aws_configure_manual_credentials`/`aws_configure_manual_dns`
+do the rest of the Manual-mode/DNS work; this role only sets the two install-config
+fields that require them.

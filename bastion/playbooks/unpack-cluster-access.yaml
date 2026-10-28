@@ -1,0 +1,15 @@
+---
+# AWS only — the third hop of the install-config/kubeconfig round trip. Run on the
+# bastion after staging's provision-sno-aws.yaml finishes and hands the kubeconfig
+# back (package_kubeconfig_bundle). Run this before any configure-*.yaml day-2
+# playbook — they all need sno_kubeconfig to exist here. Bare metal never needs this:
+# wait_for_sno_install already writes the kubeconfig directly on the bastion there.
+- name: Unpack the cluster kubeconfig staging handed back
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: false
+  tags: [provision_sno, aws]
+  tasks:
+    - include_role:
+        name: unpack_kubeconfig_bundle

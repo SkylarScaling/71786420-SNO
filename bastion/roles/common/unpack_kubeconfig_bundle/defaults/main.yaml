@@ -1,0 +1,4 @@
+---
+# Where the staging-produced kubeconfig bundle lands on the bastion once physically
+# copied (or rsynced) over.
+kubeconfig_bundle_path: "~/sno-kubeconfig-bundle.tar.gz"

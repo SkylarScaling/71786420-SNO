@@ -1,0 +1,74 @@
+---
+# Cluster-level teardown only — run from staging/playbooks/destroy-sno-aws.yaml,
+# BEFORE aws-infra/playbooks/destroy-hosts.yaml (that one tears down the EC2
+# instances/VPC/Route53 zone; this one removes the resources
+# `openshift-install destroy cluster` doesn't know about because they were created
+# outside its own CAPI-tracked bookkeeping, plus the cluster itself). See
+# aws-infra/roles/aws_destroy_infra's README for why the order matters.
+- name: Recompute the ccoctl resource name (must match aws_configure_manual_credentials' deterministic naming)
+  set_fact:
+    ccoctl_name: "{{ cluster_name }}-{{ (base_domain | hash('md5'))[:8] }}"
+
+- name: Delete ccoctl-created IAM roles and the OIDC S3 bucket
+  command: "{{ bin_dir | default('~/.local/bin') }}/ccoctl aws delete --name={{ ccoctl_name }} --region={{ aws_region }}"
+  environment:
+    AWS_ACCESS_KEY_ID: "{{ aws_access_key_id }}"
+    AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key }}"
+    AWS_DEFAULT_REGION: "{{ aws_region }}"
+  ignore_errors: true
+
+- name: Find the public hosted zone for base_domain
+  command: >
+    aws route53 list-hosted-zones-by-name --dns-name {{ base_domain }}
+    --query "HostedZones[?Config.PrivateZone==\`false\` && Name==\`{{ base_domain }}.\`].Id | [0]"
+    --output text
+  environment:
+    AWS_ACCESS_KEY_ID: "{{ aws_access_key_id }}"
+    AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key }}"
+    AWS_DEFAULT_REGION: "{{ aws_region }}"
+  register: public_zone_lookup
+  changed_when: false
+  ignore_errors: true
+
+- name: Look up the apps wildcard CNAME's current value in the public zone
+  command: >
+    aws route53 list-resource-record-sets --hosted-zone-id {{ public_zone_lookup.stdout | regex_replace('^/hostedzone/', '') }}
+    --query "ResourceRecordSets[?Name==\`*.apps.{{ cluster_name }}.{{ base_domain }}.\` && Type==\`CNAME\`].ResourceRecords[0].Value | [0]"
+    --output text
+  environment:
+    AWS_ACCESS_KEY_ID: "{{ aws_access_key_id }}"
+    AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key }}"
+    AWS_DEFAULT_REGION: "{{ aws_region }}"
+  register: apps_record_lookup
+  changed_when: false
+  ignore_errors: true
+  when: public_zone_lookup is succeeded and public_zone_lookup.stdout | trim not in ['', 'None']
+
+- name: Delete the apps wildcard CNAME from the public zone
+  amazon.aws.route53:
+    zone: "{{ base_domain }}"
+    hosted_zone_id: "{{ public_zone_lookup.stdout | regex_replace('^/hostedzone/', '') }}"
+    record: "*.apps.{{ cluster_name }}.{{ base_domain }}"
+    type: CNAME
+    value: "{{ apps_record_lookup.stdout }}"
+    ttl: 30
+    private_zone: false
+    state: absent
+  module_defaults:
+    group/aws:
+      access_key: "{{ aws_access_key_id }}"
+      secret_key: "{{ aws_secret_access_key }}"
+      region: "{{ aws_region }}"
+  ignore_errors: true
+  when:
+    - apps_record_lookup is succeeded
+    - apps_record_lookup.stdout | trim not in ['', 'None']
+
+- name: Destroy SNO cluster
+  command: "{{ bin_dir | default('~/.local/bin') }}/openshift-install --dir={{ install_dir }} destroy cluster --log-level=info"
+  args:
+    removes: "{{ install_dir }}/metadata.json"
+  environment:
+    AWS_ACCESS_KEY_ID: "{{ aws_access_key_id }}"
+    AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key }}"
+    AWS_DEFAULT_REGION: "{{ aws_region }}"

@@ -64,7 +64,7 @@ Run `bastion/playbooks/export-backup.yaml` (and, for `network`/`both`,
 on-demand — there's no always-on replication path out of a disconnected cluster, so
 this is a scheduled/manual job, not a continuously-running CR, the same way
 `bastion/playbooks/mirror-refresh.yaml` is a separate
-on-demand refresh rather than part of `provision-sno.yaml`.
+on-demand refresh rather than part of `provision-sno-baremetal.yaml`.
 
 ## Per-environment target variables
 

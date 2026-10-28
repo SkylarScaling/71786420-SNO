@@ -2,5 +2,5 @@
 # Full bare-metal production rollout, staging side: stage mirror content and package
 # the bastion bundle. After this completes, physically carry (or rsync) the
 # resulting tar.gz to the bastion, extract it, then run
-# bastion/playbooks/full-bastion-setup.yaml there.
+# bastion/playbooks/full-bastion-setup-baremetal.yaml there.
 - import_playbook: ./stage-and-package.yaml

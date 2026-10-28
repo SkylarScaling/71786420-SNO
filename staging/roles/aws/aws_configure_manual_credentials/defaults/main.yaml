@@ -1,0 +1,16 @@
+---
+bin_dir: "~/.local/bin"
+
+# Pulled directly from quay.io by the controller (which has real internet access,
+# unlike the SNO node) — same "controller isn't disconnected" exception
+# install_ocp_prerequisites/stage_mirror_content already rely on for their own
+# tool downloads.
+release_image: "quay.io/openshift-release-dev/ocp-release:{{ openshift_version }}-x86_64"
+
+# ccoctl's --name becomes a prefix for the OIDC S3 bucket name (globally unique across
+# ALL AWS accounts) and the IAM role names it creates — a hash of base_domain keeps it
+# short, valid (lowercase alphanumeric/hyphen only), and stable across re-runs of this
+# same environment so ccoctl's own idempotent "reuse what already exists" behavior
+# actually reuses the same bucket/roles instead of minting new ones every retry.
+# aws_destroy_sno recomputes this identically to find what to delete.
+ccoctl_name: "{{ cluster_name }}-{{ (base_domain | hash('md5'))[:8] }}"

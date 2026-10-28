@@ -1,0 +1,30 @@
+---
+# AWS half of the 3-hop install-config/kubeconfig handoff this split needs for AWS
+# (see docs/architectural-decisions.md and staging/roles/aws/aws_provision_sno_ipi's
+# README for why cluster creation can't happen here). Generates install-config.yaml
+# colocated with deploy_mirror_registry's facts (same reason as bare metal), then
+# packages it for the trip back to staging — no baremetal_prepare_bastion/
+# baremetal_generate_agent_iso/baremetal_boot_node_via_bmc/wait_for_sno_install here;
+# those are bare-metal-only physical-hardware steps with no AWS equivalent (AWS
+# provisions the SNO node via IPI, back on staging).
+- name: Generate the AWS install-config and hand it back to staging
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: true
+  tags: [provision_sno, aws]
+  tasks:
+    - include_role:
+        name: unpack_bastion_bundle
+
+    - include_role:
+        name: deploy_mirror_registry
+
+    - include_role:
+        name: configure_bastion_services
+
+    - include_role:
+        name: generate_install_config
+
+    - include_role:
+        name: package_install_config_bundle

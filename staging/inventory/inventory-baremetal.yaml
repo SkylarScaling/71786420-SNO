@@ -1,4 +1,11 @@
 ---
+# The bare-metal variant of staging's inventory — copy or symlink this (or
+# inventory-aws.yaml.j2's rendered output, see aws-infra/playbooks/configure-aws-env.yaml)
+# to staging/inventory/inventory.yaml to activate it; -i points at inventory.yaml
+# directly rather than this file, same reason provision-sno-baremetal.yaml/
+# provision-sno-aws.yaml are separate concrete playbooks (see CLAUDE.md's
+# import_playbook limitation).
+#
 # The single source of per-environment config for this entire deployment — staging
 # AND the bastion. staging always runs on localhost (this automation is executed
 # directly on the internet-connected staging host). package_bastion_bundle flattens
@@ -11,7 +18,7 @@ all:
     # --- Identity ---
     cluster_name: sno-test
     openshift_version: "4.22.17"
-    infra_provider: baremetal   # This repo is bare-metal only.
+    infra_provider: baremetal
     base_domain: example.com     # TODO: override per environment
 
     # --- Credentials / keys ---
@@ -70,9 +77,11 @@ all:
 
     # --- Disconnected mirroring (always on — see docs/architectural-decisions.md #2) ---
     # This is the registry install-config.yaml always points at; there is no
-    # connected-install path.
+    # connected-install path. mirror_registry_quay_port isn't set here — it's a
+    # cross-tree constant (also needed by aws-infra/), sourced from the repo-root
+    # shared-defaults.yaml via playbooks/group_vars/all.yaml instead; see that file's
+    # header comment.
     mirror_registry_quay_hostname: "mirror.{{ base_domain }}"
-    mirror_registry_quay_port: 8443
 
     # --- Backup / DR target (in-cluster) ---
     # configure_oadp_backup always targets the in-cluster NooBaa provided by

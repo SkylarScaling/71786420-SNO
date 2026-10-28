@@ -104,7 +104,7 @@ The same `base64("user:pass")` value (already in the exact format the pull secre
 `auth` field needs, since that's what `slurp` returns for the `.init-credentials`
 file) is also exposed as the `mirror_registry_auth_b64` fact, which
 `generate_install_config` reads directly (both roles run in the same single-host
-`bastion/playbooks/provision-sno.yaml` play) to merge into `pullSecret` — without this,
+`provision-sno-baremetal.yaml`/`provision-sno-aws.yaml` play) to merge into `pullSecret` — without this,
 `openshift-install`'s own "Mirror registry ... is not found in pullSecret" warning is
 fatal in practice: nothing on the node can authenticate to pull images from here,
 which manifested as bootstrapping timing out after 45 minutes with no clearer error

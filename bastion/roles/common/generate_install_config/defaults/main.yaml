@@ -1,5 +1,14 @@
 ---
-# mirror_registry_quay_hostname, mirror_registry_quay_port: set in group_vars/all.yaml.
-# mirror_registry_ca_cert: not defaulted here — it's a fact set by deploy_mirror_registry,
-# which must run before this role. There's no "connected" fallback; every install
-# renders imageContentSources + additionalTrustBundle (see docs/architectural-decisions.md #2).
+# mirror_registry_quay_hostname, mirror_registry_quay_port: set in staging/inventory/
+# inventory.yaml (bastion/group_vars/all.yaml once unpacked). mirror_registry_ca_cert:
+# not defaulted here — it's a fact set by deploy_mirror_registry, which must run
+# before this role. There's no "connected" fallback; every install renders
+# imageContentSources + additionalTrustBundle (see docs/architectural-decisions.md #2).
+
+# AWS platform only (install-config.yaml.j2's infra_provider == 'aws' branch) — sized
+# to emulate the target bare-metal server. aws_region/sno_vpc_id/sno_*_subnet_id/
+# sno_public_subnet_cidr are NOT defaulted here; they're genuinely per-environment,
+# produced by aws-infra/playbooks/provision-hosts.yaml and copied into
+# staging/inventory/inventory.yaml by the operator (see that playbook's printed
+# connection-info message).
+aws_sno_instance_type: m6i.4xlarge

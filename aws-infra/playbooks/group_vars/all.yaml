@@ -1,0 +1,22 @@
+---
+# Non-secret, generic defaults shared by every aws-infra playbook. Per-environment
+# overrides (base_domain, AWS creds, cluster_name, etc.) live in
+# aws-infra/inventory/inventory.yaml instead — NOT here, for the same precedence
+# reason as staging/playbooks/group_vars/all.yaml: this file is ABOVE inline
+# inventory-file vars, so a default here would silently win over an inventory
+# override.
+#
+# automation_repo_url/automation_repo_ref are the one genuine exception: this repo's
+# own git location and the branch to deploy from are constant across environments,
+# not per-environment config, so they belong here rather than in the inventory.
+# Consumed by provision-hosts.yaml to print the exact bootstrap-staging-host.sh
+# invocation for the mirror-staging host.
+automation_repo_url: "git@github.com:SkylarScaling/71786420-SNO.git"
+automation_repo_ref: aws-backport
+
+# Constants genuinely shared across trees (currently just mirror_registry_quay_port,
+# also read by staging/) live in one place at the repo root — see
+# ../../shared-defaults.yaml's header comment for why this isn't a cross-tree runtime
+# dependency. playbook_dir here resolves to aws-infra/playbooks for every play that
+# auto-loads this file.
+mirror_registry_quay_port: "{{ (lookup('file', playbook_dir + '/../../shared-defaults.yaml') | from_yaml).mirror_registry_quay_port }}"

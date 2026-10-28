@@ -2,7 +2,7 @@
 # Bastion-side half of a standalone mirror-content refresh (e.g. to pick up new
 # operator channels on an existing bastion) — the staging-side half is
 # staging/playbooks/stage-and-package.yaml. The initial mirror done during
-# provisioning (provision-sno.yaml) already runs unpack_bastion_bundle +
+# provisioning (provision-sno-baremetal.yaml/provision-sno-aws.yaml) already runs unpack_bastion_bundle +
 # deploy_mirror_registry; use this playbook afterward, once a freshly-packaged bundle
 # has been copied over, to refresh content without re-provisioning infrastructure.
 # See docs/architectural-decisions.md #2.

@@ -1,0 +1,7 @@
+---
+# AWS provisioning, bastion side, step 1 of 2. Kept separate from
+# full-bastion-configure-aws.yaml since staging has to create the cluster (and hand
+# the kubeconfig back) in between — this can't be one atomic playbook spanning two
+# hosts. See staging/README.md's and bastion/README.md's "AWS" sections for the full
+# sequence.
+- import_playbook: ./provision-sno-aws.yaml

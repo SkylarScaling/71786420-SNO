@@ -2,7 +2,7 @@
 # Periodic/on-demand backup-data egress out of a fully disconnected cluster — there is
 # no always-on path from the cluster to the internet, so this is a separate,
 # re-runnable playbook (same pattern as mirror-refresh.yaml being separate from
-# provision-sno.yaml), not something wired into full-bastion-setup.yaml. Schedule it
+# provision-sno-baremetal.yaml (or provision-sno-aws.yaml)), not something wired into full-bastion-setup.yaml. Schedule it
 # however fits the environment (cron on the bastion, etc).
 # See roles/ocp/configure_mcg_backup_export/README.md for the full design rationale —
 # the cluster has no internet route, so data always stages on the bastion first, then

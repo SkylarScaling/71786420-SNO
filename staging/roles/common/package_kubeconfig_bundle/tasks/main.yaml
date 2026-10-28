@@ -1,0 +1,73 @@
+---
+# AWS-only. Runs on staging (hosts: localhost), after aws_provision_sno_ipi +
+# wait_for_sno_install succeed. The cluster's kubeconfig only exists where
+# `openshift-install create cluster` ran (staging, for AWS) — but every
+# roles/ocp/* day-2 role needs to run on the bastion to stay identical across
+# providers, so sno_kubeconfig has to travel out to the bastion too. Same
+# single-file media/rsync pattern as package_install_config_bundle.
+- name: Ensure the bundle export directory exists
+  file:
+    path: "{{ kubeconfig_bundle_export_dir }}"
+    state: directory
+    mode: '0755'
+
+# force_archive: true matters here — the archive module's default behavior for a
+# single-file path is to gzip-compress it in place (no tar wrapper at all), which
+# `unarchive` can't extract. Forcing a real (one-entry) tar is what makes this
+# extractable. common_path() of a single path is its own dirname, so the one archive
+# member is named just "kubeconfig" (not the full absolute path) —
+# unpack_kubeconfig_bundle relies on that to land the file directly in its own
+# sno_kubeconfig's parent directory.
+- name: Archive sno_kubeconfig into one tar.gz
+  archive:
+    path: "{{ sno_kubeconfig }}"
+    dest: "{{ kubeconfig_bundle_export_dir }}/{{ kubeconfig_bundle_name }}"
+    format: gz
+    force_archive: true
+
+- name: Report the media-transfer next step
+  debug:
+    msg: >
+      kubeconfig packaged to
+      {{ kubeconfig_bundle_export_dir }}/{{ kubeconfig_bundle_name }}. Copy it to the
+      bastion, then run unpack_kubeconfig_bundle there (via
+      bastion/playbooks/unpack-cluster-access.yaml).
+  when: kubeconfig_transfer_method == 'media'
+
+- name: Stage the SSH private key here for the rsync push to the bastion
+  copy:
+    src: "{{ kubeconfig_transfer_ssh_key }}"
+    dest: "/tmp/.kubeconfig_transfer_key"
+    mode: '0600'
+  when: kubeconfig_transfer_method == 'rsync'
+
+- name: Fail fast if rsync transfer was requested without a target host
+  fail:
+    msg: "kubeconfig_transfer_method is 'rsync' but kubeconfig_transfer_host is unset."
+  when:
+    - kubeconfig_transfer_method == 'rsync'
+    - not kubeconfig_transfer_host
+
+- name: Rsync the kubeconfig bundle to the bastion
+  command: >
+    rsync -a
+    --rsh="ssh -i /tmp/.kubeconfig_transfer_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+    {{ kubeconfig_bundle_export_dir }}/{{ kubeconfig_bundle_name }}
+    {{ kubeconfig_transfer_user }}@{{ kubeconfig_transfer_host }}:{{ kubeconfig_transfer_dest_dir }}/
+  when: kubeconfig_transfer_method == 'rsync'
+
+- name: Remove the staged relay key
+  file:
+    path: "/tmp/.kubeconfig_transfer_key"
+    state: absent
+  when: kubeconfig_transfer_method == 'rsync'
+
+- name: Report the rsync-transfer next step
+  debug:
+    msg: >
+      kubeconfig bundle pushed to
+      {{ kubeconfig_transfer_user }}@{{ kubeconfig_transfer_host }}:
+      {{ kubeconfig_transfer_dest_dir }}/{{ kubeconfig_bundle_name }}. Run
+      unpack_kubeconfig_bundle on the bastion (via
+      bastion/playbooks/unpack-cluster-access.yaml).
+  when: kubeconfig_transfer_method == 'rsync'

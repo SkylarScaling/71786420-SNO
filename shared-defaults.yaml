@@ -1,0 +1,23 @@
+---
+# Constants genuinely shared across this repo's independent top-level trees
+# (staging/, bastion/, aws-infra/) — not per-environment config (that belongs in
+# staging/inventory/inventory.yaml) and not tree-local (that belongs in a role's own
+# defaults/main.yaml or a tree's playbooks/group_vars/all.yaml).
+#
+# This is a plain, static, committed file — reading it is not a runtime dependency
+# between trees (no tree waits on or calls into another to get it). It's loaded via
+# `lookup('file', ...) | from_yaml` from each consuming tree's playbooks/group_vars/
+# all.yaml, a local file read, same as any other var lookup.
+#
+# bastion/ is the one tree that doesn't read this file directly — it never receives a
+# full repo checkout (only its own bastion/ directory, via package_bastion_bundle's
+# tar.gz), so this file wouldn't be physically present there. It doesn't need to be:
+# staging already flattens every var bastion needs (including these) into
+# bastion-resolved-vars.yaml as part of that same bundle.
+#
+# Keep this file small — it exists only for values that would otherwise have to be
+# hand-kept-in-sync across multiple trees. Most config is still per-environment
+# inventory or tree-local role defaults; don't move things here just because they're
+# constants within a single tree.
+
+mirror_registry_quay_port: 8443

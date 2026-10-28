@@ -1,3 +1,5 @@
 ansible
 kubernetes
 openshift
+boto3
+botocore

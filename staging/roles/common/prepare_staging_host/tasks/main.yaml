@@ -1,0 +1,15 @@
+---
+# First Ansible-driven step on a freshly bootstrapped staging host — see
+# ../../../bootstrap-staging-host.sh, which deliberately does the minimum possible
+# in bash (just enough to get Ansible itself running: python3/pip/git, a git clone,
+# and `pip install -r requirements.txt`) and hands off here. Every other staging/
+# playbook assumes this has already run.
+- name: Install this repo's required Ansible Galaxy collections
+  command: "ansible-galaxy collection install -r {{ playbook_dir }}/../../requirements.yml"
+  changed_when: true
+
+- name: Ensure rsync/tar/gzip are present (used by the package_*_bundle transfer roles)
+  package:
+    name: [rsync, tar, gzip]
+    state: present
+  become: true

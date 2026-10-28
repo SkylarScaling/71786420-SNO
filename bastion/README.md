@@ -4,11 +4,18 @@ Runs directly on the bastion (`hosts: localhost` everywhere in this tree), once 
 staging-produced `tar.gz` bundle has been physically copied (or rsynced) over and
 extracted into an empty working directory here (so this `bastion/` directory sits
 alongside the bundle's `mirror-content/`, `mirror-installers/`, and
-`bastion-resolved-vars.yaml`). `provision-sno.yaml`'s first task,
-`unpack_bastion_bundle`, lays all of that out and writes
+`bastion-resolved-vars.yaml`). `provision-sno-baremetal.yaml`/`provision-sno-aws.yaml`'s
+first task, `unpack_bastion_bundle`, lays all of that out and writes
 `playbooks/group_vars/all.yaml` from the bundled resolved config — don't hand-edit
 that file; edit `staging/inventory/inventory.yaml` and re-package/re-transfer
 instead.
+
+This tree is identical across both providers — no AWS-specific role exists anywhere
+under `roles/common/` or `roles/ocp/`. On AWS, `provision-sno-aws.yaml` generates the
+install-config and hands it back to the staging host, which runs the actual
+`openshift-install create cluster` (see `docs/aws-test-environment-architecture.md`
+§3 for why); `unpack-cluster-access.yaml` then unpacks the kubeconfig staging hands
+back, after which day-2 roles run exactly as they do on bare metal.
 
 ## Credentials
 
@@ -33,13 +40,22 @@ need to round-trip them through the staging bundle):
 ```bash
 cd bastion/playbooks
 
-# Full production rollout (provision + storage + MetalLB + logging + tracing +
-# alerting + backup + Day 2 middleware)
-ansible-playbook full-bastion-setup.yaml -i ../inventory/inventory.yaml
+# Full production rollout, bare metal (provision + storage + MetalLB + logging +
+# tracing + alerting + backup + Day 2 middleware)
+ansible-playbook full-bastion-setup-baremetal.yaml -i ../inventory/inventory.yaml
 
-# Just provision (always disconnected: unpacks the bundle, deploys the mirror
-# registry, generates the agent ISO, boots the node via BMC, then installs)
-ansible-playbook provision-sno.yaml -i ../inventory/inventory.yaml
+# Just provision, bare metal (always disconnected: unpacks the bundle, deploys the
+# mirror registry, generates the agent ISO, boots the node via BMC, then installs)
+ansible-playbook provision-sno-baremetal.yaml -i ../inventory/inventory.yaml
+
+# AWS only: generate the install-config and hand it back to staging to create the
+# cluster (see docs/aws-test-environment-architecture.md §3)
+ansible-playbook full-bastion-provision-aws.yaml -i ../inventory/inventory.yaml
+
+# AWS only: once staging has created the cluster and handed the kubeconfig back,
+# unpack it and run storage/logging/backup-dr (see that doc's §8 for why MetalLB/
+# tracing/alerting/middleware aren't included here)
+ansible-playbook full-bastion-configure-aws.yaml -i ../inventory/inventory.yaml
 
 # Upgrade drill
 ansible-playbook upgrade-sno.yaml -i ../inventory/inventory.yaml \
@@ -49,8 +65,11 @@ ansible-playbook upgrade-sno.yaml -i ../inventory/inventory.yaml \
 ansible-playbook simulate-node-failure.yaml -i ../inventory/inventory.yaml \
   -e simulate_node_failure_confirm=true -e sno_node_name=<node>
 
-# Tear down
-ansible-playbook destroy-sno.yaml -i ../inventory/inventory.yaml
+# Tear down (bare metal)
+ansible-playbook destroy-sno-baremetal.yaml -i ../inventory/inventory.yaml
+
+# Tear down (AWS) — run staging/playbooks/destroy-sno-aws.yaml first, then
+# aws-infra/playbooks/destroy-hosts.yaml; there is no bastion-side AWS teardown step
 
 # Refresh mirrored content (after a new bundle produced by
 # staging/playbooks/stage-and-package.yaml has been copied over) + deploy the

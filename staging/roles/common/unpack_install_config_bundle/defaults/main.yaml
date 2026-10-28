@@ -1,0 +1,4 @@
+---
+# Where the bastion-produced install-config bundle lands on staging once physically
+# copied (or rsynced) over.
+install_config_bundle_path: "~/sno-install-config-bundle.tar.gz"

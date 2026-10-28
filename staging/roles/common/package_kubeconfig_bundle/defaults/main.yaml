@@ -1,0 +1,13 @@
+---
+# media (default) / rsync (opt-in) — same convention as package_bastion_bundle. AWS
+# environments default this to rsync at the call site (a live VPC path genuinely
+# exists between staging and the bastion).
+kubeconfig_transfer_method: media
+
+kubeconfig_bundle_export_dir: /tmp/staging-export
+kubeconfig_bundle_name: "sno-kubeconfig-{{ cluster_name }}.tar.gz"
+
+kubeconfig_transfer_host: ""
+kubeconfig_transfer_user: root
+kubeconfig_transfer_ssh_key: "{{ ssh_private_key }}"
+kubeconfig_transfer_dest_dir: /root

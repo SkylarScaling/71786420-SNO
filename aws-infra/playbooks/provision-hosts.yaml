@@ -1,0 +1,107 @@
+---
+# Provisions the two EC2 hosts that become the staging and bastion machines for the
+# AWS test loop — bare metal has no equivalent of this playbook since the physical
+# staging/bastion hosts already exist on the customer's network. This playbook only
+# creates infrastructure; it does not run any of staging/ or bastion/'s own
+# automation against the new hosts (see aws-infra/README.md and the "Getting the repo
+# onto the two new EC2 instances" section of staging/README.md and bastion/README.md
+# for what to do next).
+- name: Provision the AWS test-loop network and hosts
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [provision_hosts]
+  tasks:
+    - name: Build the VPC (public subnet for staging, route-less private subnet for everything else)
+      include_role:
+        name: aws_provision_network
+
+    - name: Provision the internet-connected mirror-staging EC2 instance
+      include_role:
+        name: aws_provision_mirror_staging_host
+        public: true   # exposes mirror_staging_ssh_user/mirror_staging_public_ip etc. to the debug task below
+
+    - name: Provision the bastion EC2 instance in the private subnet
+      include_role:
+        name: aws_provision_bastion
+        public: true   # exposes bastion_ssh_user/bastion_private_ip etc. to the debug task below
+
+    # Only now do sno_vpc_id/sno_private_subnet_id/etc. (set by aws_provision_network)
+    # actually exist, so this is the earliest point staging/inventory/inventory.yaml
+    # can be completely rendered — doing it here instead of in configure-aws-env.yaml
+    # means the operator never hand-edits VPC/subnet values into it.
+    - name: Wait for SSH to come up on the mirror-staging host
+      wait_for:
+        host: "{{ mirror_staging_public_ip }}"
+        port: 22
+        delay: 10
+        timeout: 300
+
+    - name: Render staging/'s complete AWS inventory now that VPC/subnet facts exist
+      template:
+        src: "{{ playbook_dir }}/../../staging/inventory/inventory-aws.yaml.j2"
+        dest: "{{ playbook_dir }}/../../staging/inventory/inventory.yaml"
+        mode: '0644'
+
+    - name: Ensure ~/tmp exists on the mirror-staging host (for its copy of the AWS credentials file)
+      command: >
+        ssh -i {{ ssh_private_key }} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+        {{ mirror_staging_ssh_user }}@{{ mirror_staging_public_ip }} "mkdir -p ~/tmp"
+
+    # staging/inventory/inventory.yaml's lookup('file', aws_creds_file) is evaluated
+    # wherever staging/ actually runs, not where this template was rendered — without
+    # this, the first staging/ playbook run on the mirror-staging host would fail
+    # looking for a credentials file that only exists back where configure-aws-env.yaml
+    # ran.
+    - name: Copy the AWS credentials file to the mirror-staging host
+      command: >
+        scp -i {{ ssh_private_key }} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+        {{ lookup('env', 'HOME') }}/tmp/{{ base_domain }}-creds
+        {{ mirror_staging_ssh_user }}@{{ mirror_staging_public_ip }}:~/tmp/{{ base_domain }}-creds
+
+    # Lands in $HOME rather than a repo path, since the repo hasn't been cloned onto
+    # the mirror-staging host yet at this point — bootstrap-staging-host.sh (copied
+    # below) moves it into place itself once the clone exists.
+    - name: Copy the completed inventory to the mirror-staging host
+      command: >
+        scp -i {{ ssh_private_key }} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+        {{ playbook_dir }}/../../staging/inventory/inventory.yaml
+        {{ mirror_staging_ssh_user }}@{{ mirror_staging_public_ip }}:~/sno-staging-inventory.yaml
+
+    # The mirror-staging host has nothing on it yet — not even Ansible. This script
+    # does the minimum possible in bash to get Ansible running and this repo cloned;
+    # everything past that point (Galaxy collections, mirroring, packaging, cluster
+    # creation) happens in Ansible — see staging/bootstrap-staging-host.sh and
+    # staging/playbooks/prepare-staging-host.yaml.
+    - name: Copy the staging-host bootstrap script to the mirror-staging host
+      command: >
+        scp -i {{ ssh_private_key }} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+        {{ playbook_dir }}/../../staging/bootstrap-staging-host.sh
+        {{ mirror_staging_ssh_user }}@{{ mirror_staging_public_ip }}:~/bootstrap-staging-host.sh
+
+    - name: Print connection info and next steps
+      debug:
+        msg:
+          - "=================================================================="
+          - "Mirror-staging host and bastion provisioned"
+          - "=================================================================="
+          - "Mirror-staging public IP:  {{ mirror_staging_public_ip }}"
+          - "Mirror-staging private IP: {{ mirror_staging_private_ip }}"
+          - "SSH (mirror-staging):      ssh -i {{ ssh_private_key }} {{ mirror_staging_ssh_user }}@{{ mirror_staging_public_ip }}"
+          - "------------------------------------------------------------------"
+          - "Bastion private IP:        {{ bastion_private_ip }}"
+          - "SSH (bastion, via proxy):  ssh -i {{ ssh_private_key }} -o ProxyCommand=\"ssh -i {{ ssh_private_key }} -W %h:%p -q {{ mirror_staging_ssh_user }}@{{ mirror_staging_public_ip }}\" {{ bastion_ssh_user }}@{{ bastion_private_ip }}"
+          - "------------------------------------------------------------------"
+          - "staging/inventory/inventory.yaml (fully rendered), the AWS credentials"
+          - "file, and bootstrap-staging-host.sh have all already been copied to the"
+          - "mirror-staging host's $HOME."
+          - "------------------------------------------------------------------"
+          - "Next: SSH to mirror-staging above, then run:"
+          - "  bash ~/bootstrap-staging-host.sh {{ automation_repo_url }} {{ automation_repo_ref }}"
+          - "That installs Ansible/Python/git, clones this repo, installs this"
+          - "repo's Python deps, and moves the staged inventory into place. Then:"
+          - "  export PATH=\"$HOME/.local/bin:$PATH\""
+          - "  cd ~/sno-automation/staging/playbooks"
+          - "  ansible-playbook prepare-staging-host.yaml -i ../inventory/inventory.yaml"
+          - "The bastion gets bastion/ for free as part of package_bastion_bundle's"
+          - "tar.gz once staging runs stage-and-package.yaml."

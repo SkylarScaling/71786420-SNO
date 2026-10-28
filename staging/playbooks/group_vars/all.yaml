@@ -4,9 +4,10 @@
 # staging/inventory/inventory.yaml instead — NOT here. Ansible's precedence puts this
 # file ABOVE inline inventory-file vars, so a default here would silently win over an
 # inventory override; see staging/inventory/inventory.yaml's own header comment.
-#
-# Currently empty: every var this repo needs is genuinely per-environment and
-# belongs in staging/inventory/inventory.yaml. Kept as a placeholder file (rather
-# than removed) so the auto-load convention — plays directly under
-# staging/playbooks/ get this file for free — is documented and ready if a real
-# shared default is ever needed.
+
+# Constants genuinely shared across trees (currently just mirror_registry_quay_port,
+# also read by aws-infra/) live in one place at the repo root — see
+# ../../../shared-defaults.yaml's header comment for why this isn't a cross-tree
+# runtime dependency. playbook_dir here resolves to staging/playbooks for every play
+# that auto-loads this file (anything directly under staging/playbooks/).
+mirror_registry_quay_port: "{{ (lookup('file', playbook_dir + '/../../shared-defaults.yaml') | from_yaml).mirror_registry_quay_port }}"

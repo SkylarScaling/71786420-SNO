@@ -1,0 +1,13 @@
+---
+# Infra-only teardown (EC2 instances, VPC, Route53). Run
+# staging/playbooks/destroy-sno-aws.yaml FIRST to remove the cluster itself and its
+# AWS-side state (ccoctl IAM roles/OIDC bucket, the public-zone apps CNAME) — see
+# aws_destroy_infra's README for why the order matters.
+- name: Destroy the AWS test-loop hosts and network
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [destroy_hosts]
+  tasks:
+    - include_role:
+        name: aws_destroy_infra

@@ -1,6 +1,6 @@
 # unpack_bastion_bundle
 
-First task in `bastion/playbooks/provision-sno.yaml` — the bastion-side counterpart
+First task in `bastion/playbooks/provision-sno-baremetal.yaml` and `provision-sno-aws.yaml` — the bastion-side counterpart
 of staging's `package_bastion_bundle`. Lays down what the bundle carried: mirrored
 registry content into `mirror_archive_dir`, the installer tarballs/RPMs into
 `mirror_installers_dir`, `openshift-install`/`oc` into `bin_dir`, and the flattened

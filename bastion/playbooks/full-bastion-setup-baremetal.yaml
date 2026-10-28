@@ -6,7 +6,7 @@
 # staging-produced bundle has already been copied here — run
 # staging/playbooks/full-staging-setup.yaml first, physically carry (or rsync) the
 # resulting tar.gz over, extract it, then run this.
-- import_playbook: ./provision-sno.yaml
+- import_playbook: ./provision-sno-baremetal.yaml
 - import_playbook: ./configure-storage.yaml
 - import_playbook: ./configure-metallb.yaml
 - import_playbook: ./configure-logging.yaml
