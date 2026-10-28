@@ -9,10 +9,12 @@
   hosts: localhost
   connection: local
   gather_facts: true
-  tags: [provision_sno, baremetal, stage, package]
+  tags: [provision_sno, baremetal]
   tasks:
     - include_role:
         name: stage_mirror_content
+      tags: [stage]
 
     - include_role:
         name: package_bastion_bundle
+      tags: [package]

@@ -36,6 +36,20 @@ all:
     sno_public_subnet_id: {{ sno_public_subnet_id }}
     sno_public_subnet_cidr: {{ sno_public_subnet_cidr }}
 
+    # --- Bastion bundle transfer (package_bastion_bundle) ---
+    # media (package_bastion_bundle's own default) assumes no network path exists
+    # between staging and the bastion at all — true on bare metal, false here: a real
+    # VPC path exists, and the bastion has no removable-media slot to carry a tar.gz
+    # to in the first place. bastion_private_ip/bastion_ssh_user are already known at
+    # this render time (set by aws_provision_bastion, exposed to this play by
+    # provision-hosts.yaml's `public: true` on that include_role) — deliberately
+    # outside any raw-templating block, since this needs to resolve now, not when
+    # staging/ later runs.
+    bastion_transfer_method: rsync
+    bastion_transfer_host: {{ bastion_private_ip }}
+    bastion_transfer_user: {{ bastion_ssh_user }}
+    bastion_transfer_dest_dir: "/home/{{ bastion_ssh_user }}"
+
 {% raw %}
     # --- Credentials / keys ---
     ssh_key: "{{ lookup('file', '~/.ssh/id_ed25519.pub') }}"
