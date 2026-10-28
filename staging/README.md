@@ -55,11 +55,23 @@ created, so it's rendered there rather than by `configure-aws-env.yaml`).
 
 ## Credentials
 
-Secrets (`pull_secret`, `ssh_key`) are read from files via `lookup('file', ...)` in
-`inventory/inventory.yaml` — never commit them. BMC, SMTP, and external-backup
-credentials are also per-environment and live there — for a real deployment, move
-the actual secret values into `ansible-vault` rather than committing them in plain
-text.
+Secrets (`pull_secret`, `ssh_key`/`ssh_private_key`) are read from files via
+`lookup('file', ...)` in `inventory/inventory.yaml` — never commit them. These
+lookups are evaluated wherever `staging/` actually runs, so the referenced files
+(`~/pull-secret.json`, `~/.ssh/id_ed25519`/`.pub`) must physically exist **on the
+staging host itself**, not just on whatever machine you authored the inventory from:
+
+- **AWS**: `aws-infra/playbooks/provision-hosts.yaml` copies all three from your
+  local machine to the mirror-staging host automatically, as part of provisioning —
+  nothing to do here.
+- **Bare metal**: there's no equivalent provisioning step (the physical staging host
+  already exists; nothing "provisions" it), so place these files on it yourself
+  before the first `staging/` playbook run — e.g. `scp ~/pull-secret.json
+  ~/.ssh/id_ed25519{,.pub} <user>@<staging-host>:~`.
+
+BMC, SMTP, and external-backup credentials are also per-environment and live in
+`inventory/inventory.yaml` — for a real deployment, move the actual secret values
+into `ansible-vault` rather than committing them in plain text.
 
 ## Variable reference
 

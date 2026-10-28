@@ -34,9 +34,13 @@ facts exist (see below).
 
 ```bash
 # Create the VPC + both EC2 instances. Also renders staging/inventory/inventory.yaml
-# (now that VPC/subnet facts exist) and scp's it, the AWS credentials file, and
-# staging/bootstrap-staging-host.sh to the mirror-staging host's $HOME — prints the
-# exact next command to run there.
+# (now that VPC/subnet facts exist) and scp's it, the AWS credentials file,
+# staging/bootstrap-staging-host.sh, your local ~/.ssh/id_ed25519(.pub), and
+# ~/pull-secret.json to the mirror-staging host's $HOME — prints the exact next
+# command to run there. (Those last three are needed because
+# staging/inventory/inventory.yaml's lookup('file', ...) calls for ssh_key/
+# pull_secret/ssh_private_key are evaluated wherever staging/ actually runs, not
+# wherever this inventory was authored.)
 ansible-playbook provision-hosts.yaml -i ../inventory/inventory.yaml
 
 # Tear down. Run staging/playbooks/destroy-sno-aws.yaml FIRST — this only removes

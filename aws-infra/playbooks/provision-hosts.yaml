@@ -59,6 +59,48 @@
         {{ lookup('env', 'HOME') }}/tmp/{{ base_domain }}-creds
         {{ mirror_staging_ssh_user }}@{{ mirror_staging_public_ip }}:~/tmp/{{ base_domain }}-creds
 
+    # staging/inventory/inventory.yaml's own lookup('file', ...) calls for ssh_key/
+    # pull_secret (and package_bastion_bundle's rsync transfer, which authenticates to
+    # the bastion using ssh_private_key) are all evaluated wherever staging/ actually
+    # runs too — same reasoning as the credentials file above. Without copying these,
+    # the very first staging/ playbook run fails looking for files that only exist on
+    # the operator's own machine. Same local paths configure-aws-env.yaml already
+    # assumed when it imported the EC2 key pair, and generate_install_config/
+    # package_bastion_bundle already assume on the bare-metal side.
+    - name: Ensure ~/.ssh exists on the mirror-staging host
+      command: >
+        ssh -i {{ ssh_private_key }} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+        {{ mirror_staging_ssh_user }}@{{ mirror_staging_public_ip }} "mkdir -p -m 700 ~/.ssh"
+
+    # Local source paths are resolved via lookup('env', 'HOME') rather than relying on
+    # ssh_private_key's literal "~/..." expanding — command: doesn't invoke a shell, so
+    # there's nothing to expand a leading ~ for the LOCAL file argument (same reason
+    # the AWS-credentials-file copy above uses lookup('env', 'HOME'), not a bare "~").
+    # Remote-side "~" (both here and in ssh_private_key's own value) is fine as-is: scp
+    # hands remote paths to a shell on the far end, which already expands them.
+    - name: Copy the SSH private key to the mirror-staging host (needed there to reach the bastion over rsync)
+      command: >
+        scp -i {{ ssh_private_key }} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+        {{ lookup('env', 'HOME') }}/.ssh/id_ed25519
+        {{ mirror_staging_ssh_user }}@{{ mirror_staging_public_ip }}:{{ ssh_private_key }}
+
+    - name: Set the SSH private key's permissions on the mirror-staging host (sshd rejects group/world-readable keys)
+      command: >
+        ssh -i {{ ssh_private_key }} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+        {{ mirror_staging_ssh_user }}@{{ mirror_staging_public_ip }} "chmod 600 {{ ssh_private_key }}"
+
+    - name: Copy the SSH public key to the mirror-staging host (staging/inventory/inventory.yaml's ssh_key var)
+      command: >
+        scp -i {{ ssh_private_key }} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+        {{ lookup('env', 'HOME') }}/.ssh/id_ed25519.pub
+        {{ mirror_staging_ssh_user }}@{{ mirror_staging_public_ip }}:{{ ssh_private_key }}.pub
+
+    - name: Copy the pull secret to the mirror-staging host (staging/inventory/inventory.yaml's pull_secret var)
+      command: >
+        scp -i {{ ssh_private_key }} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+        {{ lookup('env', 'HOME') }}/pull-secret.json
+        {{ mirror_staging_ssh_user }}@{{ mirror_staging_public_ip }}:~/pull-secret.json
+
     # Lands in $HOME rather than a repo path, since the repo hasn't been cloned onto
     # the mirror-staging host yet at this point — bootstrap-staging-host.sh (copied
     # below) moves it into place itself once the clone exists.
@@ -93,8 +135,8 @@
           - "SSH (bastion, via proxy):  ssh -i {{ ssh_private_key }} -o ProxyCommand=\"ssh -i {{ ssh_private_key }} -W %h:%p -q {{ mirror_staging_ssh_user }}@{{ mirror_staging_public_ip }}\" {{ bastion_ssh_user }}@{{ bastion_private_ip }}"
           - "------------------------------------------------------------------"
           - "staging/inventory/inventory.yaml (fully rendered), the AWS credentials"
-          - "file, and bootstrap-staging-host.sh have all already been copied to the"
-          - "mirror-staging host's $HOME."
+          - "file, bootstrap-staging-host.sh, your SSH keypair, and ~/pull-secret.json"
+          - "have all already been copied to the mirror-staging host's $HOME."
           - "------------------------------------------------------------------"
           - "The -A above forwards your local ssh-agent so bootstrap-staging-host.sh"
           - "can clone this repo over SSH as you, with no key copied onto the host -"

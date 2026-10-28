@@ -177,8 +177,12 @@ the staging side automatically, then the operator takes over:
    copying a private key onto the host — confirm a key is loaded first with
    `ssh-add -l` locally.
    `bootstrap-staging-host.sh` (`staging/bootstrap-staging-host.sh`, scp'd there by
-   `provision-hosts.yaml` alongside the rendered inventory and AWS credentials file)
-   does the minimum possible in bash: installs `python3`/`python3-pip`/`git` via the
+   `provision-hosts.yaml` alongside the rendered inventory, the AWS credentials file,
+   the operator's own SSH keypair, and `~/pull-secret.json` — all of them needed
+   because `staging/inventory/inventory.yaml`'s `lookup('file', ...)` calls for
+   `ssh_key`/`pull_secret`/`ssh_private_key` are evaluated wherever `staging/`
+   actually runs, same reasoning as the credentials file) does the minimum possible
+   in bash: installs `python3`/`python3-pip`/`git` via the
    system package manager, clones the repo, runs `pip install -r requirements.txt`
    (which installs Ansible itself — unavoidable in bash, since nothing past that
    point can be an Ansible task until Ansible exists), and moves the already-pushed,
