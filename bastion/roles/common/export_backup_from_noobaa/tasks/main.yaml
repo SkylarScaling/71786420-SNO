@@ -37,8 +37,8 @@
     path: "{{ backup_export_workspace }}"
     state: directory
     mode: '0700'
-    owner: "{{ ansible_user }}"
-    group: "{{ ansible_user }}"
+    owner: "{{ ansible_user_id }}"
+    group: "{{ ansible_user_id }}"
   become: true
 
 - name: Ensure bin_dir exists
