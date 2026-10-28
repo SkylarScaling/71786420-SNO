@@ -155,7 +155,11 @@
     content: "{{ pull_secret }}"
     dest: "~/.docker/config.json"
     mode: '0600'
-  no_log: true
+  # Hidden by default since pull_secret is a credential. Pass
+  # -e reveal_pull_secret_errors=true for one run to see the real failure reason if
+  # this task fails — it'll print the pull secret itself to the console, so only use
+  # it transiently while debugging, never leave it set.
+  no_log: "{{ not (reveal_pull_secret_errors | default(false) | bool) }}"
 
 # Launched async/poll:0 (fire-and-forget) purely so this play can poll its progress
 # in between — the command module itself still blocks until oc-mirror exits either
