@@ -11,10 +11,17 @@
   gather_facts: true
   tags: [provision_sno, baremetal]
   tasks:
-    - include_role:
+    # import_role (static, resolved at parse time), not this repo's usual
+    # include_role — needed here specifically because --tags package/stage has to
+    # actually skip one of these two roles. include_role is dynamic: tags on it only
+    # gate the include task itself (which still always runs to discover what's
+    # inside), not the tasks within, so `--tags package` ran stage_mirror_content's
+    # tasks anyway (confirmed against a real run). import_role applies its tags to
+    # every task inside automatically, the way `roles:` entries do.
+    - import_role:
         name: stage_mirror_content
       tags: [stage]
 
-    - include_role:
+    - import_role:
         name: package_bastion_bundle
       tags: [package]
