@@ -164,12 +164,18 @@ instances, same as a real bare-metal staging host starts as a blank machine on t
 customer's network. `aws-infra/playbooks/provision-hosts.yaml` closes that gap for
 the staging side automatically, then the operator takes over:
 
-1. SSHes directly to the staging host's public IP and runs
-   `bash ~/bootstrap-staging-host.sh <repo-url> <ref>` (the exact command, with both
-   arguments filled in, is in `provision-hosts.yaml`'s printed summary —
+1. SSHes directly to the staging host's public IP **with agent forwarding**
+   (`ssh -A ...` — `provision-hosts.yaml`'s printed summary already includes `-A`)
+   and runs `bash ~/bootstrap-staging-host.sh <repo-url> <ref>` (the exact command,
+   with both arguments filled in, is in that same summary —
    `automation_repo_url`/`automation_repo_ref` are constants in
    `aws-infra/playbooks/group_vars/all.yaml`, not prompted for, since this repo's own
-   git location and branch don't vary per environment).
+   git location and branch don't vary per environment). Agent forwarding matters
+   because `automation_repo_url` defaults to an SSH URL: without `-A`, the staging
+   host has no key GitHub trusts and the clone fails with `Permission denied
+   (publickey)`. `-A` forwards the operator's own local ssh-agent instead of ever
+   copying a private key onto the host — confirm a key is loaded first with
+   `ssh-add -l` locally.
    `bootstrap-staging-host.sh` (`staging/bootstrap-staging-host.sh`, scp'd there by
    `provision-hosts.yaml` alongside the rendered inventory and AWS credentials file)
    does the minimum possible in bash: installs `python3`/`python3-pip`/`git` via the

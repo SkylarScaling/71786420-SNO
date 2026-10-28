@@ -29,6 +29,14 @@ fully-rendered `inventory.yaml` and the AWS credentials file) to the staging hos
 run, and `docs/aws-test-environment-architecture.md` §4. On bare metal, copy the
 script over yourself (it has no other dependencies) and supply your own repo URL.
 
+If `automation_repo_url` is an SSH URL (the default — see
+`aws-infra/playbooks/group_vars/all.yaml`), the host doing the clone needs an SSH key
+GitHub trusts. Don't copy your personal key onto the staging host for this — SSH in
+with agent forwarding instead (`ssh -A ...`, already how `provision-hosts.yaml`'s
+printed connection command connects to the AWS staging host) so the clone
+authenticates as you without any key ever touching the host. Run `ssh-add -l`
+locally first to confirm a key is loaded in your agent.
+
 On AWS only, this tree also gains `roles/aws/*` and runs `openshift-install create
 cluster` itself, using an install-config the bastion generates and hands back (see
 `docs/aws-test-environment-architecture.md` §3 for why cluster creation can't happen
