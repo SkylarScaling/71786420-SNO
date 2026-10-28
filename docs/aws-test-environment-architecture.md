@@ -185,7 +185,11 @@ the staging side automatically, then the operator takes over:
    fully-rendered `staging/inventory/inventory.yaml` into place (no VPC/subnet values
    are ever hand-copied — `provision-hosts.yaml` renders
    `staging/inventory/inventory-aws.yaml.j2` itself once the VPC/subnets it needs
-   actually exist, not `configure-aws-env.yaml`, which runs before they do).
+   actually exist, not `configure-aws-env.yaml`, which runs before they do). It also
+   appends `~/.local/bin` to `PATH` in `~/.bashrc`, for every *future* login — the
+   `pip install --user` it just ran put `ansible` there, but a script can't export
+   into the shell that invoked it, so the current session still needs the one-time
+   `export PATH="$HOME/.local/bin:$PATH"` the script prints at the end.
 2. Runs `ansible-playbook prepare-staging-host.yaml -i ../inventory/inventory.yaml`
    (installs this repo's Galaxy collections and a couple of system packages — see
    `staging/roles/common/prepare_staging_host/README.md`), then

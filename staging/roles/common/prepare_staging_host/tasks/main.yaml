@@ -13,3 +13,14 @@
     name: [rsync, tar, gzip]
     state: present
   become: true
+
+# Mirrors bootstrap-staging-host.sh's own "what to run next" convention, now that
+# Ansible itself can print it (and can pick the right command for infra_provider,
+# which bash had no clean way to read from staging/inventory/inventory.yaml).
+- name: Print next steps
+  debug:
+    msg: >-
+      Staging host prepared. Next:
+      ansible-playbook
+      {{ 'full-staging-setup-aws.yaml' if infra_provider == 'aws' else 'full-staging-setup-baremetal.yaml' }}
+      -i ../inventory/inventory.yaml

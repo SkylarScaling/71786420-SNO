@@ -36,6 +36,16 @@ python3 -m pip install --user --upgrade pip
 # Ansible doesn't exist on this host until this line runs.
 python3 -m pip install --user -r "${CLONE_DIR}/requirements.txt"
 
+# --user installs (ansible, boto3, etc. above) land in ~/.local/bin, which isn't on
+# PATH by default. A script can't export into the parent shell that invoked it, so
+# the current session still needs the manual `export` printed below — but we can at
+# least make every future login shell on this host already have it, so this is a
+# one-time nuisance per host, not per session.
+PATH_LINE='export PATH="$HOME/.local/bin:$PATH"'
+if ! grep -qxF "${PATH_LINE}" "${HOME}/.bashrc" 2>/dev/null; then
+  echo "${PATH_LINE}" >> "${HOME}/.bashrc"
+fi
+
 # AWS only: aws-infra/playbooks/provision-hosts.yaml already scp'd a fully-rendered
 # inventory here (it needs VPC/subnet facts that only exist after the VPC is
 # created, so it couldn't be baked into this repo checkout before now) — move it
@@ -49,7 +59,9 @@ fi
 
 cat <<EOF
 
-Bootstrap complete. Next, in Ansible:
+Bootstrap complete. ~/.local/bin has been added to PATH for future logins, but this
+shell doesn't have it yet (a script can't export into the shell that ran it) — so for
+this session:
   export PATH="\${HOME}/.local/bin:\${PATH}"
   cd ${CLONE_DIR}/staging/playbooks
   ansible-playbook prepare-staging-host.yaml -i ../inventory/inventory.yaml

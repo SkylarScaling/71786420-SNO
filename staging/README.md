@@ -17,11 +17,17 @@ Ansible task until Ansible exists) — then hands off to Ansible for everything 
 
 ```bash
 ./bootstrap-staging-host.sh <git-repo-url> [branch] [clone-dir]
-# then:
+# then, in this same shell session:
 export PATH="$HOME/.local/bin:$PATH"
 cd <clone-dir>/staging/playbooks
 ansible-playbook prepare-staging-host.yaml -i ../inventory/inventory.yaml
 ```
+
+The `export` is only needed for this first session — the script also appends it to
+`~/.bashrc`, so every subsequent login to this host already has `~/.local/bin` (where
+the `--user` pip install above put `ansible`) on `PATH` with no manual step. It can't
+apply that to the *current* shell itself: a script can't export into the shell that
+invoked it, only into files that take effect on the next one.
 
 On AWS, `aws-infra/playbooks/provision-hosts.yaml` already copies this script (plus a
 fully-rendered `inventory.yaml` and the AWS credentials file) to the staging host's
