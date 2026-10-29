@@ -14,6 +14,14 @@
 automation_repo_url: "git@github.com:SkylarScaling/71786420-SNO.git"
 automation_repo_ref: aws-backport
 
+# Must match bootstrap-staging-host.sh's own default clone-dir
+# (${3:-$HOME/sno-automation}) — provision-hosts.yaml uses this to detect whether the
+# repo is already cloned on the mirror-staging host, so re-runs after the first
+# bootstrap can deliver inventory.yaml directly into place instead of re-staging it
+# at ~/sno-staging-inventory.yaml forever. Override here (not per-environment) if you
+# ever pass a custom clone-dir to bootstrap-staging-host.sh.
+automation_clone_dir: "~/sno-automation"
+
 # Constants genuinely shared across trees (currently just mirror_registry_quay_port,
 # also read by staging/) live in one place at the repo root — see
 # ../../shared-defaults.yaml's header comment for why this isn't a cross-tree runtime
