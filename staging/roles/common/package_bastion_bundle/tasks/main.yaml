@@ -94,13 +94,20 @@
 
 - name: Report the media-transfer next step
   debug:
-    msg: >
-      Bundle packaged to {{ bastion_bundle_export_dir }}/{{ bastion_bundle_name }}.
-      Copy it to removable media, carry it to the bastion, and extract it into an empty
-      working directory there (e.g. ~/sno-deploy/) — it unpacks to bastion/,
-      mirror-content/, mirror-installers/, and bastion-resolved-vars.yaml, a complete,
-      self-sufficient checkout. Then cd into bastion/playbooks and run
-      unpack_bastion_bundle (via provision-sno-baremetal.yaml or provision-sno-aws.yaml).
+    msg:
+      - "=================================================================="
+      - "Bundle packaged"
+      - "=================================================================="
+      - "Location: {{ bastion_bundle_export_dir }}/{{ bastion_bundle_name }}"
+      - "------------------------------------------------------------------"
+      - "Next: copy it to removable media, carry it to the bastion, and"
+      - "extract it into an empty working directory there:"
+      - "  mkdir -p ~/sno-deploy"
+      - "  tar -xzf {{ bastion_bundle_name }} -C ~/sno-deploy"
+      - "It unpacks to bastion/, mirror-content/, mirror-installers/, and"
+      - "bastion-resolved-vars.yaml — a complete, self-sufficient checkout. Then:"
+      - "  cd ~/sno-deploy/bastion/playbooks"
+      - "  ansible-playbook {{ 'provision-sno-aws.yaml' if infra_provider == 'aws' else 'provision-sno-baremetal.yaml' }} -i ../inventory/inventory.yaml"
   when: bastion_transfer_method == 'media'
 
 - name: Stage the SSH private key here for the rsync push to the bastion
@@ -138,9 +145,17 @@
 
 - name: Report the rsync-transfer next step
   debug:
-    msg: >
-      Bundle pushed to {{ bastion_transfer_user }}@{{ bastion_transfer_host }}:
-      {{ bastion_transfer_dest_dir }}/{{ bastion_bundle_name }}. Extract it into an
-      empty working directory on the bastion, then run unpack_bastion_bundle (via
-      bastion/playbooks/provision-sno-baremetal.yaml or provision-sno-aws.yaml).
+    msg:
+      - "=================================================================="
+      - "Bundle pushed to the bastion"
+      - "=================================================================="
+      - "Destination: {{ bastion_transfer_user }}@{{ bastion_transfer_host }}:{{ bastion_transfer_dest_dir }}/{{ bastion_bundle_name }}"
+      - "------------------------------------------------------------------"
+      - "Next: SSH to the bastion, extract the bundle into an empty working"
+      - "directory, and run the provision playbook:"
+      - "  ssh -i {{ bastion_transfer_ssh_key }} {{ bastion_transfer_user }}@{{ bastion_transfer_host }}"
+      - "  mkdir -p ~/sno-deploy"
+      - "  tar -xzf ~/{{ bastion_bundle_name }} -C ~/sno-deploy"
+      - "  cd ~/sno-deploy/bastion/playbooks"
+      - "  ansible-playbook {{ 'provision-sno-aws.yaml' if infra_provider == 'aws' else 'provision-sno-baremetal.yaml' }} -i ../inventory/inventory.yaml"
   when: bastion_transfer_method == 'rsync'
