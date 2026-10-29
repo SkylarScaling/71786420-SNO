@@ -146,7 +146,7 @@
     {{ ansible_python_interpreter | default('python3') }} -m pip download
     --only-binary=:all:
     -d {{ mirror_installers_dir }}/bastion-wheelhouse
-    -r {{ playbook_dir }}/../../../requirements-bastion.txt
+    -r {{ playbook_dir }}/../../requirements-bastion.txt
   changed_when: true
   tags: [bastion_prereqs]
 
