@@ -16,6 +16,20 @@ carry them over inside the bundle the same way they carry the content archive, a
 `deploy_mirror_registry` unarchives `oc-mirror`/`mirror-registry` from that bundled
 copy. See `docs/architectural-decisions.md` #1.
 
+Also downloads RPMs (`bastion_packages`, with full dependency closure, into
+`{{ mirror_installers_dir }}/bastion-rpms`) and a Python wheelhouse
+(`requirements-bastion.txt`, into `{{ mirror_installers_dir }}/bastion-wheelhouse`)
+for the bastion to install entirely offline. `configure_bastion_services` installs
+the RPMs it actually needs (dnsmasq/httpd) later, once Ansible is already running
+there — but `ansible-core`/`python3-pip` are in `bastion_packages` precisely so
+Ansible can exist in the first place on a bastion that starts with nothing on it at
+all (the AWS test loop's freshly provisioned EC2 bastion; bare-metal bastions are
+assumed to already have this baked into their base image — see
+`bastion/roles/baremetal/baremetal_prepare_bastion`'s README). `../../../bastion/
+bootstrap-bastion-host.sh` installs both the RPMs and the wheelhouse, the same
+"minimum possible in bash before Ansible can take over" role `staging/
+bootstrap-staging-host.sh` plays for the staging host.
+
 Runs with `--v2`: `oc-mirror --v1` is deprecated (every v1 run printed its own
 warning: "oc-mirror v1 is deprecated ... will be removed in a future release") and,
 on a real run against OpenShift 4.22, its mirrored content failed release-image

@@ -30,13 +30,25 @@ mirror_registry_url: "https://developers.redhat.com/content-gateway/file/pub/cgw
 
 # RPM packages configure_bastion_services needs installed on the bastion, which has
 # no internet route to reach RHUI/dnf repos itself — downloaded here (with their full
-# dependency closure, not just these two names) and synced over the same way as the
-# tool tarballs above. Same default list duplicated in configure_bastion_services's
-# defaults (role defaults aren't shared across roles) purely for documentation; only
-# this role's copy is actually used to drive the download.
+# dependency closure, not just these names) and synced over the same way as the tool
+# tarballs above. configure_bastion_services doesn't hardcode this list itself — it
+# just installs whatever RPMs ended up synced into bastion-rpms/, so this is the only
+# place that actually controls what's included.
+#
+# ansible-core/python3-pip are here for a different reason than dnsmasq/httpd: the
+# bastion has no Ansible on it at all until bootstrap-bastion-host.sh installs these
+# two from the bundled RPMs (bare-metal bastions are assumed to already have this
+# baked into their base image — see baremetal_prepare_bastion's README — but the AWS
+# bastion starts as a blank, fully disconnected EC2 instance with nothing on it,
+# confirmed as a real blocker: `ansible-playbook: command not found` on a fresh
+# bastion). dnsmasq/httpd get installed later, idempotently, by
+# configure_bastion_services once Ansible exists — installing them this early via
+# bootstrap-bastion-host.sh too is harmless, just means that later step is a no-op.
 bastion_packages:
   - dnsmasq
   - httpd
+  - ansible-core
+  - python3-pip
 
 # The standard set this repo's feature roles install: LVM Storage (configure_lvms —
 # true-SNO storage), OADP (configure_oadp_backup), cluster logging

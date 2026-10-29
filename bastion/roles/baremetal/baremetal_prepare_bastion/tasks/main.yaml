@@ -30,11 +30,14 @@
 # shipped inside the bundle by package_bastion_bundle/unpack_bastion_bundle), these
 # are Python packages that would normally come from PyPI — the bastion has no
 # internet route to reach PyPI, so a plain `pip install` task here would just hang
-# or fail. This is a known gap, not fixed by this automation: the bastion's base
-# image/build must already have `kubernetes`/`openshift` importable (e.g. installed
-# from an internal PyPI mirror or vendored wheels during bastion imaging), the same
-# "assume pre-existing, only validate" treatment this role already gives the rest of
-# the bastion's prerequisites.
+# or fail. This is a known gap on bare metal, not fixed by this automation: the
+# bastion's base image/build must already have `kubernetes`/`openshift` importable
+# (e.g. installed from an internal PyPI mirror or vendored wheels during bastion
+# imaging), the same "assume pre-existing, only validate" treatment this role already
+# gives the rest of the bastion's prerequisites. The AWS test loop's bastion has no
+# such pre-baked image to assume, so it IS fixed there —
+# ../../../bootstrap-bastion-host.sh installs these offline from a wheelhouse
+# stage_mirror_content builds on staging, before this role (or any Ansible) ever runs.
 - name: Fail fast if the kubernetes/openshift Python modules aren't already importable
   command: "{{ ansible_python_interpreter | default('python3') }} -c 'import kubernetes, openshift'"
   register: _k8s_python_modules_check

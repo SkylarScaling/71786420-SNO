@@ -1,0 +1,18 @@
+# Python packages the bastion needs importable by its Ansible interpreter — NOT the
+# full requirements.txt. Deliberately doesn't include "ansible"/"ansible-core": the
+# bastion gets its Ansible engine from the ansible-core RPM (bastion_packages, in
+# stage_mirror_content's defaults) installed by dnf, not pip — mixing an RPM-managed
+# engine with a pip-managed one risks two conflicting ansible-playbook binaries.
+# Also deliberately doesn't include boto3/botocore — those are staging/AWS-only.
+#
+# kubernetes/openshift are the kubernetes.core collection's runtime deps every
+# roles/ocp/* role needs — see
+# bastion/roles/baremetal/baremetal_prepare_bastion's README for why these can't be
+# pip-installed directly on the bastion: no internet route.
+#
+# Downloaded into a local wheelhouse by stage_mirror_content (staging has internet),
+# bundled by package_bastion_bundle, and installed offline by
+# bastion/bootstrap-bastion-host.sh (`pip install --no-index --find-links ...`) —
+# see that script and stage_mirror_content's README for the full flow.
+kubernetes
+openshift

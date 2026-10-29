@@ -118,6 +118,30 @@
     -y {{ bastion_packages | join(' ') }}
   become: true
 
+# ansible-core's RPM above gets Ansible itself running, but roles/ocp/*'s
+# kubernetes.core.k8s* modules also need the kubernetes/openshift Python packages
+# importable — these aren't RPM-packaged, so pip (not dnf) is how they'd normally
+# install, except the bastion has no route to PyPI either. Built into a local
+# wheelhouse here instead, the same "resolve the full dependency closure on the
+# connected side, install offline on the disconnected side" pattern as the RPMs
+# above. --only-binary=:all: forces prebuilt wheels only (no sdists needing a
+# compiler on arrival); relies on staging and the bastion running the same Python
+# major.minor (both provisioned from the same RHEL major version in this repo) so
+# the downloaded wheel ABI tags match — unverified against a real bastion install yet.
+- name: Ensure the bastion-wheelhouse directory exists
+  file:
+    path: "{{ mirror_installers_dir }}/bastion-wheelhouse"
+    state: directory
+    mode: '0755'
+
+- name: Download Python packages (with full dependency closure) for offline install on the bastion
+  command: >
+    {{ ansible_python_interpreter | default('python3') }} -m pip download
+    --only-binary=:all:
+    -d {{ mirror_installers_dir }}/bastion-wheelhouse
+    -r {{ playbook_dir }}/../../../requirements-bastion.txt
+  changed_when: true
+
 - name: Extract the oc-mirror binary from the downloaded tarball
   unarchive:
     src: "{{ mirror_installers_dir }}/oc-mirror.tar.gz"

@@ -199,10 +199,21 @@ the staging side automatically, then the operator takes over:
    `staging/roles/common/prepare_staging_host/README.md`), then
    `staging/playbooks/full-staging-setup-aws.yaml`, producing the bastion bundle
    tar.gz exactly as bare metal does.
-3. Transfers that bundle to the bastion (SSH ProxyCommand through the staging host's
-   public IP, printed by `aws_provision_bastion`'s README — `aws-infra/` doesn't
-   automate this hop) and runs `bastion/playbooks/full-bastion-provision-aws.yaml`
-   there (§3).
+3. `package_bastion_bundle` pushes that bundle to the bastion itself —
+   `staging/inventory/inventory-aws.yaml.j2` sets `bastion_transfer_method: rsync`
+   (with `bastion_transfer_host`/`_user`/`_dest_dir` resolved from `aws_provision_bastion`'s
+   own facts at render time), since a real VPC path exists between staging and the
+   bastion on AWS, unlike bare metal's physical-media default. The operator still has
+   to SSH to the bastion themselves (proxied through the staging host's public IP,
+   printed by `aws_provision_bastion`'s README) to extract it and run commands there —
+   only the transfer itself is automated. On a bastion with nothing on it yet (this
+   loop's freshly provisioned EC2 instance, as opposed to a pre-imaged bare-metal
+   one), first run `bastion/bootstrap-bastion-host.sh` — it installs `ansible-core`
+   and the `kubernetes`/`openshift` Python modules offline, from RPMs/a wheelhouse
+   `stage_mirror_content` already downloaded and bundled in (see
+   `baremetal_prepare_bastion`'s README for why bare metal doesn't need this: its
+   bastion is assumed to already have these pre-baked into its base image). Then run
+   `bastion/playbooks/full-bastion-provision-aws.yaml` there (§3).
 4. Transfers the resulting install-config bundle back to staging, runs `staging/
    playbooks/provision-sno-aws.yaml` there, transfers the resulting kubeconfig bundle
    back to the bastion, and runs `bastion/playbooks/full-bastion-configure-aws.yaml`

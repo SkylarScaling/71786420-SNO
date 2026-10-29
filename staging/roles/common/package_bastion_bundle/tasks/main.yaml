@@ -106,7 +106,10 @@
       - "  tar -xzf {{ bastion_bundle_name }} -C ~/sno-deploy"
       - "It unpacks to bastion/, mirror-content/, mirror-installers/, and"
       - "bastion-resolved-vars.yaml — a complete, self-sufficient checkout. Then:"
-      - "  cd ~/sno-deploy/bastion/playbooks"
+      - "  cd ~/sno-deploy/bastion"
+      - "  bash bootstrap-bastion-host.sh   # fresh/blank AWS bastion only — skip on"
+      - "                                   # bare metal, already pre-installed there"
+      - "  cd playbooks"
       - "  ansible-playbook {{ 'provision-sno-aws.yaml' if infra_provider == 'aws' else 'provision-sno-baremetal.yaml' }} -i ../inventory/inventory.yaml"
   when: bastion_transfer_method == 'media'
 
@@ -156,6 +159,9 @@
       - "  ssh -i {{ bastion_transfer_ssh_key }} {{ bastion_transfer_user }}@{{ bastion_transfer_host }}"
       - "  mkdir -p ~/sno-deploy"
       - "  tar -xzf ~/{{ bastion_bundle_name }} -C ~/sno-deploy"
-      - "  cd ~/sno-deploy/bastion/playbooks"
+      - "  cd ~/sno-deploy/bastion"
+      - "  bash bootstrap-bastion-host.sh   # fresh/blank AWS bastion only — skip on"
+      - "                                   # bare metal, already pre-installed there"
+      - "  cd playbooks"
       - "  ansible-playbook {{ 'provision-sno-aws.yaml' if infra_provider == 'aws' else 'provision-sno-baremetal.yaml' }} -i ../inventory/inventory.yaml"
   when: bastion_transfer_method == 'rsync'

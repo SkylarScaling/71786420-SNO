@@ -68,6 +68,10 @@ shared-defaults.yaml  # the few constants genuinely shared across trees (current
                        #   mirror_registry_quay_port) — read via group_vars/all.yaml in
                        #   staging/ and aws-infra/; see its own header comment for why this
                        #   plain, static file isn't a cross-tree runtime dependency
+requirements.txt       # staging's own Python deps (ansible, kubernetes, openshift, boto3, botocore)
+requirements-bastion.txt  # the bastion's subset (kubernetes, openshift only) — pip-downloaded into
+                          #   a wheelhouse by stage_mirror_content, installed offline by bootstrap-bastion-host.sh
+requirements.yml       # Ansible Galaxy collections (kubernetes.core, community.general, amazon.aws, ansible.posix)
 aws-infra/       # AWS only, no bare-metal equivalent — provisions the staging + bastion EC2 hosts
   inventory/inventory.yaml      # per-environment, rendered by configure-aws-env.yaml
   playbooks/
@@ -99,6 +103,9 @@ staging/
     common/    # stage_mirror_content, package_bastion_bundle, install-config/kubeconfig bundle handback, backup-export relay
     aws/       # AWS only: aws_provision_sno_ipi, aws_configure_manual_credentials, aws_configure_manual_dns, aws_destroy_cluster
 bastion/
+  bootstrap-bastion-host.sh      # AWS only — installs ansible-core + kubernetes/openshift Python
+                                  #   modules offline, from what stage_mirror_content bundled; bare-metal
+                                  #   bastions are assumed to already have these pre-baked into their image
   inventory/inventory.yaml      # minimal placeholder — localhost only
   playbooks/
     provision-sno-baremetal.yaml    # unpack bundle -> prepare bastion -> mirror registry -> install-config -> agent ISO -> BMC boot -> wait for install
