@@ -106,17 +106,23 @@
 # into mirror_installers_dir, which package_bastion_bundle/unpack_bastion_bundle already carries over
 # wholesale. Both hosts must run the same RHEL major.minor, so RPMs resolved here
 # install cleanly there with all repos disabled.
+# Tagged separately (bastion_prereqs) from the rest of this role so it can be
+# re-run on its own — e.g. after adding a new entry to bastion_packages — without
+# redoing the hour-plus oc-mirror run below (`--tags bastion_prereqs`, then
+# `--tags package` on package_bastion_bundle to re-bundle with the new RPMs included).
 - name: Ensure the bastion-rpms directory exists
   file:
     path: "{{ mirror_installers_dir }}/bastion-rpms"
     state: directory
     mode: '0755'
+  tags: [bastion_prereqs]
 
 - name: Download bastion packages (with full dependency closure) for offline install on the bastion
   command: >
     dnf install --downloadonly --downloaddir={{ mirror_installers_dir }}/bastion-rpms
     -y {{ bastion_packages | join(' ') }}
   become: true
+  tags: [bastion_prereqs]
 
 # ansible-core's RPM above gets Ansible itself running, but roles/ocp/*'s
 # kubernetes.core.k8s* modules also need the kubernetes/openshift Python packages
@@ -133,6 +139,7 @@
     path: "{{ mirror_installers_dir }}/bastion-wheelhouse"
     state: directory
     mode: '0755'
+  tags: [bastion_prereqs]
 
 - name: Download Python packages (with full dependency closure) for offline install on the bastion
   command: >
@@ -141,6 +148,7 @@
     -d {{ mirror_installers_dir }}/bastion-wheelhouse
     -r {{ playbook_dir }}/../../../requirements-bastion.txt
   changed_when: true
+  tags: [bastion_prereqs]
 
 - name: Extract the oc-mirror binary from the downloaded tarball
   unarchive:
