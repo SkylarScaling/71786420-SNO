@@ -40,6 +40,7 @@
     src: "{{ install_config_transfer_ssh_key }}"
     dest: "/tmp/.install_config_transfer_key"
     mode: '0600'
+    remote_src: true
   when: install_config_transfer_method == 'rsync'
 
 - name: Fail fast if rsync transfer was requested without a target host
