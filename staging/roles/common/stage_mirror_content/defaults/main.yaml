@@ -44,11 +44,20 @@ mirror_registry_url: "https://developers.redhat.com/content-gateway/file/pub/cgw
 # bastion). dnsmasq/httpd get installed later, idempotently, by
 # configure_bastion_services once Ansible exists — installing them this early via
 # bootstrap-bastion-host.sh too is harmless, just means that later step is a no-op.
+#
+# git-core is listed explicitly even though it's "just" an ansible-core dependency:
+# `dnf install --downloadonly` only downloads packages not already satisfied on THIS
+# host, and staging already has git-core installed (confirmed live) — so without
+# listing it here, the RPM set silently omits it, and the offline install on the
+# bastion (which has nothing) fails with "nothing provides git-core needed by
+# ansible-core". Listing it directly forces it into the download set regardless of
+# staging's own installed state.
 bastion_packages:
   - dnsmasq
   - httpd
   - ansible-core
   - python3-pip
+  - git-core
 
 # The standard set this repo's feature roles install: LVM Storage (configure_lvms —
 # true-SNO storage), OADP (configure_oadp_backup), cluster logging
