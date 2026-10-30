@@ -10,7 +10,6 @@
 - name: Generate the AWS install-config and hand it back to staging
   hosts: localhost
   connection: local
-  become: true
   gather_facts: true
   tags: [provision_sno, aws]
   tasks:

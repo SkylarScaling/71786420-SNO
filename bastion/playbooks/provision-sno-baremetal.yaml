@@ -9,7 +9,6 @@
 - name: Provision the bare-metal SNO environment
   hosts: localhost
   connection: local
-  become: true
   gather_facts: true
   tags: [provision_sno, baremetal]
   tasks:

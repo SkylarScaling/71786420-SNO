@@ -2,7 +2,6 @@
 - name: Destroy / reset bare-metal SNO environment
   hosts: localhost
   connection: local
-  become: true
   gather_facts: false
   tags: [destroy_sno, baremetal]
   tasks:

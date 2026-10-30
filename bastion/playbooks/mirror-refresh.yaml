@@ -9,7 +9,6 @@
 - name: Refresh the bastion's mirror registry from a freshly-copied bundle
   hosts: localhost
   connection: local
-  become: true
   gather_facts: true
   tags: [mirror_content, registry]
   tasks:
