@@ -101,11 +101,20 @@
 
 # The bastion has no internet route at all, so configure_bastion_services can't
 # `dnf install` dnsmasq/httpd directly there either. Downloaded here instead, same
-# pattern as the oc-mirror/mirror-registry tarballs above: --downloadonly/--downloaddir
-# resolves and fetches the full dependency closure (not just the two named packages)
-# into mirror_installers_dir, which package_bastion_bundle/unpack_bastion_bundle already carries over
-# wholesale. Both hosts must run the same RHEL major.minor, so RPMs resolved here
-# install cleanly there with all repos disabled.
+# pattern as the oc-mirror/mirror-registry tarballs above into mirror_installers_dir,
+# which package_bastion_bundle/unpack_bastion_bundle already carries over wholesale.
+# Both hosts must run the same RHEL major.minor, so RPMs resolved here install
+# cleanly there with all repos disabled.
+#
+# `dnf download --resolve` (not `dnf install --downloadonly`): the latter only
+# downloads what it would actually *install*, so any package already installed on
+# this staging host (confirmed live: git-core, pulled in here as an ansible-core
+# dependency) is silently skipped even when named explicitly — producing an RPM set
+# that's fine on staging but fails offline on the bastion with "nothing provides
+# git-core needed by ansible-core", since the bastion starts with none of staging's
+# pre-existing packages. `dnf download` fetches the named packages and, with
+# --resolve, their full dependency closure, regardless of what's already installed
+# on this host.
 # Tagged separately (bastion_prereqs) from the rest of this role so it can be
 # re-run on its own — e.g. after adding a new entry to bastion_packages — without
 # redoing the hour-plus oc-mirror run below (`--tags bastion_prereqs`, then
@@ -119,7 +128,7 @@
 
 - name: Download bastion packages (with full dependency closure) for offline install on the bastion
   command: >
-    dnf install --downloadonly --downloaddir={{ mirror_installers_dir }}/bastion-rpms
+    dnf download --resolve --destdir={{ mirror_installers_dir }}/bastion-rpms
     -y {{ bastion_packages | join(' ') }}
   become: true
   tags: [bastion_prereqs]
