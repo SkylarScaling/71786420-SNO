@@ -24,11 +24,14 @@
     remote_src: true
     mode: '0600'
 
-- name: Ensure the mirror content destination exists
+- name: Ensure the mirror content destination exists, owned by the connecting user (/opt requires root to create)
   file:
     path: "{{ mirror_archive_dir }}"
     state: directory
     mode: '0755'
+    owner: "{{ ansible_user_id }}"
+    group: "{{ ansible_user_id }}"
+  become: true
 
 - name: Copy the bundled mirror content into place
   copy:
@@ -37,11 +40,14 @@
     remote_src: true
     mode: preserve
 
-- name: Ensure the installers destination exists
+- name: Ensure the installers destination exists, owned by the connecting user (/opt requires root to create)
   file:
     path: "{{ mirror_installers_dir }}"
     state: directory
     mode: '0755'
+    owner: "{{ ansible_user_id }}"
+    group: "{{ ansible_user_id }}"
+  become: true
 
 - name: Copy the bundled installer tarballs/RPMs into place
   copy:
