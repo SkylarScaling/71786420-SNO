@@ -8,9 +8,20 @@
 - name: Stage mirror content and package the bastion bundle
   hosts: localhost
   connection: local
-  gather_facts: true
+  gather_facts: false
   tags: [provision_sno, baremetal]
   tasks:
+    # Play-level tags apply to every task in the play, including the implicit
+    # "Gathering Facts" step from gather_facts: true — so running with a narrower
+    # tag like --tags stage (not in this play's own [provision_sno, baremetal] tag
+    # set) filtered fact-gathering out entirely, confirmed against a real run:
+    # ansible_user_id came back undefined because facts were never gathered at all.
+    # tags: always on an explicit setup task guarantees it runs under any --tags
+    # filter, the way an implicit, play-level-tagged gather_facts does not.
+    - name: Gather facts
+      setup:
+      tags: always
+
     # import_role (static, resolved at parse time), not this repo's usual
     # include_role — needed here specifically because --tags package/stage has to
     # actually skip one of these two roles. include_role is dynamic: tags on it only
