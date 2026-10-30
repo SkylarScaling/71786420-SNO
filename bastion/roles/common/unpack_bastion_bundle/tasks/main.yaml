@@ -24,6 +24,16 @@
     remote_src: true
     mode: '0600'
 
+# group_vars/all.yaml is only read once, when the playbook run starts — overwriting it
+# above has no effect on THIS run (confirmed live: every var that only exists in the
+# bundle, e.g. mirror_registry_quay_hostname, came back "undefined" in a later role,
+# since this is the very first run ever to actually reach this point end-to-end).
+# Explicitly loading it into the current play's vars makes every later role in this
+# same run see the real values immediately, not just on the next invocation.
+- name: Load the newly-written resolved vars into this run
+  include_vars:
+    file: "{{ playbook_dir }}/group_vars/all.yaml"
+
 - name: Ensure the mirror content destination exists, owned by the connecting user (/opt requires root to create)
   file:
     path: "{{ mirror_archive_dir }}"
