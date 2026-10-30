@@ -173,13 +173,42 @@
     mirror_registry_auth_b64: "{{ _mirror_registry_creds_raw.content }}"
   no_log: true
 
+# Fetched and trusted here, before the login below, not after the "wait for healthy"
+# check further down — podman login talks HTTPS to this same self-signed registry, so
+# the bastion's OS trust store needs the CA *before* that call, not just before the
+# later oc-mirror "disk to mirror" push. Confirmed against a real run: login failed
+# with "x509: certificate signed by unknown authority" when this trust step ran after
+# login instead of before it. The root CA file itself only depends on the install
+# above having completed, not on anything happening later (firewalld/health-check), so
+# moving it earlier is safe.
+- name: Fetch the mirror registry's generated root CA (needed for additionalTrustBundle)
+  slurp:
+    src: "~/quay-install/quay-rootCA/rootCA.pem"
+  register: mirror_root_ca
+
+- name: Expose the root CA to the later generate_install_config role
+  set_fact:
+    mirror_registry_ca_cert: "{{ mirror_root_ca['content'] | b64decode }}"
+
+- name: Trust the mirror registry's root CA on the bastion itself (podman login/push talk HTTPS from here)
+  copy:
+    content: "{{ mirror_root_ca['content'] | b64decode }}"
+    dest: /etc/pki/ca-trust/source/anchors/mirror-registry-rootCA.pem
+    mode: '0644'
+  become: true
+  register: mirror_registry_ca_trusted
+
+- name: Update the bastion's CA trust store
+  command: update-ca-trust
+  become: true
+  when: mirror_registry_ca_trusted is changed
+
 - name: Log in to the mirror registry as the init user (needed for the "disk to mirror" push below)
   vars:
     _mirror_registry_creds: "{{ (_mirror_registry_creds_raw.content | b64decode).split(':', 1) }}"
   command: >
     podman login -u {{ _mirror_registry_creds[0] }} -p {{ _mirror_registry_creds[1] }}
     {{ mirror_registry_quay_hostname }}:{{ mirror_registry_quay_port }}
-  no_log: true
   no_log: true
 
 # mirror-registry has no --quayConfig install flag (it's silently ignored and can
@@ -245,34 +274,6 @@
   until: mirror_registry_health.status | default(0) in [200, 301]
   retries: 40
   delay: 15
-
-- name: Fetch the mirror registry's generated root CA (needed for additionalTrustBundle)
-  slurp:
-    src: "~/quay-install/quay-rootCA/rootCA.pem"
-  register: mirror_root_ca
-
-- name: Expose the root CA to the later generate_install_config role
-  set_fact:
-    mirror_registry_ca_cert: "{{ mirror_root_ca['content'] | b64decode }}"
-
-# The cluster trusts this CA via install-config.yaml's additionalTrustBundle (set from
-# mirror_registry_ca_cert above), but that's irrelevant to the "disk to mirror" push
-# below — that runs oc-mirror ON THE BASTION ITSELF, talking to Quay over HTTPS, and
-# the bastion's own OS trust store has no idea about Quay's self-signed CA. Without
-# this, oc-mirror fails immediately with "x509: certificate signed by unknown
-# authority" before ever attempting the push (confirmed against a real run).
-- name: Trust the mirror registry's root CA on the bastion itself (oc-mirror pushes over HTTPS from here)
-  copy:
-    content: "{{ mirror_root_ca['content'] | b64decode }}"
-    dest: /etc/pki/ca-trust/source/anchors/mirror-registry-rootCA.pem
-    mode: '0644'
-  become: true
-  register: mirror_registry_ca_trusted
-
-- name: Update the bastion's CA trust store
-  command: update-ca-trust
-  become: true
-  when: mirror_registry_ca_trusted is changed
 
 - name: Ensure bin_dir exists
   file:
