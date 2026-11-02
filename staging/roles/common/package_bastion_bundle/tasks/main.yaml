@@ -111,6 +111,9 @@
       - "                                   # bare metal, already pre-installed there"
       - "  cd playbooks"
       - "  ansible-playbook {{ 'provision-sno-aws.yaml' if infra_provider == 'aws' else 'provision-sno-baremetal.yaml' }} -i ../inventory/inventory.yaml"
+      - "Once that completes, delete the tar.gz itself (rm ~/{{ bastion_bundle_name }}) —"
+      - "unpack_bastion_bundle already cleans up its own extracted copy, but not the"
+      - "original archive, which is tens of GB and can fill the bastion's disk on repeat runs."
   when: bastion_transfer_method == 'media'
 
 - name: Stage the SSH private key here for the rsync push to the bastion
@@ -164,4 +167,7 @@
       - "                                   # bare metal, already pre-installed there"
       - "  cd playbooks"
       - "  ansible-playbook {{ 'provision-sno-aws.yaml' if infra_provider == 'aws' else 'provision-sno-baremetal.yaml' }} -i ../inventory/inventory.yaml"
+      - "Once that completes, delete the tar.gz itself (rm ~/{{ bastion_bundle_name }}) —"
+      - "unpack_bastion_bundle already cleans up its own extracted copy, but not the"
+      - "original archive, which is tens of GB and can fill the bastion's disk on repeat runs."
   when: bastion_transfer_method == 'rsync'

@@ -66,6 +66,26 @@
     remote_src: true
     mode: preserve
 
+# The mirror content archive and installer tarballs/RPMs are large (the content
+# archive alone is tens of GB) and now exist twice — once just-copied into {{
+# mirror_archive_dir }}/{{ mirror_installers_dir }}, once still sitting in the
+# extracted bundle under bastion_bundle_dir. Left alongside the original downloaded
+# tar.gz (never cleaned up by anything, since that's a manual operator download step),
+# this tripled the real disk footprint and filled the bastion's root volume entirely
+# on a real run (confirmed live: "No space left on device" starting a later playbook
+# run). Safe to remove here since nothing reads mirror-content/mirror-installers out
+# of bastion_bundle_dir again after this point — deploy_mirror_registry/
+# configure_bastion_services only ever read from mirror_archive_dir/
+# mirror_installers_dir. Doesn't touch bastion_bundle_dir's bastion/ tree or
+# bastion-resolved-vars.yaml, which this role still needs.
+- name: Remove the now-redundant mirror content/installers copy from the extracted bundle
+  file:
+    path: "{{ bastion_bundle_dir }}/{{ item }}"
+    state: absent
+  loop:
+    - mirror-content
+    - mirror-installers
+
 - name: Ensure bin_dir exists
   file:
     path: "{{ bin_dir }}"
