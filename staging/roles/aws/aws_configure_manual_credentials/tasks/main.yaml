@@ -126,10 +126,12 @@
 # openshift-install picks up any manifests already present under <install_dir>/manifests
 # before generating its own, same mechanism as any other "extra manifests" — no special
 # flag needed, just needs to exist before `create cluster` runs.
+# warn: false removed — the command-warnings feature it suppressed ("did you mean to
+# use the copy module?") was itself removed in newer ansible-core (confirmed live:
+# "Unsupported parameters ... command module: warn" on staging's pip-installed
+# ansible-core), so the parameter no longer exists to pass at all.
 - name: Copy ccoctl's generated credential Secret manifests into the install directory
   shell: "cp {{ install_dir }}/ccoctl-output/manifests/*.yaml {{ install_dir }}/manifests/"
-  args:
-    warn: false
 
 # Required so in-cluster service-account token signing matches what the OIDC identity
 # provider ccoctl just created actually trusts — without this, AssumeRoleWithWebIdentity

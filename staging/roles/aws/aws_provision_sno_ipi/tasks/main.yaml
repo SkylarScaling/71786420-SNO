@@ -53,12 +53,12 @@
 # the bastion, colocated with deploy_mirror_registry's facts — see
 # bastion/playbooks/provision-sno-aws.yaml). Only clear the leftover metadata/state a
 # prior attempt left behind, not the config this run actually needs.
+# warn: false removed — see aws_configure_manual_credentials's identical fix for why
+# (the command-warnings feature it suppressed no longer exists in newer ansible-core).
 - name: Remove leftover state from a previous attempt, keeping install-config.yaml
   shell: >
     find {{ install_dir }} -mindepth 1 -maxdepth 1
     ! -name install-config.yaml -exec rm -rf {} +
-  args:
-    warn: false
   when: _stale_install_metadata.stat.exists
 
 # Both of these render extra manifests into {{ install_dir }}/manifests before
