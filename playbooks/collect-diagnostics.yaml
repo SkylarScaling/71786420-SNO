@@ -1,0 +1,50 @@
+---
+# Automated Diagnostic Bundle Collection for SNO
+#
+# Gathers a unified support bundle with four independently-toggled collectors:
+#   1. General OpenShift must-gather       (must_gather_collect_general: true)
+#   2. ODF-specific must-gather            (must_gather_collect_odf: true)
+#      Image is auto-discovered from the running ODF CSV/pod — works in disconnected clusters.
+#   3. Bastion host + mirror-registry logs (must_gather_collect_bastion: true)
+#   4. Dell iDRAC BMC SEL/LCLog via Redfish(must_gather_collect_bmc: true, baremetal only)
+#
+# All output is compressed into a single .tar.gz with a SHA256 checksum.
+# When backup_egress_mode is 'network' or 'both', the bundle is also relayed
+# to the mirror-staging host for outbound upload to Red Hat Support.
+#
+# Skip individual collectors by passing extra-vars on the command line:
+#   ansible-playbook collect-diagnostics.yaml -i ... \
+#     -e must_gather_collect_bmc=false \
+#     -e must_gather_collect_odf=false
+
+- name: Run OCP and BMC diagnostic collectors
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [diagnostics]
+  tasks:
+    - name: Collect OCP general + ODF must-gather and Dell iDRAC BMC logs
+      include_role:
+        name: collect_must_gather
+
+- name: Collect bastion host and mirror-registry diagnostics
+  hosts: bastion
+  gather_facts: true
+  tags: [diagnostics, bastion_logs]
+  tasks:
+    - name: Collect bastion OS and container logs
+      include_role:
+        name: collect_must_gather
+        tasks_from: bastion_diagnostics.yaml
+      when: must_gather_collect_bastion | default(true) | bool
+
+- name: Archive all outputs and relay to mirror-staging host if configured
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [diagnostics, archive]
+  tasks:
+    - name: Create archive and relay
+      include_role:
+        name: collect_must_gather
+        tasks_from: archive_and_relay.yaml

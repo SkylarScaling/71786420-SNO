@@ -1,0 +1,29 @@
+---
+# Orchestrates diagnostic collectors that run on localhost (kubeconfig access).
+# bastion_diagnostics.yaml is called directly from the bastion play in
+# playbooks/collect-diagnostics.yaml — it is NOT included here.
+# archive_and_relay.yaml is also called directly from its own play so the
+# relay step has access to the mirror_staging_host group.
+
+- name: Ensure session diagnostic directory exists
+  file:
+    path: "{{ must_gather_session_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Collect general OpenShift platform must-gather
+  include_tasks: ocp_general_must_gather.yaml
+  when: must_gather_collect_general | bool
+
+- name: Collect ODF-specific must-gather (auto-discovers mirrored image from running pod)
+  include_tasks: ocp_odf_must_gather.yaml
+  when: must_gather_collect_odf | bool
+
+- name: Collect Dell iDRAC BMC SEL and Lifecycle Controller logs
+  include_tasks: bmc_diagnostics.yaml
+  when:
+    - must_gather_collect_bmc | bool
+    - infra_provider | default('baremetal') == 'baremetal'
+    - bmc_address | default('') | length > 0
+    - bmc_username | default('') | length > 0
+    - bmc_password | default('') | length > 0

@@ -299,10 +299,16 @@ no live BMC to test against yet; see the role's README before the first real run
   `sno_upgrade`'s READMEs.
 - **Node failure drill**: `roles/ocp/simulate_node_failure`, gated behind
   `simulate_node_failure_confirm: true`.
-- **Must-gather / support escalation**: not yet automated as a role — customer's
-  stated process is `oc adm must-gather`, then either open a Red Hat support ticket
-  directly or route through their internal support org. Worth a small role if this
-  needs to be repeatable/scripted; currently a manual runbook step.
+- **Must-gather / support escalation**: automated via `playbooks/collect-diagnostics.yaml`
+  (`roles/common/collect_must_gather`) -- collects general OpenShift must-gather, ODF-specific
+  must-gather (dynamically discovering the mirrored image from the running ODF CSV/pod),
+  bastion host/mirror-registry diagnostics, and Dell iDRAC BMC SEL/LCLog via Redfish.
+  Compresses into a unified .tar.gz with SHA256 checksum and optionally relays to
+  the mirror-staging host if backup_egress_mode is network or both.
+- **Offline Clair CVE updates**: automated via `playbooks/update-clair-cves.yaml`
+  (`roles/common/sync_clair_cve_data`) -- exports fresh vulnerability feeds on the
+  internet-connected host via clairctl, relays across the private network to the
+  bastion, and imports into the in-cluster Quay Clair service.
 
 ## 12. Requirements traceability
 
@@ -317,7 +323,7 @@ to the implementing automation, so gaps are visible rather than assumed covered.
 | Loki + Grafana, 7-day/30-day retention | `configure_lokistack` + `configure_grafana` | Built; retention approximated via per-stream override, see §6 |
 | OpenTelemetry application tracing | `configure_opentelemetry` | Built; operator package names flagged for verification |
 | Email alerting | `configure_alerting` | Built; assumes direct SMTP reachability |
-| Must-gather / support ticket workflow | — | Manual runbook only, not automated |
+| Must-gather / support ticket workflow | `playbooks/collect-diagnostics.yaml` (`collect_must_gather`) | Delivered (General + ODF auto-resolved + Bastion + Dell BMC + Relay) |
 | Dell R7725, iDRAC10, agent-based install | `baremetal_boot_node_via_bmc`, `baremetal_generate_agent_iso` | Built; unverified against real hardware |
 | Single/dual switch topology, opt-in NIC bonding on the SNO node | `sno_network_topology` in `baremetal_generate_agent_iso` | Built; unverified against real dual-NIC hardware |
 | Customer DNS/NTP | `dns_server`/`ntp_server` inventory vars | Built; DNS record list documented in §9, not automated against the customer's Windows DNS |

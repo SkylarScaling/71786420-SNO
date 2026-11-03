@@ -1,0 +1,150 @@
+---
+# ODF-specific must-gather.
+#
+# In a disconnected SNO cluster, `oc adm must-gather` cannot pull
+# registry.redhat.io images directly — the node has no internet route.
+# This task set resolves the ODF must-gather image from within the cluster
+# itself (from the running ODF CSV or operator pod) so the correct mirrored
+# image is used without hardcoding a registry path.
+#
+# Resolution order:
+#   1. odf_must_gather_image (role default: "", skip auto-discovery if set)
+#   2. spec.relatedImages in the ODF ClusterServiceVersion (CSV)
+#   3. MUST_GATHER_IMAGE env var on the odf-operator-controller-manager Deployment
+#   4. Container image of the running ODF operator pod (fallback)
+#
+# If none resolves, ODF must-gather is skipped with a clear warning.
+
+- name: Ensure ODF must-gather output directory exists
+  file:
+    path: "{{ must_gather_session_dir }}/odf-must-gather"
+    state: directory
+    mode: '0755'
+
+# ── Step 1: Check for a manual image override ──────────────────────────────
+- name: Use manual image override when odf_must_gather_image is set
+  set_fact:
+    _final_odf_must_gather_image: "{{ odf_must_gather_image }}"
+  when: odf_must_gather_image | default('') | length > 0
+
+# ── Step 2: Query cluster resources for auto-discovery ─────────────────────
+- name: Query ODF ClusterServiceVersion(s) in openshift-storage
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: operators.coreos.com/v1alpha1
+    kind: ClusterServiceVersion
+    namespace: openshift-storage
+  register: _odf_csv_list
+  failed_when: false
+  when: _final_odf_must_gather_image is not defined
+
+- name: Query odf-operator-controller-manager Deployment for MUST_GATHER_IMAGE env var
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: apps/v1
+    kind: Deployment
+    namespace: openshift-storage
+    name: odf-operator-controller-manager
+  register: _odf_deploy_info
+  failed_when: false
+  when: _final_odf_must_gather_image is not defined
+
+- name: Query running ODF operator pods as fallback
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: v1
+    kind: Pod
+    namespace: openshift-storage
+    label_selectors:
+      - app.kubernetes.io/name=odf-operator
+  register: _odf_pods_info
+  failed_when: false
+  when: _final_odf_must_gather_image is not defined
+
+# ── Step 3: Extract image from CSV relatedImages ───────────────────────────
+- name: Extract ODF must-gather image from CSV relatedImages
+  set_fact:
+    _odf_csv_mg_image: >-
+      {{
+        (
+          _odf_csv_list.resources | default([])
+          | map(attribute='spec.relatedImages', default=[])
+          | flatten
+          | selectattr('image', 'defined')
+          | selectattr('image', 'search', 'must-gather')
+          | map(attribute='image')
+          | first
+        ) | default('', true)
+      }}
+  when:
+    - _final_odf_must_gather_image is not defined
+    - _odf_csv_list is defined
+    - _odf_csv_list.resources | default([]) | length > 0
+
+# ── Step 4: Extract image from Deployment env var ──────────────────────────
+- name: Extract ODF must-gather image from odf-operator Deployment env vars
+  set_fact:
+    _odf_deploy_mg_image: >-
+      {{
+        (
+          _odf_deploy_info.resources[0].spec.template.spec.containers[0].env | default([])
+          | selectattr('name', 'search', 'MUST_GATHER')
+          | map(attribute='value')
+          | first
+        ) | default('', true)
+      }}
+  when:
+    - _final_odf_must_gather_image is not defined
+    - _odf_deploy_info is defined
+    - _odf_deploy_info.resources | default([]) | length > 0
+
+# ── Step 5: Fallback — use running pod image ───────────────────────────────
+- name: Use running ODF operator pod image as fallback
+  set_fact:
+    _odf_pod_image: >-
+      {{ _odf_pods_info.resources[0].spec.containers[0].image | default('') }}
+  when:
+    - _final_odf_must_gather_image is not defined
+    - _odf_pods_info is defined
+    - _odf_pods_info.resources | default([]) | length > 0
+
+# ── Step 6: Resolve final image (priority order) ───────────────────────────
+- name: Resolve final ODF must-gather image from discovered sources
+  set_fact:
+    _final_odf_must_gather_image: >-
+      {{
+        _odf_csv_mg_image    if (_odf_csv_mg_image    | default('') | length > 0) else
+        (_odf_deploy_mg_image if (_odf_deploy_mg_image | default('') | length > 0) else
+        (_odf_pod_image       if (_odf_pod_image       | default('') | length > 0) else ''))
+      }}
+  when: _final_odf_must_gather_image is not defined
+
+- name: Report the ODF must-gather image that will be used
+  debug:
+    msg: >-
+      ODF must-gather image resolved to:
+      {{ _final_odf_must_gather_image if _final_odf_must_gather_image | default('') | length > 0
+         else 'none — ODF must-gather will be skipped (ODF operator not found or not running)' }}
+
+# ── Step 7: Run ODF must-gather ───────────────────────────────────────────
+- name: Run ODF-specific must-gather using the resolved mirrored image
+  command: >-
+    {{ bin_dir }}/oc --kubeconfig={{ sno_kubeconfig }}
+    adm must-gather
+    --image={{ _final_odf_must_gather_image }}
+    --dest-dir={{ must_gather_session_dir }}/odf-must-gather
+  async: "{{ must_gather_timeout }}"
+  poll: 15
+  register: _odf_mg_result
+  when: _final_odf_must_gather_image | default('') | length > 0
+  failed_when: false
+
+- name: Warn if ODF must-gather finished with a non-zero exit code
+  debug:
+    msg: >-
+      Warning: ODF must-gather exited with rc={{ _odf_mg_result.rc }}.
+      Output is still included in the bundle.
+      stderr: {{ _odf_mg_result.stderr | default('(none)') }}
+  when:
+    - _odf_mg_result is defined
+    - _odf_mg_result.rc | default(0) != 0

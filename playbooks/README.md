@@ -72,6 +72,9 @@ never commit them.
 | `log_forward_endpoint` | `configure_log_forwarding` | external SIEM endpoint (runs alongside the LokiStack output) |
 | `sno_upgrade_channel`, `sno_upgrade_target_version`, `sno_upgrade_ack_key` | `sno_upgrade` | set per upgrade run |
 | `sno_node_name`, `simulate_node_failure_confirm` | `simulate_node_failure` | destructive drill guard |
+| `must_gather_collect_general`, `must_gather_collect_odf` | `collect_must_gather` | toggle general and ODF-specific must-gather collection |
+| `must_gather_collect_bastion`, `must_gather_collect_bmc` | `collect_must_gather` | toggle bastion host logs and Dell iDRAC BMC SEL/LCLog collection |
+| `odf_must_gather_image` | `collect_must_gather` | optional manual override for ODF must-gather image (dynamically auto-discovered if unset) |
 
 ## Common commands
 
@@ -114,6 +117,13 @@ ansible-playbook mirror-content.yaml -i ../inventory/baremetal/inventory.yaml
 # Relay app S3 data out to the external backup target (periodic/on-demand — there's no
 # always-on path from the cluster to the internet on either provider, see CLAUDE.md)
 ansible-playbook export-backup.yaml -i ../inventory/baremetal/inventory.yaml
+
+# Collect unified diagnostic bundle: OCP general must-gather, ODF must-gather
+# (auto-resolves mirrored image), bastion OS/mirror-registry logs, and Dell iDRAC BMC SEL/LCLog
+ansible-playbook collect-diagnostics.yaml -i ../inventory/baremetal/inventory.yaml
+
+# Offline update of Clair vulnerability feeds (CVEs) for on-cluster Quay
+ansible-playbook update-clair-cves.yaml -i ../inventory/baremetal/inventory.yaml
 ```
 
 Swap `-i ../inventory/aws/<base_domain>.yaml` for `-i ../inventory/baremetal/inventory.yaml`

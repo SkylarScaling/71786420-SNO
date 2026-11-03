@@ -7,3 +7,4 @@ quay_storage_size: 200Gi
 # re-run) if that changes; horizontalpodautoscaler stays unmanaged either way (no
 # autoscaling), so this is the only replica control.
 quay_replicas: 1
+

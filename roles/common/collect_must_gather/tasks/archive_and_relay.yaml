@@ -1,0 +1,86 @@
+---
+# Compress all collected diagnostic outputs into a single tarball, write a SHA256
+# checksum file alongside it, and optionally relay both to the mirror-staging host.
+#
+# Relay happens only when:
+#   must_gather_relay_enabled: true
+#   AND backup_egress_mode in ['network', 'both']
+# This reuses the same egress gate as export-backup.yaml so the two features
+# stay consistent — if the environment is media-only, diagnostics stay local too.
+
+- name: Create compressed tarball of the entire session directory
+  community.general.archive:
+    path: "{{ must_gather_session_dir }}"
+    dest: "{{ must_gather_archive_dest }}"
+    format: gz
+    mode: '0644'
+
+- name: Calculate SHA256 checksum of the diagnostic bundle
+  stat:
+    path: "{{ must_gather_archive_dest }}"
+    checksum_algorithm: sha256
+  register: _archive_stat
+
+- name: Write SHA256 checksum file
+  copy:
+    content: "{{ _archive_stat.stat.checksum }}  {{ must_gather_archive_dest | basename }}\n"
+    dest: "{{ must_gather_archive_dest }}.sha256"
+    mode: '0644'
+
+- name: Report generated diagnostic bundle location and size
+  debug:
+    msg:
+      - "======================================================================"
+      - "Diagnostic bundle ready"
+      - "======================================================================"
+      - "Archive:   {{ must_gather_archive_dest }}"
+      - "Size:      {{ (_archive_stat.stat.size / 1024 / 1024) | round(2) }} MB"
+      - "SHA256:    {{ _archive_stat.stat.checksum }}"
+      - "Checksum:  {{ must_gather_archive_dest }}.sha256"
+      - "======================================================================"
+      - "Collectors run:"
+      - "  General OCP must-gather : {{ must_gather_collect_general | bool }}"
+      - "  ODF must-gather         : {{ must_gather_collect_odf | bool }}"
+      - "  Bastion host logs       : {{ must_gather_collect_bastion | bool }}"
+      - "  Dell iDRAC BMC logs     : {{ (must_gather_collect_bmc | bool) and (infra_provider | default('baremetal') == 'baremetal') }}"
+      - "======================================================================"
+
+# Relay ── same logic as export-backup.yaml's network/both egress path
+- name: Determine whether to relay the bundle to the mirror-staging host
+  set_fact:
+    _must_gather_should_relay: >-
+      {{
+        (must_gather_relay_enabled | bool) and
+        (backup_egress_mode | default('media') in ['network', 'both']) and
+        (groups['mirror_staging_host'] is defined) and
+        (groups['mirror_staging_host'] | length > 0)
+      }}
+
+- name: Relay diagnostic bundle to mirror-staging host
+  when: _must_gather_should_relay | bool
+  block:
+    - name: Ensure relay destination exists on mirror-staging host
+      file:
+        path: "{{ must_gather_staging_dest_dir }}"
+        state: directory
+        mode: '0755'
+        owner: "{{ hostvars[groups['mirror_staging_host'][0]].ansible_user | default(ansible_user) }}"
+        group: "{{ hostvars[groups['mirror_staging_host'][0]].ansible_user | default(ansible_user) }}"
+      become: true
+      delegate_to: "{{ groups['mirror_staging_host'][0] }}"
+
+    - name: Rsync archive to mirror-staging host
+      ansible.posix.synchronize:
+        src: "{{ must_gather_archive_dest }}"
+        dest: "{{ must_gather_staging_dest_dir }}/{{ must_gather_archive_dest | basename }}"
+
+    - name: Rsync checksum file to mirror-staging host
+      ansible.posix.synchronize:
+        src: "{{ must_gather_archive_dest }}.sha256"
+        dest: "{{ must_gather_staging_dest_dir }}/{{ must_gather_archive_dest | basename }}.sha256"
+
+    - name: Report relay destination
+      debug:
+        msg: >-
+          Bundle relayed to mirror-staging host at
+          {{ must_gather_staging_dest_dir }}/{{ must_gather_archive_dest | basename }}
