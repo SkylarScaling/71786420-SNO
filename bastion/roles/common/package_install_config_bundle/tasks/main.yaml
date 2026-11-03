@@ -12,19 +12,21 @@
     state: directory
     mode: '0755'
 
-# force_archive: true matters here — the archive module's default behavior for a
-# single-file path is to gzip-compress it in place (no tar wrapper at all), which
-# `unarchive` can't extract. Forcing a real (one-entry) tar is what makes this
-# extractable the same way as every other bundle in this repo. common_path() of a
-# single path is its own dirname, so the one archive member is named just
+# community.general.archive (not ansible.builtin — confirmed live: "couldn't resolve
+# module/action 'archive'") isn't available here — the bastion only ever gets bare
+# ansible-core installed offline from an RPM (bootstrap-bastion-host.sh), with no
+# Galaxy collections at all, unlike staging which installs requirements.yml's
+# collections normally. Using `tar` directly via command: avoids needing any
+# collection here, the same way this repo already shells out to rsync/podman/dnf
+# elsewhere. `-C {{ install_dir }}` makes the one archive member just
 # "install-config.yaml" (not the full absolute path) — unpack_install_config_bundle
 # relies on that to land the file directly in its own install_dir.
 - name: Archive install-config.yaml into one tar.gz
-  archive:
-    path: "{{ install_dir }}/install-config.yaml"
-    dest: "{{ install_config_bundle_export_dir }}/{{ install_config_bundle_name }}"
-    format: gz
-    force_archive: true
+  command: >
+    tar -czf {{ install_config_bundle_export_dir }}/{{ install_config_bundle_name }}
+    -C {{ install_dir }} install-config.yaml
+  args:
+    creates: "{{ install_config_bundle_export_dir }}/{{ install_config_bundle_name }}"
 
 - name: Report the media-transfer next step
   debug:
