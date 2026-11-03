@@ -50,6 +50,25 @@ all:
     bastion_transfer_user: {{ bastion_ssh_user }}
     bastion_transfer_dest_dir: "/home/{{ bastion_ssh_user }}"
 
+    # --- Install-config/kubeconfig 3-hop handback (bastion -> staging -> bastion) ---
+    # Same reasoning as bastion_transfer_* above — a real VPC path exists both
+    # directions, so both handback legs default to rsync here too. Previously
+    # unset entirely (confirmed live: install-config.yaml's handback silently fell
+    # back to package_install_config_bundle's own 'media' default, even on AWS where
+    # that's never actually usable — the bastion has no removable-media slot and
+    # the operator has no way to "manually copy" out of a private-subnet-only host).
+    # mirror_staging_private_ip/mirror_staging_ssh_user are already known at this
+    # render time, same as bastion_private_ip/bastion_ssh_user above.
+    install_config_transfer_method: rsync
+    install_config_transfer_host: {{ mirror_staging_private_ip }}
+    install_config_transfer_user: {{ mirror_staging_ssh_user }}
+    install_config_transfer_dest_dir: "/home/{{ mirror_staging_ssh_user }}"
+
+    kubeconfig_transfer_method: rsync
+    kubeconfig_transfer_host: {{ bastion_private_ip }}
+    kubeconfig_transfer_user: {{ bastion_ssh_user }}
+    kubeconfig_transfer_dest_dir: "/home/{{ bastion_ssh_user }}"
+
 {% raw %}
     # --- Credentials / keys ---
     ssh_key: "{{ lookup('file', '~/.ssh/id_ed25519.pub') }}"

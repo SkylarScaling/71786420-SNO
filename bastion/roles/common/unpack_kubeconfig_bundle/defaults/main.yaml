@@ -1,4 +1,8 @@
 ---
 # Where the staging-produced kubeconfig bundle lands on the bastion once physically
-# copied (or rsynced) over.
-kubeconfig_bundle_path: "~/sno-kubeconfig-bundle.tar.gz"
+# copied (or rsynced) over. Must match package_kubeconfig_bundle's kubeconfig_bundle_name
+# exactly (role defaults aren't shared across roles) — same mismatch bug confirmed live
+# in unpack_install_config_bundle: this used to default to a generic
+# "sno-kubeconfig-bundle.tar.gz" that never matched the actual cluster_name-qualified
+# file package_kubeconfig_bundle produces.
+kubeconfig_bundle_path: "~/sno-kubeconfig-{{ cluster_name }}.tar.gz"
