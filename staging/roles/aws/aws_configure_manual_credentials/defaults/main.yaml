@@ -1,6 +1,12 @@
 ---
 bin_dir: "~/.local/bin"
 
+# Same default path stage_mirror_content downloads the oc tarball into (role defaults
+# aren't shared across roles, so duplicated rather than centralized) — this role runs
+# on the SAME host (staging), so it reads the tarball directly rather than needing it
+# bundled/synced anywhere.
+mirror_installers_dir: /opt/mirror-installers
+
 # Pulled directly from quay.io by the controller (which has real internet access,
 # unlike the SNO node) — same "controller isn't disconnected" exception
 # install_ocp_prerequisites/stage_mirror_content already rely on for their own

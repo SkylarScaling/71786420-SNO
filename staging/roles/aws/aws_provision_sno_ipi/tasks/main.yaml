@@ -1,4 +1,29 @@
 ---
+# stage_mirror_content downloads the openshift-install tarball here for the BASTION's
+# benefit (unpack_bastion_bundle extracts it there) but never extracts it on staging
+# itself — this role is the first thing that actually needs openshift-install to exist
+# on staging (aws_configure_manual_credentials's own fix extracts oc the same way,
+# included further below). Idempotent, safe to run every time.
+- name: Ensure bin_dir exists
+  file:
+    path: "{{ bin_dir | default('~/.local/bin') }}"
+    state: directory
+    mode: '0755'
+
+- name: Check for the openshift-install binary
+  command: "{{ bin_dir | default('~/.local/bin') }}/openshift-install version"
+  register: _openshift_install_check
+  failed_when: false
+  changed_when: false
+
+- name: Extract openshift-install from the already-downloaded tarball
+  unarchive:
+    src: "{{ mirror_installers_dir | default('/opt/mirror-installers') }}/openshift-install-linux.tar.gz"
+    dest: "{{ bin_dir | default('~/.local/bin') }}"
+    remote_src: true
+    mode: '0755'
+  when: _openshift_install_check.rc != 0
+
 # A retried/re-run `create cluster` after any prior failed attempt refuses to
 # proceed ("local infrastructure provisioning artifacts already exist. There may
 # already be a running cluster") as soon as metadata.json exists from that prior

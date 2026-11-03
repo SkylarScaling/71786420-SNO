@@ -24,6 +24,26 @@
     state: directory
     mode: '0755'
 
+# stage_mirror_content downloads the oc tarball here for the BASTION's benefit
+# (unpack_bastion_bundle extracts it there) but never extracts it on staging itself —
+# this role (and aws_provision_sno_ipi, for openshift-install) is the first thing that
+# actually needs oc/openshift-install to exist on staging. Confirmed live:
+# "[Errno 2] No such file or directory: b'/home/ec2-user/.local/bin/oc'". Idempotent
+# (unarchive skips re-extracting an unchanged source), safe to run every time.
+- name: Check for the oc binary
+  command: "{{ bin_dir }}/oc version --client"
+  register: _oc_check
+  failed_when: false
+  changed_when: false
+
+- name: Extract the oc client from the already-downloaded tarball
+  unarchive:
+    src: "{{ mirror_installers_dir }}/openshift-client-linux.tar.gz"
+    dest: "{{ bin_dir }}"
+    remote_src: true
+    mode: '0755'
+  when: _oc_check.rc != 0
+
 # A plain registry-config file, not ~/.docker/config.json — oc adm/ccoctl's -a flag
 # wants an explicit path, and this runs on the controller (localhost), separate from
 # where stage_mirror_content already wrote pull_secret into ~/.docker/config.json on
