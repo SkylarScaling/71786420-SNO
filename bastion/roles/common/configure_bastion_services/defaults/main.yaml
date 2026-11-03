@@ -1,7 +1,13 @@
 ---
-# sno_node_ip must be a known, static address before this role runs — it's the
-# rendezvous_ip set in staging/inventory/inventory.yaml.
-sno_node_ip: "{{ rendezvous_ip | default(omit) }}"
+# rendezvous_ip (bare-metal only, set in staging/inventory/inventory.yaml — never
+# defined on AWS) is used directly below, not wrapped in a role default: `default(omit)`
+# only works as a MODULE PARAMETER value (it tells Ansible to drop that argument
+# entirely) — used as a generic variable default like this, it doesn't make the
+# variable undefined, it leaks through as a literal "__omit_place_holder__<hash>"
+# string. Confirmed live: dnsmasq failed to start with "bad address at line 2 of
+# /etc/dnsmasq.d/sno.conf" on AWS, because `when: sno_node_ip is defined` evaluated
+# true (the var DID have a value — just the omit sentinel object) and the template
+# rendered that placeholder string as a literal DNS record address.
 iso_serve_dir: /var/www/html/sno-iso
 
 # The bastion has no internet route at all, so dnsmasq/httpd can't be `dnf

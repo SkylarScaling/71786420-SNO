@@ -1,8 +1,9 @@
 # configure_bastion_services
 
 Runs directly on the bastion (`hosts: localhost`) — the existing physical bastion.
-Installs `dnsmasq` (DNS for the SNO cluster, only when `sno_node_ip` is known) and
-`httpd` (serves the agent ISO for BMC virtual media boot).
+Installs `dnsmasq` (DNS for the SNO cluster, only when `rendezvous_ip` is known —
+bare metal only, never set on AWS) and `httpd` (serves the agent ISO for BMC virtual
+media boot).
 
 ## Why the packages come from a synced local directory, not `dnf install`
 
