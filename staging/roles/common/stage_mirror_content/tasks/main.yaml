@@ -191,9 +191,19 @@
     state: directory
     mode: '0700'
 
+# pull_secret: "{{ lookup('file', ...) }}" in inventory.yaml is a "whole template"
+# (the entire value is a single Jinja expression) — Ansible's native-type templating
+# preserves the lookup's structure rather than forcing a string, and since the pull
+# secret's JSON text is also valid Python dict syntax (double-quoted strings parse
+# fine via ast.literal_eval), pull_secret actually arrives here as a real dict, not
+# the raw JSON text. Confirmed live: plain "{{ pull_secret }}" would pass that dict to
+# copy's content (a str-typed parameter), which Ansible then coerces via Python's
+# str(dict) — single-quoted repr, not valid JSON. Normalizing explicitly handles
+# both cases (dict here, or a plain JSON-text string on any Ansible config where
+# native typing is off).
 - name: Write pull_secret here so oc-mirror can authenticate to registry.redhat.io/quay.io
   copy:
-    content: "{{ pull_secret }}"
+    content: "{{ pull_secret if pull_secret is string else (pull_secret | to_json) }}"
     dest: "~/.docker/config.json"
     mode: '0600'
   # Hidden by default since pull_secret is a credential. Pass
