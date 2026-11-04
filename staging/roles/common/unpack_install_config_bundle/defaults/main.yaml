@@ -1,0 +1,8 @@
+---
+# Where the bastion-produced install-config bundle lands on staging once physically
+# copied (or rsynced) over. Must match package_install_config_bundle's
+# install_config_bundle_name exactly (role defaults aren't shared across roles) —
+# confirmed live: this used to default to the generic "sno-install-config-bundle.tar.gz",
+# which never matched the actual cluster_name-qualified file package_install_config_bundle
+# produces, so this stat always failed even when the bundle really had arrived.
+install_config_bundle_path: "~/sno-install-config-{{ cluster_name }}.tar.gz"

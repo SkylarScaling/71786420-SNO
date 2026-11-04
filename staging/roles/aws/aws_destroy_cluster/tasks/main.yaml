@@ -1,0 +1,99 @@
+---
+# Cluster-level teardown only — run from staging/playbooks/destroy-sno-aws.yaml,
+# BEFORE aws-infra/playbooks/destroy-hosts.yaml (that one tears down the EC2
+# instances/VPC/Route53 zone; this one removes the resources
+# `openshift-install destroy cluster` doesn't know about because they were created
+# outside its own CAPI-tracked bookkeeping, plus the cluster itself). See
+# aws-infra/roles/aws_destroy_infra's README for why the order matters.
+- name: Recompute the ccoctl resource name (must match aws_configure_manual_credentials' deterministic naming)
+  set_fact:
+    ccoctl_name: "{{ cluster_name }}-{{ (base_domain | hash('md5'))[:8] }}"
+
+- name: Delete ccoctl-created IAM roles and the OIDC S3 bucket
+  command: "{{ bin_dir | default('~/.local/bin') }}/ccoctl aws delete --name={{ ccoctl_name }} --region={{ aws_region }}"
+  environment:
+    AWS_ACCESS_KEY_ID: "{{ aws_access_key_id }}"
+    AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key }}"
+    AWS_DEFAULT_REGION: "{{ aws_region }}"
+  ignore_errors: true
+
+# amazon.aws.route53_info, not the `aws` CLI binary — see aws_configure_manual_dns's
+# create_apps_record.yml for why (nothing in this repo's bootstrapping installs the
+# standalone AWS CLI, only the amazon.aws collection + boto3/botocore).
+- name: Find the public hosted zone for base_domain
+  amazon.aws.route53_info:
+    query: hosted_zone
+    dns_name: "{{ base_domain }}"
+  register: public_zone_lookup
+  module_defaults:
+    group/aws:
+      access_key: "{{ aws_access_key_id }}"
+      secret_key: "{{ aws_secret_access_key }}"
+      region: "{{ aws_region }}"
+  ignore_errors: true
+
+- name: Extract the public hosted zone ID
+  set_fact:
+    public_hosted_zone_id: >-
+      {{ (public_zone_lookup.HostedZones
+          | default([])
+          | selectattr('Config.PrivateZone', 'equalto', false)
+          | selectattr('Name', 'equalto', base_domain ~ '.')
+          | map(attribute='Id')
+          | map('regex_replace', '^/hostedzone/', '')
+          | list | first | default('') ) }}
+
+- name: Look up the apps wildcard CNAME's current value in the public zone
+  amazon.aws.route53_info:
+    query: record_sets
+    hosted_zone_id: "{{ public_hosted_zone_id }}"
+    start_record_name: "*.apps.{{ cluster_name }}.{{ base_domain }}."
+    type: CNAME
+    max_items: 1
+  register: apps_record_lookup
+  module_defaults:
+    group/aws:
+      access_key: "{{ aws_access_key_id }}"
+      secret_key: "{{ aws_secret_access_key }}"
+      region: "{{ aws_region }}"
+  ignore_errors: true
+  when: public_hosted_zone_id | trim != ''
+
+- name: Extract the apps wildcard CNAME's current value
+  set_fact:
+    apps_record_value: >-
+      {{ (apps_record_lookup.ResourceRecordSets
+          | default([])
+          | selectattr('Name', 'equalto', '*.apps.' ~ cluster_name ~ '.' ~ base_domain ~ '.')
+          | map(attribute='ResourceRecords')
+          | map('first')
+          | map(attribute='Value')
+          | list | first | default('') ) }}
+  when: apps_record_lookup is succeeded
+
+# No module_defaults: group/aws here — see create_apps_record.yml's identical fix
+# for why amazon.aws.route53's own `region` param (latency-based routing) collides
+# with the connection-region default every other AWS module/group/aws uses.
+- name: Delete the apps wildcard CNAME from the public zone
+  amazon.aws.route53:
+    zone: "{{ base_domain }}"
+    hosted_zone_id: "{{ public_hosted_zone_id }}"
+    record: "*.apps.{{ cluster_name }}.{{ base_domain }}"
+    type: CNAME
+    value: "{{ apps_record_value }}"
+    ttl: 30
+    private_zone: false
+    state: absent
+    access_key: "{{ aws_access_key_id }}"
+    secret_key: "{{ aws_secret_access_key }}"
+  ignore_errors: true
+  when: apps_record_value | default('') | trim != ''
+
+- name: Destroy SNO cluster
+  command: "{{ bin_dir | default('~/.local/bin') }}/openshift-install --dir={{ install_dir }} destroy cluster --log-level=info"
+  args:
+    removes: "{{ install_dir }}/metadata.json"
+  environment:
+    AWS_ACCESS_KEY_ID: "{{ aws_access_key_id }}"
+    AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key }}"
+    AWS_DEFAULT_REGION: "{{ aws_region }}"

@@ -1,0 +1,17 @@
+---
+# Staging-side half of the backup-export relay — run after the bastion-produced
+# backup bundle (bastion/playbooks/export-backup.yaml, backup_egress_mode: network
+# or both) has been physically carried (or rsynced) over. Extracts it, then pushes
+# the data on to the real external S3 target. See
+# roles/ocp/configure_mcg_backup_export/README.md for the full picture.
+- name: Receive the bastion's backup bundle and push it to external S3
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  tags: [configure_backup_export]
+  tasks:
+    - include_role:
+        name: unpack_staging_backup_bundle
+
+    - include_role:
+        name: push_backup_to_external_s3

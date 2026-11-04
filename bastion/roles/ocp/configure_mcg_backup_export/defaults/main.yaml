@@ -1,0 +1,33 @@
+---
+# media:    (default) no network path out of the disconnected environment exists or
+#           is permitted; roles/common/export_backup_from_noobaa still stages data on
+#           the bastion, and a human manually copies it to removable media from
+#           there. The safe default: it assumes nothing about what the customer's
+#           network actually allows.
+# internal: push the bastion's staged export straight to an S3-compatible backup
+#           system the customer already runs on the SAME disconnected network as the
+#           bastion/SNO node (roles/common/push_backup_to_internal_target) — no
+#           internet route needed. Prefer this over 'network' once the customer's
+#           on-prem backup target is confirmed; it's the much more common case than
+#           genuine internet egress on this kind of deployment.
+# network:  relay staged data through the mirror-staging host out to a REAL
+#           internet-reachable external S3 target (requires outbound connectivity to
+#           backup_external_s3_endpoint). Unlikely to apply on a fully disconnected
+#           production deployment — only use this if the customer has explicitly
+#           confirmed that path exists; see docs/architectural-decisions.md for how
+#           it's reconciled with this repo's disconnected-only design.
+# both:     wires up the network replication path AND prints the manual media
+#           runbook, for environments that want both an automated and an
+#           out-of-band copy.
+backup_egress_mode: media
+
+# External S3 target for application data export. These are genuinely per-environment
+# and deliberately NOT given real defaults here — set them in
+# staging/inventory/inventory.yaml's vars: block, not here and not in
+# staging/inventory/inventory.yaml (group_vars/all would win over an inventory override
+# per Ansible's precedence rules).
+backup_external_s3_endpoint: ""
+backup_external_s3_bucket: ""
+backup_external_s3_access_key: ""
+backup_external_s3_secret_key: ""
+backup_external_s3_region: us-east-1

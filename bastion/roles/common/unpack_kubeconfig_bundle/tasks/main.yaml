@@ -1,0 +1,34 @@
+---
+# AWS-only. Runs on the bastion (hosts: localhost), via
+# bastion/playbooks/unpack-cluster-access.yaml — the bastion-side counterpart of
+# staging's package_kubeconfig_bundle. Extracts sno_kubeconfig into place so the
+# shared roles/ocp/* day-2 playbooks work here unmodified, exactly like bare metal
+# (where the kubeconfig already landed here directly from wait_for_sno_install).
+- name: Fail fast if the expected kubeconfig bundle isn't present
+  stat:
+    path: "{{ kubeconfig_bundle_path }}"
+  register: _kubeconfig_bundle_stat
+
+- name: Fail with guidance if the bundle hasn't arrived yet
+  fail:
+    msg: >
+      {{ kubeconfig_bundle_path }} not found. Physically copy (or rsync) the
+      staging-produced sno-kubeconfig-*.tar.gz here first — see
+      package_kubeconfig_bundle's README on the staging side.
+  when: not _kubeconfig_bundle_stat.stat.exists
+
+- name: Ensure the kubeconfig's parent directory exists
+  file:
+    path: "{{ sno_kubeconfig | dirname }}"
+    state: directory
+    mode: '0700'
+
+# package_kubeconfig_bundle's archive member is named just "kubeconfig" (its own
+# basename, not the full path it came from on staging — see that role's
+# force_archive comment), so extracting here into sno_kubeconfig's own parent
+# directory lands it at exactly {{ sno_kubeconfig }}.
+- name: Extract the kubeconfig into place
+  unarchive:
+    src: "{{ kubeconfig_bundle_path }}"
+    dest: "{{ sno_kubeconfig | dirname }}"
+    remote_src: true

@@ -1,0 +1,32 @@
+---
+bastion_ami_id: ""          # "" = auto-detect the latest matching AMI below; set explicitly to pin/override
+bastion_security_groups: []
+# main's original version of this var lived in the shared playbooks/group_vars/all.yaml
+# rather than this role's own defaults — that file no longer exists in this split, so
+# it's defaulted here directly instead (role defaults aren't shared across trees).
+bastion_instance_type: t3.large
+# The RHEL AMI's default root volume (~10GB) isn't enough to hold both the bundled
+# mirror archive (package_bastion_bundle, unpacked here by unpack_bastion_bundle) and
+# the mirror-registry's own Quay storage for the same content pushed into it — bump
+# it explicitly (see mirror_staging_root_volume_size_gb for the matching note on the
+# staging host). 150 wasn't enough either, confirmed against a real run: two oc-mirror
+# sequence archives landed here simultaneously (~56GB + ~30GB, the second a
+# version-pin correction re-mirror — see stage_mirror_content's imageset-config.yaml.j2
+# comment) plus Quay's own on-disk storage for already-pushed content (~57GB and
+# growing) blew through 150GB with "No space left on device" mid-transfer.
+bastion_root_volume_size_gb: 300
+bastion_ssh_user: ec2-user
+
+# mirror_registry_quay_port (used by the security-group rule below, opening this port
+# to the whole VPC CIDR so the SNO master/bootstrap instance can reach the mirror
+# registry) comes from aws-infra/playbooks/group_vars/all.yaml, which reads it from
+# the repo-root shared-defaults.yaml — not defaulted here, since it must stay in sync
+# with staging/'s copy of the same constant (see shared-defaults.yaml's header
+# comment). No default in this file: this role is only ever run via
+# aws-infra/playbooks/provision-hosts.yaml, which always has that group_vars file
+# auto-loaded.
+
+# Auto-detected RHEL 9 AMI lookup (see tasks/main.yaml) — 309956199498 is Red Hat's
+# official AWS account ID for published RHEL AMIs.
+rhel_ami_owner: "309956199498"
+rhel_ami_name_filter: "RHEL-9.*_HVM-*-x86_64-*-Hourly2-GP3"

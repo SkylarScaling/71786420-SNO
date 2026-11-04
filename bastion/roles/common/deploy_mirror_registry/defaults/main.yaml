@@ -1,0 +1,31 @@
+---
+mirror_registry_install_dir: /opt/mirror-registry
+# Same default path unpack_bastion_bundle extracts the staging-produced bundle's
+# mirror content into (role defaults aren't shared across roles, so duplicated
+# rather than centralized — see that role's defaults/main.yaml).
+mirror_archive_dir: /opt/mirror-content/archive
+
+# PUSH_TEMP_TAG_EXPIRATION_SEC (Quay's default is 300s) controls how long an
+# in-progress blob upload session is kept alive — the default is too short for the
+# large OCP release blobs the "disk to mirror" push writes. 3600s (1 hour) gives
+# headroom for a slow link; bump further if pushes still time out mid-upload.
+mirror_registry_push_timeout: 3600
+
+# This host (the bastion) is separate from wherever stage_mirror_content ran (on
+# staging), so the oc-mirror binary it needs for the "disk to mirror" push isn't
+# there — extracted from the tarball unpack_bastion_bundle already unpacked here
+# instead. Same dir convention as stage_mirror_content's bin_dir (role defaults
+# aren't shared across roles, so duplicated rather than centralized).
+bin_dir: "~/.local/bin"
+
+# Scoped to this host, separate from stage_mirror_content's own --cache-dir on the
+# mirror-staging host — oc-mirror --v2 always needs one, even for the "disk to
+# mirror" push.
+oc_mirror_cache_dir: "{{ mirror_registry_install_dir }}/oc-mirror-cache"
+
+# The bastion has no internet route at all — unlike stage_mirror_content's
+# mirror-staging host, it can't download oc-mirror or mirror-registry itself. Both
+# are unarchived from the bundle unpack_bastion_bundle already extracted here. Same
+# default path as stage_mirror_content/package_bastion_bundle/unpack_bastion_bundle's
+# mirror_installers_dir.
+mirror_installers_dir: /opt/mirror-installers

@@ -1,0 +1,13 @@
+---
+# AWS day-2 configuration, bastion side, step 2 of 2 — run after staging's
+# provision-sno-aws.yaml hands the kubeconfig back (package_kubeconfig_bundle) and
+# it's been copied here. Matches main's old full-sno-test-setup.yaml scope exactly:
+# storage (LVMS + MCG), logging (LokiStack + Grafana + log forwarding), and backup/DR
+# (OADP). MetalLB/tracing/alerting/Day 2 middleware stay bare-metal-only — MetalLB's
+# L2Advertisement mode specifically can't work on AWS's L3-routed VPC at all; the
+# others are simply out of scope for this test loop (see
+# docs/aws-test-environment-architecture.md).
+- import_playbook: ./unpack-cluster-access.yaml
+- import_playbook: ./configure-storage.yaml
+- import_playbook: ./configure-logging.yaml
+- import_playbook: ./configure-backup-dr.yaml

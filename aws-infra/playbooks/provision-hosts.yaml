@@ -1,0 +1,199 @@
+---
+# Provisions the two EC2 hosts that become the staging and bastion machines for the
+# AWS test loop — bare metal has no equivalent of this playbook since the physical
+# staging/bastion hosts already exist on the customer's network. This playbook only
+# creates infrastructure; it does not run any of staging/ or bastion/'s own
+# automation against the new hosts (see aws-infra/README.md and the "Getting the repo
+# onto the two new EC2 instances" section of staging/README.md and bastion/README.md
+# for what to do next).
+- name: Provision the AWS test-loop network and hosts
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [provision_hosts]
+  tasks:
+    - name: Build the VPC (public subnet for staging, route-less private subnet for everything else)
+      include_role:
+        name: aws_provision_network
+
+    - name: Provision the internet-connected mirror-staging EC2 instance
+      include_role:
+        name: aws_provision_mirror_staging_host
+        public: true   # exposes mirror_staging_ssh_user/mirror_staging_public_ip etc. to the debug task below
+
+    - name: Provision the bastion EC2 instance in the private subnet
+      include_role:
+        name: aws_provision_bastion
+        public: true   # exposes bastion_ssh_user/bastion_private_ip etc. to the debug task below
+
+    # Only now do sno_vpc_id/sno_private_subnet_id/etc. (set by aws_provision_network)
+    # actually exist, so this is the earliest point staging/inventory/inventory.yaml
+    # can be completely rendered — doing it here instead of in configure-aws-env.yaml
+    # means the operator never hand-edits VPC/subnet values into it.
+    - name: Wait for SSH to come up on the mirror-staging host
+      wait_for:
+        host: "{{ mirror_staging_public_ip }}"
+        port: 22
+        delay: 10
+        timeout: 300
+
+    - name: Render staging/'s complete AWS inventory now that VPC/subnet facts exist
+      template:
+        src: "{{ playbook_dir }}/../../staging/inventory/inventory-aws.yaml.j2"
+        dest: "{{ playbook_dir }}/../../staging/inventory/inventory.yaml"
+        mode: '0644'
+
+    - name: Ensure ~/tmp exists on the mirror-staging host (for its copy of the AWS credentials file)
+      command: >
+        ssh -i {{ ssh_private_key }} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+        {{ mirror_staging_ssh_user }}@{{ mirror_staging_public_ip }} "mkdir -p ~/tmp"
+
+    # staging/inventory/inventory.yaml's lookup('file', aws_creds_file) is evaluated
+    # wherever staging/ actually runs, not where this template was rendered — without
+    # this, the first staging/ playbook run on the mirror-staging host would fail
+    # looking for a credentials file that only exists back where configure-aws-env.yaml
+    # ran.
+    - name: Copy the AWS credentials file to the mirror-staging host
+      command: >
+        scp -i {{ ssh_private_key }} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+        {{ lookup('env', 'HOME') }}/tmp/{{ base_domain }}-creds
+        {{ mirror_staging_ssh_user }}@{{ mirror_staging_public_ip }}:~/tmp/{{ base_domain }}-creds
+
+    # staging/inventory/inventory.yaml's own lookup('file', ...) calls for ssh_key/
+    # pull_secret (and package_bastion_bundle's rsync transfer, which authenticates to
+    # the bastion using ssh_private_key) are all evaluated wherever staging/ actually
+    # runs too — same reasoning as the credentials file above. Without copying these,
+    # the very first staging/ playbook run fails looking for files that only exist on
+    # the operator's own machine. Same local paths configure-aws-env.yaml already
+    # assumed when it imported the EC2 key pair, and generate_install_config/
+    # package_bastion_bundle already assume on the bare-metal side.
+    - name: Ensure ~/.ssh exists on the mirror-staging host
+      command: >
+        ssh -i {{ ssh_private_key }} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+        {{ mirror_staging_ssh_user }}@{{ mirror_staging_public_ip }} "mkdir -p -m 700 ~/.ssh"
+
+    # Local source paths are resolved via lookup('env', 'HOME') rather than relying on
+    # ssh_private_key's literal "~/..." expanding — command: doesn't invoke a shell, so
+    # there's nothing to expand a leading ~ for the LOCAL file argument (same reason
+    # the AWS-credentials-file copy above uses lookup('env', 'HOME'), not a bare "~").
+    # Remote-side "~" (both here and in ssh_private_key's own value) is fine as-is: scp
+    # hands remote paths to a shell on the far end, which already expands them.
+    - name: Copy the SSH private key to the mirror-staging host (needed there to reach the bastion over rsync)
+      command: >
+        scp -i {{ ssh_private_key }} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+        {{ lookup('env', 'HOME') }}/.ssh/id_ed25519
+        {{ mirror_staging_ssh_user }}@{{ mirror_staging_public_ip }}:{{ ssh_private_key }}
+
+    - name: Set the SSH private key's permissions on the mirror-staging host (sshd rejects group/world-readable keys)
+      command: >
+        ssh -i {{ ssh_private_key }} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+        {{ mirror_staging_ssh_user }}@{{ mirror_staging_public_ip }} "chmod 600 {{ ssh_private_key }}"
+
+    - name: Copy the SSH public key to the mirror-staging host (staging/inventory/inventory.yaml's ssh_key var)
+      command: >
+        scp -i {{ ssh_private_key }} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+        {{ lookup('env', 'HOME') }}/.ssh/id_ed25519.pub
+        {{ mirror_staging_ssh_user }}@{{ mirror_staging_public_ip }}:{{ ssh_private_key }}.pub
+
+    - name: Copy the pull secret to the mirror-staging host (staging/inventory/inventory.yaml's pull_secret var)
+      command: >
+        scp -i {{ ssh_private_key }} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+        {{ lookup('env', 'HOME') }}/pull-secret.json
+        {{ mirror_staging_ssh_user }}@{{ mirror_staging_public_ip }}:~/pull-secret.json
+
+    # On a brand-new host (no clone yet), bootstrap-staging-host.sh moves this into
+    # place itself once it creates the clone. On a RE-run against an already-bootstrapped
+    # host (e.g. delivering an inventory fix) — the common case once the environment is
+    # up — there's no later step that would move it, so land it directly in its final
+    # spot instead of silently re-staging the same file at ~/sno-staging-inventory.yaml
+    # every time (confirmed against a real run: without this check, a second
+    # provision-hosts.yaml run after an inventory fix left the fix sitting unused at
+    # ~/sno-staging-inventory.yaml, and the operator kept re-running stage-and-package.yaml
+    # against the stale inventory already in place).
+    - name: Check whether the automation repo is already cloned on the mirror-staging host
+      command: >
+        ssh -i {{ ssh_private_key }} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+        {{ mirror_staging_ssh_user }}@{{ mirror_staging_public_ip }}
+        "test -d {{ automation_clone_dir }}/staging/inventory && echo PRESENT || echo ABSENT"
+      register: _automation_clone_check
+      changed_when: false
+
+    - name: Copy the completed inventory to the mirror-staging host (repo not cloned yet — lands at $HOME for bootstrap-staging-host.sh to move)
+      command: >
+        scp -i {{ ssh_private_key }} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+        {{ playbook_dir }}/../../staging/inventory/inventory.yaml
+        {{ mirror_staging_ssh_user }}@{{ mirror_staging_public_ip }}:~/sno-staging-inventory.yaml
+      when: "'ABSENT' in _automation_clone_check.stdout"
+
+    - name: Copy the completed inventory directly into place (repo already cloned)
+      command: >
+        scp -i {{ ssh_private_key }} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+        {{ playbook_dir }}/../../staging/inventory/inventory.yaml
+        {{ mirror_staging_ssh_user }}@{{ mirror_staging_public_ip }}:{{ automation_clone_dir }}/staging/inventory/inventory.yaml
+      when: "'PRESENT' in _automation_clone_check.stdout"
+
+    # The mirror-staging host has nothing on it yet — not even Ansible. This script
+    # does the minimum possible in bash to get Ansible running and this repo cloned;
+    # everything past that point (Galaxy collections, mirroring, packaging, cluster
+    # creation) happens in Ansible — see staging/bootstrap-staging-host.sh and
+    # staging/playbooks/prepare-staging-host.yaml.
+    - name: Copy the staging-host bootstrap script to the mirror-staging host
+      command: >
+        scp -i {{ ssh_private_key }} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+        {{ playbook_dir }}/../../staging/bootstrap-staging-host.sh
+        {{ mirror_staging_ssh_user }}@{{ mirror_staging_public_ip }}:~/bootstrap-staging-host.sh
+
+    - name: Print connection info and next steps (first bootstrap)
+      debug:
+        msg:
+          - "=================================================================="
+          - "Mirror-staging host and bastion provisioned"
+          - "=================================================================="
+          - "Mirror-staging public IP:  {{ mirror_staging_public_ip }}"
+          - "Mirror-staging private IP: {{ mirror_staging_private_ip }}"
+          - "SSH (mirror-staging):      ssh -A -i {{ ssh_private_key }} {{ mirror_staging_ssh_user }}@{{ mirror_staging_public_ip }}"
+          - "------------------------------------------------------------------"
+          - "Bastion private IP:        {{ bastion_private_ip }}"
+          - "SSH (bastion, via proxy):  ssh -i {{ ssh_private_key }} -o ProxyCommand=\"ssh -i {{ ssh_private_key }} -W %h:%p -q {{ mirror_staging_ssh_user }}@{{ mirror_staging_public_ip }}\" {{ bastion_ssh_user }}@{{ bastion_private_ip }}"
+          - "------------------------------------------------------------------"
+          - "staging/inventory/inventory.yaml (fully rendered), the AWS credentials"
+          - "file, bootstrap-staging-host.sh, your SSH keypair, and ~/pull-secret.json"
+          - "have all already been copied to the mirror-staging host's $HOME."
+          - "------------------------------------------------------------------"
+          - "The -A above forwards your local ssh-agent so bootstrap-staging-host.sh"
+          - "can clone this repo over SSH as you, with no key copied onto the host -"
+          - "run `ssh-add -l` locally first to confirm your GitHub key is loaded."
+          - "Next: SSH to mirror-staging above, then run:"
+          - "  bash ~/bootstrap-staging-host.sh {{ automation_repo_url }} {{ automation_repo_ref }}"
+          - "That installs Ansible/Python/git, clones this repo, installs this"
+          - "repo's Python deps, and moves the staged inventory into place. Then:"
+          - "  export PATH=\"$HOME/.local/bin:$PATH\""
+          - "  cd {{ automation_clone_dir }}/staging/playbooks"
+          - "  ansible-playbook prepare-staging-host.yaml -i ../inventory/inventory.yaml"
+          - "The bastion gets bastion/ for free as part of package_bastion_bundle's"
+          - "tar.gz once staging runs stage-and-package.yaml."
+      when: "'ABSENT' in _automation_clone_check.stdout"
+
+    - name: Print connection info and next steps (repo already cloned — inventory delivered directly)
+      debug:
+        msg:
+          - "=================================================================="
+          - "Mirror-staging host and bastion provisioned (re-run — repo already cloned)"
+          - "=================================================================="
+          - "Mirror-staging public IP:  {{ mirror_staging_public_ip }}"
+          - "Mirror-staging private IP: {{ mirror_staging_private_ip }}"
+          - "SSH (mirror-staging):      ssh -A -i {{ ssh_private_key }} {{ mirror_staging_ssh_user }}@{{ mirror_staging_public_ip }}"
+          - "------------------------------------------------------------------"
+          - "Bastion private IP:        {{ bastion_private_ip }}"
+          - "SSH (bastion, via proxy):  ssh -i {{ ssh_private_key }} -o ProxyCommand=\"ssh -i {{ ssh_private_key }} -W %h:%p -q {{ mirror_staging_ssh_user }}@{{ mirror_staging_public_ip }}\" {{ bastion_ssh_user }}@{{ bastion_private_ip }}"
+          - "------------------------------------------------------------------"
+          - "{{ automation_clone_dir }}/staging/inventory/inventory.yaml was updated"
+          - "directly (the repo's already cloned there) — the AWS credentials file,"
+          - "bootstrap-staging-host.sh, your SSH keypair, and ~/pull-secret.json were"
+          - "also re-copied to $HOME, though those rarely change between runs."
+          - "------------------------------------------------------------------"
+          - "No bootstrap step needed this time. Just re-run whatever staging/"
+          - "playbook you were on, e.g.:"
+          - "  cd {{ automation_clone_dir }}/staging/playbooks"
+          - "  ansible-playbook stage-and-package.yaml -i ../inventory/inventory.yaml --tags package"
+      when: "'PRESENT' in _automation_clone_check.stdout"

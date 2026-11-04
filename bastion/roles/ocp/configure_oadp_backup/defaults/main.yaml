@@ -1,0 +1,21 @@
+---
+oadp_channel: stable-1.4
+
+# Targets the in-cluster NooBaa S3 endpoint provided by roles/ocp/configure_mcg —
+# the only backend this role supports. No external dependency; works unmodified on
+# bare metal's fully disconnected network. See docs/architectural-decisions.md #2.
+noobaa_namespace: openshift-storage
+
+# Default backup cadence — a once-daily, off-peak full backup (cluster resources +
+# PV data via kopia/fs-backup) with 30 days of retention. This is a general-purpose
+# baseline for a single-node cluster with no stated RPO/RTO target, not a
+# customer-confirmed SLA: it caps data loss at ~24h and gives ~30 restore points to
+# choose from without the backup bucket growing unbounded. Override per-environment
+# once real RPO/RTO targets are agreed.
+oadp_backup_schedule_name: "{{ cluster_name }}-daily-backup"
+oadp_backup_schedule_cron: "0 2 * * *"   # 02:00 daily — outside typical business hours
+oadp_backup_ttl: "720h0m0s"              # 30 days
+oadp_backup_excluded_namespaces:
+  # Velero's own namespace: backing it up risks restoring stale Backup/Restore/
+  # Schedule CRs on top of live ones and re-triggering reconciliation loops.
+  - openshift-adp

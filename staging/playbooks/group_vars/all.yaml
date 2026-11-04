@@ -1,0 +1,13 @@
+---
+# Non-secret, generic defaults shared by every staging playbook. Per-environment
+# overrides (base_domain, BMC creds, cluster_name, backup targets, etc.) all live in
+# staging/inventory/inventory.yaml instead — NOT here. Ansible's precedence puts this
+# file ABOVE inline inventory-file vars, so a default here would silently win over an
+# inventory override; see staging/inventory/inventory.yaml's own header comment.
+
+# Constants genuinely shared across trees (currently just mirror_registry_quay_port,
+# also read by aws-infra/) live in one place at the repo root — see
+# ../../../shared-defaults.yaml's header comment for why this isn't a cross-tree
+# runtime dependency. playbook_dir here resolves to staging/playbooks for every play
+# that auto-loads this file (anything directly under staging/playbooks/).
+mirror_registry_quay_port: "{{ (lookup('file', playbook_dir + '/../../shared-defaults.yaml') | from_yaml).mirror_registry_quay_port }}"

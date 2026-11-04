@@ -1,181 +1,194 @@
-# SNO Test/Production Automation Pattern
+# SNO Bare-Metal Production Automation
 
-Ansible automation pattern for testing Single Node OpenShift (SNO) architecture and
-day-2 operational features before rolling them out to a bare-metal production
-environment (single server, single switch, single bastion).
+Ansible automation that builds, configures, and maintains a Single Node OpenShift
+(SNO) platform on a single bare-metal server (single server, single switch, single
+bastion), as a repeatable, disconnected deployment. Infrastructure provisioning is
+abstracted behind `infra_provider: aws | baremetal` so the same feature automation can
+be proven out against an AWS test loop before real hardware is available — see
+`docs/aws-test-environment-architecture.md`.
 
-Since bare-metal hardware isn't always available up front, this repo keeps all
-infrastructure provisioning behind a single switch — `infra_provider: aws` or
-`infra_provider: baremetal` — so the same day-2 feature roles (storage, backup/DR,
-logging, upgrades, node-failure drills) can be validated on AWS first and re-run
-unchanged against a real bare-metal SNO cluster later. **Both paths are always fully
-disconnected** (see below) — there's no connected-install shortcut on AWS, so the
-mirroring workflow itself is exercised on every run, not just once hardware shows up.
+The platform runs **fully disconnected (air-gapped)** on both providers — the SNO
+node and its bastion have no internet route at all, and are not assumed to have a
+live network path to the staging host either. This automation is split into
+independent top-level trees for that reason:
 
-## Design: swappable infra, shared features
+- **`staging/`** — runs directly on the internet-connected staging host (`hosts:
+  localhost`). Mirrors release/operator content and the install-time binaries to
+  disk, then packages everything the bastion needs — content, binaries, the entire
+  `bastion/` tree, and resolved per-environment config — into one `tar.gz`. On AWS
+  only, it also runs `openshift-install create cluster` itself (`staging/roles/aws/*`
+  — see `docs/aws-test-environment-architecture.md` §3 for why).
+- **`bastion/`** — runs directly on the bastion (`hosts: localhost`), once that
+  tar.gz has been physically copied there (the default) or rsynced over (opt-in —
+  see `staging/roles/common/package_bastion_bundle`'s README). Installs the mirror
+  registry, generates and boots the agent-based install ISO (bare metal) or
+  generates the install-config for staging to consume (AWS), and configures every
+  Day 2 feature (storage, logging, tracing, alerting, backup/DR, middleware) against
+  the live cluster — this layer is identical across both providers, with no
+  AWS-specific logic anywhere in it.
+- **`aws-infra/`** — AWS only, no bare-metal equivalent. Provisions the two EC2 hosts
+  (staging + bastion) that the trees above then run on. See `aws-infra/README.md`.
 
-```
-infra_provider: aws               infra_provider: baremetal
-┌───────────────────────────┐      ┌─────────────────────────────────┐
-│ roles/aws/*               │      │ roles/baremetal/*               │
-│  - aws_provision_network  │      │  - baremetal_prepare_bastion    │
-│  - aws_provision_mirror_  │      │  - baremetal_generate_agent_iso │
-│    staging_host           │      │  - baremetal_boot_node_via_bmc  │
-│  - aws_provision_bastion  │      │                                 │
-│  - aws_provision_sno_ipi  │      │                                 │
-│  - aws_destroy_sno        │      └───────────┬─────────────────────┘
-└───────────┬───────────────┘                  │
-            └───────────────────┬──────────────┘
-                 roles/common/*  (stage/sync/deploy mirror registry,
-                                  install-config rendering, kubeconfig wait)
-                 roles/ocp/*     (storage: LVMS + MCG; backup/DR +
-                                  external S3 export; logging: Loki+Grafana;
-                                  tracing: OpenTelemetry+Tempo; alerting;
-                                  MetalLB; Day 2 app platform: RabbitMQ,
-                                  Postgres, Redis, Keycloak; upgrades,
-                                  node-failure drill — the features under test)
-```
-
-Only the provisioning layer differs per provider. Everything from "cluster is up"
-onward is identical automation, which is the point: features validated on AWS carry
-over to the bare-metal path without rewriting.
+See `docs/architectural-decisions.md` #2 for the full disconnected-mirroring
+rationale.
 
 ## Architecture design documents
 
 [`docs/bare-metal-architecture.md`](docs/bare-metal-architecture.md) is the full
-implementation reference for the bare-metal production target — what's deployed,
-why, which role/playbook owns it, and a requirements-traceability table back to the
-customer's stated requirements. It's self-contained (no reference to the AWS test
-environment) and a living document: update it alongside any role/playbook change,
-and treat it (not memory of what was built) as the source of truth for what this
-repo currently does. Share it with the customer as the design reference for this
-deployment.
+implementation reference — what's deployed, why, which role/playbook owns it, and a
+requirements-traceability table back to the customer's stated requirements. It's a
+living document: update it alongside any role/playbook change, and treat it (not
+memory of what was built) as the source of truth for what this repo currently does.
 
 [`docs/aws-test-environment-architecture.md`](docs/aws-test-environment-architecture.md)
-is the internal counterpart covering only what's different about running the same
-feature set against this repo's AWS test loop — it references
-`bare-metal-architecture.md` for everything shared rather than duplicating it.
+covers only what's different about running the AWS test loop — it references
+`bare-metal-architecture.md` for everything shared rather than duplicating it, and is
+not part of the customer deliverable.
 
 [`docs/architectural-decisions.md`](docs/architectural-decisions.md) covers the
 narrower *why* behind specific carried-forward design patterns (disconnected content
-mirroring, OADP backup/DR storage isolation) from prior engagements.
+mirroring, OADP backup/DR storage isolation).
 
-## AWS is genuinely disconnected, not simulated
+## Status
 
-`roles/aws/aws_provision_network` builds a VPC with two subnets:
-
-- a **public** subnet used *only* by an ephemeral mirror-staging EC2 instance (the
-  sole internet-connected host in the whole stack), and
-- a **private** subnet — reused as the cluster's machine network — with **no internet
-  gateway or NAT route at all**, hosting both the bastion and the SNO node.
-
-VPC endpoints (`s3`, `ec2`, `elasticloadbalancing`, `sts`) give the installer and the
-in-cluster AWS cloud provider the AWS API access they need without any internet route.
-Content reaches the cluster exactly like it would on bare metal: staged to disk on the
-connected host, synced to the (unreachable-from-the-internet) bastion, and served from
-a mirror registry deployed there — see `docs/architectural-decisions.md` #2.
-
-## Status of each path
-
-- **AWS** (`roles/aws/*`): fully implemented — provisions the isolated VPC, mirror
-  staging host, bastion, and a single-control-plane / zero-worker IPI cluster to
-  emulate the SNO topology.
-- **Bare metal** (`roles/baremetal/*`): implemented using the Agent-Based Installer
-  pattern against the target production hardware (Dell PowerEdge R7725, iDRAC9/10).
-  ISO generation and BMC virtual-media boot (standard Redfish via
-  `community.general.redfish_command`) are both implemented; still unverified against
-  real hardware (no live BMC to test against yet) and will fail fast with a clear
-  message until `bmc_address`/`bmc_username`/`bmc_password`/`iso_http_url` are set
-  per-environment.
+Implemented using the Agent-Based Installer pattern against the target production
+hardware (Dell PowerEdge R7725, iDRAC9/10). ISO generation and BMC virtual-media boot
+(standard Redfish via `community.general.redfish_command`) are both implemented;
+**still unverified against real hardware** (no live BMC tested against yet) and will
+fail fast with a clear message until `bmc_address`/`bmc_username`/`bmc_password`/
+`iso_http_url` are set per-environment in `staging/inventory/inventory.yaml`. The
+staging/bastion bundle handoff itself is also unverified against a real two-host
+transfer — see the known gaps called out in `package_bastion_bundle`'s and
+`unpack_bastion_bundle`'s READMEs.
 
 ## Repository structure
 
 ```
-inventory/
-  aws/inventory.yaml.j2       # template — configure-aws-env.yaml renders one <domain>.yaml per environment
-  baremetal/inventory.yaml    # infra_provider: baremetal, static bastion + mirror-staging hosts
-playbooks/
-  configure-aws-env.yaml           # prompts for AWS credentials + base_domain, writes
-                                    # ~/tmp/<domain>-creds and inventory/aws/<domain>.yaml
-  provision-sno-aws.yaml           # imports infra_providers/aws/provision.yaml (always mirrors content as part of provisioning)
-  provision-sno-baremetal.yaml     # imports infra_providers/baremetal/provision.yaml — separate files, not one dispatcher, so a
-                                    # bare-metal-only copy of this repo can delete the aws/ side wholesale (see bare-metal-repo-copy.md)
-  destroy-sno-aws.yaml
-  destroy-sno-baremetal.yaml
-  full-sno-test-setup.yaml        # prereqs + provision + storage (LVMS+MCG) + logging (Loki+Grafana) + backup (AWS test loop)
-  full-baremetal-production-setup.yaml  # adds MetalLB + tracing + alerting + Day 2 middleware (bare-metal rollout)
-  configure-storage.yaml          # LVM Storage (LVMS, default) + MCG (S3)
-  configure-backup-dr.yaml        # OADP backup/DR (in-cluster NooBaa) + external S3 export config validation
-  configure-logging.yaml          # LokiStack + Grafana + external SIEM forwarding
-  configure-tracing.yaml          # OpenTelemetry Collector + Tempo
-  configure-alerting.yaml         # email alerting via customer SMTP
-  configure-metallb.yaml          # non-HTTP TCP middleware LoadBalancer IPs (bare metal only)
-  configure-middleware.yaml       # RabbitMQ, Postgres (+pgAdmin), Redis, Keycloak
-  mirror-content.yaml             # standalone content refresh + on-cluster app Quay
-  export-backup.yaml              # periodic/on-demand app-S3-data egress, relayed via bastion -> mirror-staging (cluster has no internet route on either provider)
-  upgrade-sno.yaml                # minimal-downtime upgrade
-  simulate-node-failure.yaml      # reboot/recovery drill
-  infra_providers/
-    aws/{provision,destroy}.yaml
-    baremetal/{provision,destroy}.yaml
-roles/
-  common/        # mirror staging/sync/registry, install-config rendering, kubeconfig wait, bastion services
-  aws/           # AWS-specific provisioning (swappable): network, mirror-staging host, bastion, SNO IPI
-  baremetal/     # bare-metal-specific provisioning (swappable, partly stubbed): bastion prep, agent ISO, BMC boot
-  ocp/           # provider-agnostic day-2 features: LVMS/MCG, OADP, logging, tracing, middleware, upgrades, Quay
+shared-defaults.yaml  # the few constants genuinely shared across trees (currently just
+                       #   mirror_registry_quay_port) — read via group_vars/all.yaml in
+                       #   staging/ and aws-infra/; see its own header comment for why this
+                       #   plain, static file isn't a cross-tree runtime dependency
+requirements.txt       # staging's own Python deps (ansible, kubernetes, openshift, boto3, botocore)
+requirements-bastion.txt  # the bastion's subset (kubernetes, openshift only) — pip-downloaded into
+                          #   a wheelhouse by stage_mirror_content, installed offline by bootstrap-bastion-host.sh
+requirements.yml       # Ansible Galaxy collections (kubernetes.core, community.general, amazon.aws, ansible.posix)
+aws-infra/       # AWS only, no bare-metal equivalent — provisions the staging + bastion EC2 hosts
+  inventory/inventory.yaml      # per-environment, rendered by configure-aws-env.yaml
+  playbooks/
+    group_vars/all.yaml         # automation_repo_url/automation_repo_ref — constant, not per-environment
+    configure-aws-env.yaml      # one-time: AWS creds + renders aws-infra/'s own inventory
+    provision-hosts.yaml        # VPC/subnets/endpoints + staging + bastion EC2 instances; also renders
+                                 #   staging/inventory/inventory.yaml (needs VPC/subnet facts this creates) and
+                                 #   scp's it, the AWS creds file, and bootstrap-staging-host.sh to staging's $HOME
+    destroy-hosts.yaml          # run AFTER staging/playbooks/destroy-sno-aws.yaml
+  roles/         # aws_provision_network, aws_provision_mirror_staging_host, aws_provision_bastion, aws_destroy_infra
+staging/
+  bootstrap-staging-host.sh     # first thing run on a blank staging host — installs python3/pip/git, clones
+                                 #   this repo, pip-installs requirements.txt (incl. Ansible itself); bash, not
+                                 #   Ansible, since Ansible doesn't exist on the host until this runs
+  inventory/
+    inventory-baremetal.yaml    # committed example — copy/symlink to inventory.yaml to activate
+    inventory-aws.yaml.j2       # committed template, rendered by aws-infra/playbooks/provision-hosts.yaml
+    inventory.yaml              # per-environment, gitignored — THE single source of per-environment config
+  playbooks/
+    prepare-staging-host.yaml       # run right after bootstrap-staging-host.sh — Galaxy collections + packages
+    stage-and-package.yaml          # stage_mirror_content + package_bastion_bundle
+    full-staging-setup-baremetal.yaml   # imports stage-and-package.yaml
+    full-staging-setup-aws.yaml         # imports stage-and-package.yaml
+    provision-sno-aws.yaml          # AWS only: unpack install-config bundle -> create cluster -> package kubeconfig bundle
+    destroy-sno-aws.yaml            # AWS only: aws_destroy_cluster
+    receive-backup.yaml         # unpack_staging_backup_bundle + push_backup_to_external_s3
+    group_vars/all.yaml         # generic, non-secret defaults only
+  roles/
+    common/    # stage_mirror_content, package_bastion_bundle, install-config/kubeconfig bundle handback, backup-export relay
+    aws/       # AWS only: aws_provision_sno_ipi, aws_configure_manual_credentials, aws_configure_manual_dns, aws_destroy_cluster
+bastion/
+  bootstrap-bastion-host.sh      # AWS only — installs ansible-core + kubernetes/openshift Python
+                                  #   modules offline, from what stage_mirror_content bundled; bare-metal
+                                  #   bastions are assumed to already have these pre-baked into their image
+  inventory/inventory.yaml      # minimal placeholder — localhost only
+  playbooks/
+    provision-sno-baremetal.yaml    # unpack bundle -> prepare bastion -> mirror registry -> install-config -> agent ISO -> BMC boot -> wait for install
+    provision-sno-aws.yaml          # unpack bundle -> mirror registry -> install-config -> package it back to staging
+    destroy-sno-baremetal.yaml
+    unpack-cluster-access.yaml      # AWS only: unpack the kubeconfig staging hands back
+    configure-storage.yaml / configure-metallb.yaml / configure-logging.yaml /
+    configure-tracing.yaml / configure-alerting.yaml / configure-backup-dr.yaml /
+    configure-middleware.yaml
+    mirror-refresh.yaml         # standalone content refresh + on-cluster app Quay
+    export-backup.yaml          # periodic/on-demand app-S3-data egress out of the bastion
+    upgrade-sno.yaml / simulate-node-failure.yaml
+    full-bastion-setup-baremetal.yaml    # provision + storage + MetalLB + logging + tracing + alerting + backup + Day 2 middleware
+    full-bastion-provision-aws.yaml      # imports provision-sno-aws.yaml
+    full-bastion-configure-aws.yaml      # unpack-cluster-access + storage + logging + backup-dr (see AWS test loop doc §8)
+    group_vars/all.yaml         # placeholder — overwritten by unpack_bastion_bundle from staging's resolved config
+  roles/
+    common/    # bundle unpack/package, mirror registry install, install-config rendering, kubeconfig wait, bastion services, backup export
+    baremetal/ # bastion prep, agent ISO generation, BMC boot
+    ocp/       # Day 2 features: LVMS/MCG, OADP, logging, tracing, MetalLB, middleware, upgrades, Quay — identical across both providers
+docs/          # architecture reference (bare-metal-architecture.md is provider-agnostic/customer-facing; aws-test-environment-architecture.md is AWS-only)
 ```
 
-## Quick start (AWS test environment)
+## Quick start (bare metal)
 
-Every new test environment (new sandbox account, new assigned domain) starts with:
+1. Fill in `staging/inventory/inventory.yaml` (copied/symlinked from
+   `inventory-baremetal.yaml`) with the real BMC credentials, MAC address,
+   rendezvous IP, DNS/gateway/NTP, storage device paths, SMTP, and backup-export vars
+   it already has placeholders for. This is the **one** file to edit — everything the
+   bastion needs is derived from it.
 
-```bash
-ansible-playbook playbooks/configure-aws-env.yaml
-# prompts for base_domain + AWS credentials, imports your ssh_key as a new
-# per-environment EC2 key pair, then writes:
-#   ~/tmp/<base_domain>-creds
-#   inventory/aws/<base_domain>.yaml
-```
+2. On the staging host, stage content and package the bastion bundle:
 
-Then, using that environment's generated inventory file:
+   ```bash
+   cd staging/playbooks
+   ansible-playbook full-staging-setup-baremetal.yaml -i ../inventory/inventory.yaml
+   ```
 
-```bash
-ansible-playbook playbooks/full-sno-test-setup.yaml -i inventory/aws/<base_domain>.yaml
-```
+   This produces `/tmp/staging-export/sno-bastion-bundle-<cluster_name>.tar.gz` by
+   default (physical-media transfer) — copy it to the bastion and extract it into an
+   empty working directory there (e.g. `~/sno-deploy/`). To push it over the network
+   instead, set `bastion_transfer_method: rsync` (and the matching
+   `bastion_transfer_*` vars) in `staging/inventory/inventory.yaml` — see
+   `staging/roles/common/package_bastion_bundle`'s README.
 
-Or step by step:
+3. On the bastion, from inside the extracted bundle's `bastion/playbooks` directory,
+   run the full production rollout:
 
-```bash
-ansible-playbook playbooks/provision-sno-aws.yaml  -i inventory/aws/<base_domain>.yaml
-ansible-playbook playbooks/configure-storage.yaml  -i inventory/aws/<base_domain>.yaml
-ansible-playbook playbooks/configure-backup-dr.yaml -i inventory/aws/<base_domain>.yaml
-ansible-playbook playbooks/configure-logging.yaml  -i inventory/aws/<base_domain>.yaml
-```
+   ```bash
+   cd bastion/playbooks
+   ansible-playbook full-bastion-setup-baremetal.yaml -i ../inventory/inventory.yaml
+   ```
 
-Tear down:
+   Or step by step:
 
-```bash
-ansible-playbook playbooks/destroy-sno-aws.yaml -i inventory/aws/<base_domain>.yaml
-```
+   ```bash
+   ansible-playbook provision-sno-baremetal.yaml -i ../inventory/inventory.yaml
+   ansible-playbook configure-storage.yaml    -i ../inventory/inventory.yaml
+   ansible-playbook configure-metallb.yaml    -i ../inventory/inventory.yaml
+   ansible-playbook configure-logging.yaml    -i ../inventory/inventory.yaml
+   ansible-playbook configure-tracing.yaml    -i ../inventory/inventory.yaml
+   ansible-playbook configure-alerting.yaml   -i ../inventory/inventory.yaml
+   ansible-playbook configure-backup-dr.yaml  -i ../inventory/inventory.yaml
+   ansible-playbook configure-middleware.yaml -i ../inventory/inventory.yaml
+   ```
 
-Run `configure-aws-env.yaml` again with a different domain to stand up another
-environment — each gets its own credentials file and inventory file, so they can be
-provisioned concurrently without colliding. One remaining shared-state caveat:
-`cluster_name` and `tmp_dir`/`install_dir` (in `group_vars/all.yaml`) default to the
-same values for every environment — pass `-e cluster_name=<unique-name>` per
-environment if you're actually running two AWS provisions at the same time on the same
-workstation, or those local working directories will collide.
+4. Tear down (destructive — see the role's own guard):
 
-## Moving to a bare-metal environment
+   ```bash
+   ansible-playbook destroy-sno-baremetal.yaml -i ../inventory/inventory.yaml
+   ```
 
-When bare-metal hardware is available:
+## Quick start (AWS test loop)
 
-1. Fill in `inventory/baremetal/inventory.yaml` with the real bastion and
-   mirror-staging hosts, and `group_vars` with BMC credentials, MAC address,
-   rendezvous IP, DNS/gateway.
-2. Finish `roles/baremetal/baremetal_boot_node_via_bmc` against the actual BMC.
-3. Re-run the exact same `playbooks/configure-*.yaml` and `playbooks/upgrade-sno.yaml`
-   playbooks — no changes needed, since those roles never touched AWS or bare-metal
-   specifics directly.
+See `aws-infra/README.md` for the one-time AWS credential setup and host
+provisioning, and `docs/aws-test-environment-architecture.md` §4 for the full phase
+sequence (provision hosts → clone this repo onto the staging host → run
+`full-staging-setup-aws.yaml` → transfer the bundle to the bastion → run
+`full-bastion-provision-aws.yaml` → transfer the install-config back to staging → run
+`provision-sno-aws.yaml` → transfer the kubeconfig back to the bastion → run
+`full-bastion-configure-aws.yaml`). Tear down with `staging/playbooks/
+destroy-sno-aws.yaml` **then** `aws-infra/playbooks/destroy-hosts.yaml`, in that
+order (§7 of the AWS doc).
 
-See `playbooks/README.md` for the full variable reference.
+See `staging/README.md` and `bastion/README.md` for the full variable reference on
+each side.

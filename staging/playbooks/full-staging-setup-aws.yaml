@@ -1,0 +1,8 @@
+---
+# Full AWS test-loop rollout, staging side, step 1 of 2: stage mirror content,
+# package the bastion bundle (code + content, rsync by default for AWS — see
+# package_bastion_bundle's bastion_transfer_method). After this completes and the
+# bundle has been copied to the bastion, run
+# bastion/playbooks/full-bastion-provision-aws.yaml there, then come back here and run
+# provision-sno-aws.yaml once the bastion hands install-config.yaml back.
+- import_playbook: ./stage-and-package.yaml

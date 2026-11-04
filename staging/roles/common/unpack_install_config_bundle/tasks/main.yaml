@@ -1,0 +1,34 @@
+---
+# AWS-only. Runs on staging (hosts: localhost), first task in
+# staging/playbooks/provision-sno-aws.yaml — the staging-side counterpart of the
+# bastion's package_install_config_bundle. Extracts install-config.yaml into
+# staging's own install_dir so aws_provision_sno_ipi has something to run
+# `openshift-install create cluster` against.
+- name: Fail fast if the expected install-config bundle isn't present
+  stat:
+    path: "{{ install_config_bundle_path }}"
+  register: _install_config_bundle_stat
+
+- name: Fail with guidance if the bundle hasn't arrived yet
+  fail:
+    msg: >
+      {{ install_config_bundle_path }} not found. Physically copy (or rsync) the
+      bastion-produced sno-install-config-*.tar.gz here first — see
+      package_install_config_bundle's README on the bastion side.
+  when: not _install_config_bundle_stat.stat.exists
+
+- name: Ensure install_dir exists
+  file:
+    path: "{{ install_dir }}"
+    state: directory
+    mode: '0700'
+
+# package_install_config_bundle's archive member is named just "install-config.yaml"
+# (its own basename, not the full path it came from on the bastion — see that role's
+# force_archive comment), so extracting here into install_dir lands it at exactly
+# {{ install_dir }}/install-config.yaml.
+- name: Extract install-config.yaml into install_dir
+  unarchive:
+    src: "{{ install_config_bundle_path }}"
+    dest: "{{ install_dir }}"
+    remote_src: true

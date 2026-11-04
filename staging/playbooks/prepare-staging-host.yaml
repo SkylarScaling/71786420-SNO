@@ -1,0 +1,15 @@
+---
+# Run this first on a freshly bootstrapped staging host, right after
+# bootstrap-staging-host.sh completes — installs this repo's own Galaxy
+# collections and a couple of system packages in Ansible rather than bash, per
+# this repo's "as much as possible in Ansible" convention (see
+# roles/common/prepare_staging_host/README.md). Every other staging/ playbook
+# assumes this has already run.
+- name: Prepare the staging host's remaining dependencies
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [prepare_staging_host]
+  tasks:
+    - include_role:
+        name: prepare_staging_host

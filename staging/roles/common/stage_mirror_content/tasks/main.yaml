@@ -1,0 +1,248 @@
+---
+# oc-mirror's "mirror to disk" run can go quiet for long stretches with no stdout
+# while pulling large blobs; left at sshd defaults, idle NAT/firewall state between
+# here and the control node can get dropped mid-run, killing the task with "Shared
+# connection to X closed" even though the host itself is healthy (confirmed via
+# dmesg/journalctl showing no OOM kill and no sshd crash). ClientAliveInterval makes
+# sshd actively probe the client so it notices and keeps the session alive instead of
+# silently timing out. Paired with the client-side ServerAliveInterval/ControlPersist
+# in playbooks/ansible.cfg.
+- name: Harden sshd keepalives against long-running oc-mirror sessions dropping
+  block:
+    - name: Configure sshd ClientAliveInterval/ClientAliveCountMax
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "^#?{{ item.key }}\\b"
+        line: "{{ item.key }} {{ item.value }}"
+      loop:
+        - { key: ClientAliveInterval, value: 60 }
+        - { key: ClientAliveCountMax, value: 30 }
+      register: sshd_keepalive_config
+
+    - name: Restart sshd to apply keepalive settings
+      service:
+        name: sshd
+        state: restarted
+      when: sshd_keepalive_config.changed
+  become: true
+
+- name: Ensure the oc-mirror workspace exists, owned by the connecting user (/opt requires root to create)
+  file:
+    path: "{{ oc_mirror_workspace }}"
+    state: directory
+    mode: '0700'
+    owner: "{{ ansible_user_id }}"
+    group: "{{ ansible_user_id }}"
+  become: true
+
+- name: Ensure bin_dir exists
+  file:
+    path: "{{ bin_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Check for the oc-mirror binary
+  command: "{{ bin_dir }}/oc-mirror version"
+  register: oc_mirror_check
+  failed_when: false
+  changed_when: false
+
+# The bastion (where deploy_mirror_registry runs) has no internet route at all, so it
+# can't fetch oc-mirror or mirror-registry itself — both are downloaded here instead
+# (this host is internet-connected) as raw tarballs under mirror_installers_dir, which
+# package_bastion_bundle/unpack_bastion_bundle carries over alongside the content archive. oc-mirror is also
+# extracted locally here since this role needs to run it itself.
+- name: Ensure the installers directory exists, owned by the connecting user (/opt requires root to create)
+  file:
+    path: "{{ mirror_installers_dir }}"
+    state: directory
+    mode: '0755'
+    owner: "{{ ansible_user_id }}"
+    group: "{{ ansible_user_id }}"
+  become: true
+
+# Unconditional (not gated on oc_mirror_check) — package_bastion_bundle/unpack_bastion_bundle needs this
+# tarball present every run regardless of whether the binary is already extracted
+# into bin_dir here. Gating this on oc_mirror_check used to mean a mirror-staging
+# host that already had the binary extracted from an earlier run would never
+# (re-)download the tarball at all, leaving nothing to sync — confirmed as the actual
+# cause of a real "Source '.../oc-mirror.tar.gz' does not exist" failure on
+# deploy_mirror_registry's side. get_url is idempotent (won't needlessly re-fetch an
+# unchanged file), so this is cheap on repeat runs.
+- name: Download the oc-mirror tarball
+  get_url:
+    url: "{{ ocp_mirror_url }}/oc-mirror.tar.gz"
+    dest: "{{ mirror_installers_dir }}/oc-mirror.tar.gz"
+    mode: '0644'
+
+- name: Download the mirror-registry tarball
+  get_url:
+    url: "{{ mirror_registry_url }}"
+    dest: "{{ mirror_installers_dir }}/mirror-registry.tar.gz"
+    mode: '0644'
+
+# baremetal_generate_agent_iso needs openshift-install, and the agent ISO's
+# bootstrap/day-1 oc usage needs oc — both run on the bastion now, which has no
+# internet route to fetch them itself. Downloaded here as raw tarballs (not
+# unarchived directly, same reasoning as oc-mirror/mirror-registry above) so
+# package_bastion_bundle can carry them into the bastion bundle; unpack_bastion_bundle
+# extracts them into the bastion's own bin_dir.
+- name: Download the openshift-install tarball
+  get_url:
+    url: "{{ ocp_mirror_url }}/openshift-install-linux.tar.gz"
+    dest: "{{ mirror_installers_dir }}/openshift-install-linux.tar.gz"
+    mode: '0644'
+
+- name: Download the oc client tarball
+  get_url:
+    url: "{{ ocp_mirror_url }}/openshift-client-linux.tar.gz"
+    dest: "{{ mirror_installers_dir }}/openshift-client-linux.tar.gz"
+    mode: '0644'
+
+# The bastion has no internet route at all, so configure_bastion_services can't
+# `dnf install` dnsmasq/httpd directly there either. Downloaded here instead, same
+# pattern as the oc-mirror/mirror-registry tarballs above into mirror_installers_dir,
+# which package_bastion_bundle/unpack_bastion_bundle already carries over wholesale.
+# Both hosts must run the same RHEL major.minor, so RPMs resolved here install
+# cleanly there with all repos disabled.
+#
+# `dnf download --resolve` (not `dnf install --downloadonly`): the latter only
+# downloads what it would actually *install*, so any package already installed on
+# this staging host (confirmed live: git-core, pulled in here as an ansible-core
+# dependency) is silently skipped even when named explicitly — producing an RPM set
+# that's fine on staging but fails offline on the bastion with "nothing provides
+# git-core needed by ansible-core", since the bastion starts with none of staging's
+# pre-existing packages. `dnf download` fetches the named packages and, with
+# --resolve, their full dependency closure, regardless of what's already installed
+# on this host.
+# Tagged separately (bastion_prereqs) from the rest of this role so it can be
+# re-run on its own — e.g. after adding a new entry to bastion_packages — without
+# redoing the hour-plus oc-mirror run below (`--tags bastion_prereqs`, then
+# `--tags package` on package_bastion_bundle to re-bundle with the new RPMs included).
+- name: Ensure the bastion-rpms directory exists
+  file:
+    path: "{{ mirror_installers_dir }}/bastion-rpms"
+    state: directory
+    mode: '0755'
+  tags: [bastion_prereqs]
+
+- name: Download bastion packages (with full dependency closure) for offline install on the bastion
+  command: >
+    dnf download --resolve --destdir={{ mirror_installers_dir }}/bastion-rpms
+    -y {{ bastion_packages | join(' ') }}
+  become: true
+  tags: [bastion_prereqs]
+
+# ansible-core's RPM above gets Ansible itself running, but roles/ocp/*'s
+# kubernetes.core.k8s* modules also need the kubernetes/openshift Python packages
+# importable — these aren't RPM-packaged, so pip (not dnf) is how they'd normally
+# install, except the bastion has no route to PyPI either. Built into a local
+# wheelhouse here instead, the same "resolve the full dependency closure on the
+# connected side, install offline on the disconnected side" pattern as the RPMs
+# above. --only-binary=:all: forces prebuilt wheels only (no sdists needing a
+# compiler on arrival); relies on staging and the bastion running the same Python
+# major.minor (both provisioned from the same RHEL major version in this repo) so
+# the downloaded wheel ABI tags match — unverified against a real bastion install yet.
+- name: Ensure the bastion-wheelhouse directory exists
+  file:
+    path: "{{ mirror_installers_dir }}/bastion-wheelhouse"
+    state: directory
+    mode: '0755'
+  tags: [bastion_prereqs]
+
+- name: Download Python packages (with full dependency closure) for offline install on the bastion
+  command: >
+    {{ ansible_python_interpreter | default('python3') }} -m pip download
+    --only-binary=:all:
+    -d {{ mirror_installers_dir }}/bastion-wheelhouse
+    -r {{ playbook_dir }}/../../requirements-bastion.txt
+  changed_when: true
+  tags: [bastion_prereqs]
+
+- name: Extract the oc-mirror binary from the downloaded tarball
+  unarchive:
+    src: "{{ mirror_installers_dir }}/oc-mirror.tar.gz"
+    dest: "{{ bin_dir }}"
+    remote_src: true
+    mode: '0755'
+  when: oc_mirror_check.rc != 0
+
+# oc-mirror --v2's "disk to mirror" push (deploy_mirror_registry) needs this same
+# ImageSetConfiguration again, unlike v1 where --from alone was enough since the
+# archive was fully self-describing. Rendered directly into the archive dir (created
+# here since oc-mirror itself only creates it on first invocation, below) so it rides
+# along automatically when package_bastion_bundle/unpack_bastion_bundle rsyncs mirror_sync_source_dir —
+# no separate sync path needed.
+- name: Ensure the archive directory exists for the rendered config to land in
+  file:
+    path: "{{ oc_mirror_workspace }}/archive"
+    state: directory
+    mode: '0700'
+
+- name: Render the oc-mirror ImageSetConfiguration
+  template:
+    src: imageset-config.yaml.j2
+    dest: "{{ oc_mirror_workspace }}/archive/imageset-config.yaml"
+    mode: '0600'
+
+- name: Ensure ~/.docker exists
+  file:
+    path: "~/.docker"
+    state: directory
+    mode: '0700'
+
+# pull_secret: "{{ lookup('file', ...) }}" in inventory.yaml is a "whole template"
+# (the entire value is a single Jinja expression) — Ansible's native-type templating
+# preserves the lookup's structure rather than forcing a string, and since the pull
+# secret's JSON text is also valid Python dict syntax (double-quoted strings parse
+# fine via ast.literal_eval), pull_secret actually arrives here as a real dict, not
+# the raw JSON text. Confirmed live: plain "{{ pull_secret }}" would pass that dict to
+# copy's content (a str-typed parameter), which Ansible then coerces via Python's
+# str(dict) — single-quoted repr, not valid JSON. Normalizing explicitly handles
+# both cases (dict here, or a plain JSON-text string on any Ansible config where
+# native typing is off).
+- name: Write pull_secret here so oc-mirror can authenticate to registry.redhat.io/quay.io
+  copy:
+    content: "{{ pull_secret if pull_secret is string else (pull_secret | to_json) }}"
+    dest: "~/.docker/config.json"
+    mode: '0600'
+  # Hidden by default since pull_secret is a credential. Pass
+  # -e reveal_pull_secret_errors=true for one run to see the real failure reason if
+  # this task fails — it'll print the pull secret itself to the console, so only use
+  # it transiently while debugging, never leave it set.
+  no_log: "{{ not (reveal_pull_secret_errors | default(false) | bool) }}"
+
+# Launched async/poll:0 (fire-and-forget) purely so this play can poll its progress
+# in between — the command module itself still blocks until oc-mirror exits either
+# way, and oc-mirror's own stdout is bursty/silent for long stretches (see the
+# sshd-keepalive comment above). v2 writes its logs under
+# oc_mirror_workspace/archive/working-dir/logs/ instead of v1's single
+# .oc-mirror.log — the poll loop below reports growth of the destination directory's
+# total size instead of tailing a specific log file, since v2's exact log filenames
+# aren't verified against a real run yet. async: 14400 is a generous ceiling for a
+# full mirror of the release + operator catalogs, not an expected duration.
+- name: Mirror release and operator content to disk (requires internet access + the real pull secret)
+  command: >
+    {{ bin_dir }}/oc-mirror --v2 --config {{ oc_mirror_workspace }}/archive/imageset-config.yaml
+    --cache-dir {{ oc_mirror_workspace }}/cache
+    file://{{ oc_mirror_workspace }}/archive
+  args:
+    chdir: "{{ oc_mirror_workspace }}"
+  async: 14400
+  poll: 0
+  register: _stage_mirror_job
+
+# oc-mirror gives no advance total size to measure progress against (unlike
+# package_bastion_bundle/unpack_bastion_bundle's rsync, where the source archive size is known up front) —
+# this reports "blobs copied so far" and archive bytes written so far instead of a
+# percentage. Recursion (rather than until/retries on a single task) is needed
+# because reporting progress takes more than one task per check; include_tasks
+# recursion is the standard Ansible idiom for "repeat a group of tasks until a
+# condition holds."
+- name: Poll and report oc-mirror progress until it completes
+  include_tasks: _poll_oc_mirror_progress.yml
+
+- name: Fail if the oc-mirror run itself failed
+  fail:
+    msg: "oc-mirror failed (rc={{ _stage_mirror_status.rc }}): {{ _stage_mirror_status.stderr | default(_stage_mirror_status.msg) | default('no stderr captured') }}"
+  when: _stage_mirror_status.rc | default(0) != 0

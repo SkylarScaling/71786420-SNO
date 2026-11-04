@@ -1,0 +1,9 @@
+---
+alert_smtp_port: 25
+alert_email_from: "alertmanager@{{ cluster_name }}.{{ base_domain }}"
+
+# alert_smtp_host and alert_email_to are NOT defaulted here (same precedence reason as
+# base_domain — see staging/inventory/inventory.yaml): both are genuinely
+# per-environment (the customer's on-site SMTP relay hostname and the real recipient
+# address), so they must be set in staging/inventory/inventory.yaml's vars block
+# rather than given a generic value here that could silently be used in error.

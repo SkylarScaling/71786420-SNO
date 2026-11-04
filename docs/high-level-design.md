@@ -10,8 +10,8 @@ This is a customer-facing document shared between the implementing team and
 [Customer Name]. This document is not a quote and does not include any binding
 commitments. Real environment-specific values (IP addresses, hostnames, credentials,
 customer/site names) are deliberately omitted from this report and are tracked
-instead in per-environment inventory files, consistent with this project's
-reusability requirements — see this repo's `CLAUDE.md`.
+instead in per-environment inventory files, so the automation stays reusable across
+environments/deployments.
 
 ## Review History
 

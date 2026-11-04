@@ -1,3 +1,13 @@
+# oauthlib pinned explicitly: RHEL/CentOS ships python3-oauthlib (3.1.1) as a system
+# RPM (a dependency of cloud-init), which satisfies pip's unversioned dependency
+# check for requests-oauthlib (a kubernetes.core dependency) without actually being
+# upgraded — pip only installs packages not already present, the same "already
+# satisfied" blind spot stage_mirror_content's dnf fix hit. The result: kubernetes.core
+# modules (k8s_info, etc.) fail at import with "cannot import name 'SIGNATURE_RSA'
+# from 'oauthlib.oauth1'", since 3.1.1 predates that constant. Forcing a floor here
+# makes pip actually install a newer oauthlib into ~/.local, which takes priority over
+# the system one on sys.path.
+oauthlib>=3.2.2
 ansible
 kubernetes
 openshift

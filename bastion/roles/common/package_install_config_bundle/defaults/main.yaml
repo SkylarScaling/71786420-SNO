@@ -1,0 +1,14 @@
+---
+# media (default) / rsync (opt-in) — same convention as package_bastion_bundle. AWS
+# environments default this to rsync at the call site (a live VPC path genuinely
+# exists between bastion and staging); bare metal never calls this role at all
+# (AWS-only handback, see bastion/playbooks/provision-sno-aws.yaml).
+install_config_transfer_method: media
+
+install_config_bundle_export_dir: /tmp/bastion-export
+install_config_bundle_name: "sno-install-config-{{ cluster_name }}.tar.gz"
+
+install_config_transfer_host: ""
+install_config_transfer_user: root
+install_config_transfer_ssh_key: "{{ ssh_private_key }}"
+install_config_transfer_dest_dir: /root

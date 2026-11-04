@@ -1,0 +1,7 @@
+---
+# Same default path unpack_staging_backup_bundle extracts the bastion-produced
+# backup bundle into (role defaults aren't shared across roles, so duplicated rather
+# than centralized — see that role's defaults/main.yaml).
+backup_push_source_dir: /opt/backup-export-staged
+bin_dir: "~/.local/bin"
+rclone_download_url: "https://downloads.rclone.org/rclone-current-linux-amd64.zip"

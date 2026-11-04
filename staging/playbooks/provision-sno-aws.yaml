@@ -1,0 +1,24 @@
+---
+# AWS half of the 3-hop install-config/kubeconfig handoff — the second hop. Unpacks
+# the install-config.yaml bundle the bastion produced, creates the cluster via IPI
+# (openshift-install needs real internet access to reach Route53/IAM — only staging
+# has that in this split, see staging/roles/aws/aws_provision_sno_ipi's README), waits
+# for it to come up, then packages the kubeconfig for the trip back to the bastion so
+# the shared roles/ocp/* day-2 roles can run there unchanged.
+- name: Create the AWS SNO cluster and hand the kubeconfig back to the bastion
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  tags: [provision_sno, aws]
+  tasks:
+    - include_role:
+        name: unpack_install_config_bundle
+
+    - include_role:
+        name: aws_provision_sno_ipi
+
+    - include_role:
+        name: wait_for_sno_install
+
+    - include_role:
+        name: package_kubeconfig_bundle

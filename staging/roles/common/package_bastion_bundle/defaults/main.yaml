@@ -1,0 +1,33 @@
+---
+# media (default): just produce the tar.gz under bastion_bundle_export_dir and print
+# instructions for a human to carry it to the bastion on removable media — the safe
+# default, since this environment is assumed fully disconnected between staging and
+# the bastion (see docs/architectural-decisions.md #2). rsync (opt-in): also push the
+# tar.gz straight to a configured bastion address, for the case where a temporary
+# network path between staging and the bastion genuinely exists (e.g. initial
+# bring-up before the bastion is fully air-gapped).
+bastion_transfer_method: media
+
+bastion_bundle_export_dir: /tmp/staging-export
+bastion_bundle_name: "sno-bastion-bundle-{{ cluster_name }}.tar.gz"
+
+# Same default paths stage_mirror_content populates (role defaults aren't shared
+# across roles, so duplicated rather than centralized).
+mirror_sync_source_dir: "{{ oc_mirror_workspace | default('/opt/oc-mirror-workspace') }}/archive"
+mirror_installers_dir: /opt/mirror-installers
+
+# The root of this checkout's bastion/ tree, bundled wholesale alongside the content —
+# the bastion has no other way to get the automation code itself. Default assumes
+# staging/ and bastion/ are sibling directories in the same checkout (true for a
+# normal clone of this repo).
+bastion_tree_dir: "{{ playbook_dir }}/../../bastion"
+
+# rsync opt-in transfer target — only used when bastion_transfer_method == 'rsync'.
+# A one-directional push FROM staging TO the bastion; no cross-host delegation is
+# needed since staging is the only side acting (contrast with the old
+# sync_mirror_to_bastion role's dual-host delegate_to dance, which existed only
+# because a single controller used to orchestrate both sides at once).
+bastion_transfer_host: ""
+bastion_transfer_user: root
+bastion_transfer_ssh_key: "{{ ssh_private_key }}"
+bastion_transfer_dest_dir: /root
