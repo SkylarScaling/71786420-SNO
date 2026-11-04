@@ -10,6 +10,25 @@
     _base_pull_secret: "{{ pull_secret | from_json }}"
   no_log: true
 
+# Both providers are always fully disconnected (see CLAUDE.md) — the insights
+# operator can never reach console.redhat.com/api.openshift.com regardless of
+# mirroring, so left as-is it sits permanently Degraded/Unavailable forever.
+# Confirmed live on a real AWS run: it was the ONLY operator still blocking
+# `openshift-install wait-for install-complete` after every other fix landed,
+# timing out after 40 minutes on "Cluster operator insights is not available".
+# Removing the cloud.openshift.com credential from the pull secret is the
+# standard, documented way to opt out of remote health reporting — the insights
+# operator treats the credential's mere presence as "this cluster should report
+# home" and tries regardless of actual network reachability; it only reports
+# Disabled (not Degraded) once that credential is gone.
+- name: Remove the cloud.openshift.com credential to disable remote health reporting (insights)
+  set_fact:
+    _base_pull_secret: >-
+      {{ _base_pull_secret
+         | combine({'auths': _base_pull_secret.auths
+             | dict2items | rejectattr('key', 'equalto', 'cloud.openshift.com') | items2dict}) }}
+  no_log: true
+
 # Without this, openshift-install's own "Mirror registry ... is not found in
 # pullSecret" warning is fatal in practice — confirmed against a real run: nothing on
 # the node (kubelet, crio, machine-config-daemon-pull) can authenticate to pull
