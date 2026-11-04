@@ -93,6 +93,21 @@
         name: aws_configure_manual_dns
         tasks_from: create_apps_record.yml
 
+    # openshift-install's extra-manifests consumption (tasks/main.yaml's copy of
+    # ccoctl's credential Secrets into <install_dir>/manifests/) only applies them
+    # once, very early during bootstrap, before every operator's namespace
+    # necessarily exists yet. Confirmed live: openshift-image-registry and
+    # openshift-cluster-csi-drivers' credential Secrets were silently dropped this
+    # way (their namespaces/operators initialize later than, say, openshift-ingress',
+    # which got its Secret fine) — both operators then degraded waiting on a secret
+    # that was correctly rendered to disk but never actually reached the cluster. By
+    # this point in the rescue block the API is up and every namespace already
+    # exists, so re-applying directly here has nothing left to race.
+    - name: Re-apply credential Secrets directly in case bootstrap-time manifests were dropped
+      include_role:
+        name: aws_configure_manual_credentials
+        tasks_from: reapply_credentials.yml
+
     - name: Resume waiting for cluster initialization now that DNS resolves
       command: "{{ bin_dir | default('~/.local/bin') }}/openshift-install --dir={{ install_dir }} wait-for install-complete --log-level=info"
       environment:
