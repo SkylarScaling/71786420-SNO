@@ -38,10 +38,26 @@
             scope: Internal
             dnsManagementPolicy: Unmanaged
 
-# Changing scope causes the ingress-operator to delete and recreate the router's
-# Service (and its backing ELB) rather than updating it in place — confirmed live
-# this takes several minutes, hence the longer retry budget than a simple readiness
-# wait would otherwise need.
+# The ingress-operator deliberately does NOT delete/recreate the Service on its own
+# when scope changes — confirmed live, it leaves the old (still internet-facing)
+# Service/ELB running and just reports LoadBalancerProgressing with an explicit
+# message telling the operator to run `oc -n openshift-ingress delete svc/router-default`
+# themselves ("Direct updates to the service annotations are not supported."). Without
+# this, the "wait for ELB hostname" task below would just see the OLD external ELB's
+# already-populated ingress field and succeed immediately, publishing a CNAME to the
+# same unreachable internet-facing ELB all over again — exactly what happened the
+# first time this patch was added, before this delete step existed.
+- name: Delete the router Service so the ingress-operator recreates it with the new scope
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: absent
+    api_version: v1
+    kind: Service
+    name: router-default
+    namespace: openshift-ingress
+
+# Recreation (new Service + new ELB) takes several minutes, hence the longer retry
+# budget than a simple readiness wait would otherwise need.
 - name: Wait for the default router's LoadBalancer Service to get an ELB hostname
   kubernetes.core.k8s_info:
     kubeconfig: "{{ sno_kubeconfig }}"
