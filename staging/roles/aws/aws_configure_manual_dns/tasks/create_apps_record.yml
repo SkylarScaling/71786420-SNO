@@ -38,6 +38,45 @@
             scope: Internal
             dnsManagementPolicy: Unmanaged
 
+# Captured BEFORE deleting so the wait below can tell a genuinely NEW Service apart
+# from the old one by identity (UID), not just by existence/ingress-populated —
+# existence-based checks race in BOTH directions: kubernetes.core.k8s: state: absent
+# returns once the delete call is accepted, not once the object is actually gone (the
+# API server keeps serving the Terminating object, with its OLD ingress hostname
+# still populated, for a while after) — confirmed live, an existence-based wait
+# matched that still-dying old Service on its first poll. But the opposite race is
+# just as real: the ingress-operator sometimes recreates the Service fast enough that
+# a separate "wait until truly gone" poll never observes an empty-resources moment at
+# all — also confirmed live, that wait exhausted its retries having only ever seen
+# *a* Service object (actually the already-recreated new one, mistaken for the
+# lingering old one). Comparing UIDs sidesteps both races entirely, regardless of
+# which order the API server happens to reflect them in.
+#
+# Also used to decide whether the delete below is even necessary: this task
+# (aws_configure_manual_dns's whole flow) can run more than once per cluster — e.g.
+# if `wait-for install-complete` fails again afterward for an unrelated reason and
+# gets retried. Unconditionally deleting an already-correct, already-Internal
+# Service on every such retry would force needless ELB churn (and a few minutes of
+# avoidable ingress downtime) for no benefit.
+- name: Capture the current router Service before deciding whether to recreate it
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: v1
+    kind: Service
+    name: router-default
+    namespace: openshift-ingress
+  register: _old_router_service
+
+- name: Set facts for the old Service's UID and whether it's already internal
+  set_fact:
+    _old_router_service_uid: "{{ _old_router_service.resources[0].metadata.uid | default('') }}"
+    _router_service_already_internal: >-
+      {{ (_old_router_service.resources | length > 0)
+         and (_old_router_service.resources[0].metadata.annotations
+              | default({}) | dict2items
+              | selectattr('key', 'equalto', 'service.beta.kubernetes.io/aws-load-balancer-internal')
+              | map(attribute='value') | first | default('false')) == 'true' }}
+
 # The ingress-operator deliberately does NOT delete/recreate the Service on its own
 # when scope changes — confirmed live, it leaves the old (still internet-facing)
 # Service/ELB running and just reports LoadBalancerProgressing with an explicit
@@ -55,31 +94,13 @@
     kind: Service
     name: router-default
     namespace: openshift-ingress
-
-# kubernetes.core.k8s: state: absent returns as soon as the delete call is accepted,
-# not once the object is actually gone — the API server keeps serving the
-# Terminating object (finalizers still draining the ELB) for some time afterward,
-# WITH its old status.loadBalancer.ingress still populated. Confirmed live: without
-# this wait, the very next task's `until` condition matched that still-dying old
-# Service on its first poll (resources length > 0 and ingress length > 0 were both
-# already true), so it published a CNAME to the OLD external ELB all over again —
-# the cluster never actually failed to converge for a NEW reason, it just kept
-# re-publishing the same wrong record every retry of this incident.
-- name: Wait for the router Service to actually be gone before waiting for its replacement
-  kubernetes.core.k8s_info:
-    kubeconfig: "{{ sno_kubeconfig }}"
-    api_version: v1
-    kind: Service
-    name: router-default
-    namespace: openshift-ingress
-  register: _old_router_service
-  until: _old_router_service.resources | length == 0
-  retries: 20
-  delay: 5
+  when: not _router_service_already_internal
 
 # Recreation (new Service + new ELB) takes several minutes, hence the longer retry
-# budget than a simple readiness wait would otherwise need.
-- name: Wait for the default router's LoadBalancer Service to get an ELB hostname
+# budget than a simple readiness wait would otherwise need. Only requires a
+# different UID than before when a delete actually happened above — if the Service
+# was already Internal, this just waits on its existing (unchanged) ingress field.
+- name: Wait for the router Service to get an ELB hostname (new UID if recreated)
   kubernetes.core.k8s_info:
     kubeconfig: "{{ sno_kubeconfig }}"
     api_version: v1
@@ -89,6 +110,8 @@
   register: router_service
   until: >
     router_service.resources | length > 0
+    and (_router_service_already_internal
+         or router_service.resources[0].metadata.uid != _old_router_service_uid)
     and router_service.resources[0].status.loadBalancer.ingress | default([]) | length > 0
   retries: 40
   delay: 15
