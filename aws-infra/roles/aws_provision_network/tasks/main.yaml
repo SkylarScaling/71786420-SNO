@@ -72,15 +72,27 @@
         tags:
           Name: "{{ cluster_name }}-s3-endpoint"
 
-    - name: Create security group for interface VPC endpoints (HTTPS from the private subnet only)
+    # Interface VPC endpoint private DNS applies VPC-wide, not per-subnet — AWS has no
+    # concept of scoping it to just the private subnet. So once these endpoints exist,
+    # EVERY host in the VPC (including staging, in the public subnet with its own real
+    # internet route) gets e.g. ec2.<region>.amazonaws.com silently resolved to the
+    # endpoint's private IP instead of the real public one — confirmed live:
+    # openshift-install running on staging timed out for 1h35m calling EC2's
+    # DescribeSubnets API, because the security group only allowed the private subnet
+    # and staging's own (legitimate, internet-routable) traffic to that private IP was
+    # silently dropped instead of using the internet path it still has. Scoped to the
+    # whole VPC CIDR (covers both subnets) rather than narrowing to just staging's
+    # public_subnet_cidr too, since any future subnet added to this VPC should also be
+    # able to reach these endpoints without another security-group change.
+    - name: Create security group for interface VPC endpoints (HTTPS from anywhere in the VPC)
       amazon.aws.ec2_security_group:
         name: "{{ cluster_name }}-vpc-endpoints"
-        description: "Allow HTTPS to interface VPC endpoints from the private subnet"
+        description: "Allow HTTPS to interface VPC endpoints from anywhere in the VPC"
         vpc_id: "{{ vpc.vpc.id }}"
         rules:
           - proto: tcp
             ports: [443]
-            cidr_ip: "{{ private_subnet_cidr }}"
+            cidr_ip: "{{ vpc_cidr }}"
         tags:
           Name: "{{ cluster_name }}-vpc-endpoints"
       register: vpc_endpoint_sg
