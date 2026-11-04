@@ -71,6 +71,9 @@
           | list | first | default('') ) }}
   when: apps_record_lookup is succeeded
 
+# No module_defaults: group/aws here — see create_apps_record.yml's identical fix
+# for why amazon.aws.route53's own `region` param (latency-based routing) collides
+# with the connection-region default every other AWS module/group/aws uses.
 - name: Delete the apps wildcard CNAME from the public zone
   amazon.aws.route53:
     zone: "{{ base_domain }}"
@@ -81,11 +84,8 @@
     ttl: 30
     private_zone: false
     state: absent
-  module_defaults:
-    group/aws:
-      access_key: "{{ aws_access_key_id }}"
-      secret_key: "{{ aws_secret_access_key }}"
-      region: "{{ aws_region }}"
+    access_key: "{{ aws_access_key_id }}"
+    secret_key: "{{ aws_secret_access_key }}"
   ignore_errors: true
   when: apps_record_value | default('') | trim != ''
 

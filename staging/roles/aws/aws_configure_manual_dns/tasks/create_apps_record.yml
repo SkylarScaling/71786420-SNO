@@ -86,6 +86,16 @@
 # publish: External), the private one so in-cluster CoreDNS's upstream resolution via
 # the VPC's own DNS resolver also finds it — exactly mirroring where api/api-int
 # already got written (see this role's README).
+#
+# Deliberately NOT using module_defaults: group/aws here (unlike every other AWS
+# task in this repo) — amazon.aws.route53's own `region` parameter means something
+# completely different (the Route53 latency-based-routing region a record is
+# associated with, mutually exclusive with weight/failover and requiring
+# `identifier` when set) from the connection region every other module/group/aws
+# default assumes. Confirmed live: group/aws's region default got interpreted as
+# that latency-routing field, producing "missing parameter(s) required by
+# 'region': identifier". Route53 is a global service with no per-request region
+# anyway, so access_key/secret_key alone are both necessary and sufficient here.
 - name: Create/update the apps wildcard CNAME in the public zone
   amazon.aws.route53:
     zone: "{{ base_domain }}"
@@ -97,11 +107,8 @@
     overwrite: true
     private_zone: false
     state: present
-  module_defaults:
-    group/aws:
-      access_key: "{{ aws_access_key_id }}"
-      secret_key: "{{ aws_secret_access_key }}"
-      region: "{{ aws_region }}"
+    access_key: "{{ aws_access_key_id }}"
+    secret_key: "{{ aws_secret_access_key }}"
 
 - name: Create/update the apps wildcard CNAME in the cluster's private zone
   amazon.aws.route53:
@@ -114,8 +121,5 @@
     overwrite: true
     private_zone: true
     state: present
-  module_defaults:
-    group/aws:
-      access_key: "{{ aws_access_key_id }}"
-      secret_key: "{{ aws_secret_access_key }}"
-      region: "{{ aws_region }}"
+    access_key: "{{ aws_access_key_id }}"
+    secret_key: "{{ aws_secret_access_key }}"
