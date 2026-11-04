@@ -56,6 +56,27 @@
     name: router-default
     namespace: openshift-ingress
 
+# kubernetes.core.k8s: state: absent returns as soon as the delete call is accepted,
+# not once the object is actually gone — the API server keeps serving the
+# Terminating object (finalizers still draining the ELB) for some time afterward,
+# WITH its old status.loadBalancer.ingress still populated. Confirmed live: without
+# this wait, the very next task's `until` condition matched that still-dying old
+# Service on its first poll (resources length > 0 and ingress length > 0 were both
+# already true), so it published a CNAME to the OLD external ELB all over again —
+# the cluster never actually failed to converge for a NEW reason, it just kept
+# re-publishing the same wrong record every retry of this incident.
+- name: Wait for the router Service to actually be gone before waiting for its replacement
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: v1
+    kind: Service
+    name: router-default
+    namespace: openshift-ingress
+  register: _old_router_service
+  until: _old_router_service.resources | length == 0
+  retries: 20
+  delay: 5
+
 # Recreation (new Service + new ELB) takes several minutes, hence the longer retry
 # budget than a simple readiness wait would otherwise need.
 - name: Wait for the default router's LoadBalancer Service to get an ELB hostname
