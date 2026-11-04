@@ -96,6 +96,7 @@
     ttl: 30
     overwrite: true
     private_zone: false
+    state: present
   module_defaults:
     group/aws:
       access_key: "{{ aws_access_key_id }}"
@@ -112,6 +113,7 @@
     ttl: 30
     overwrite: true
     private_zone: true
+    state: present
   module_defaults:
     group/aws:
       access_key: "{{ aws_access_key_id }}"
