@@ -7,6 +7,41 @@
 # EC2/ELB APIs, which DO have VPC endpoints — only Route53 itself doesn't), so this
 # only has to read its hostname and publish the DNS record from the controller, the
 # same way openshift-install itself already does for api/api-int.
+#
+# Patched here directly rather than relying solely on tasks/main.yaml's pre-create
+# extra manifest — confirmed live that the manifest (correctly rendered and present
+# in <install_dir>/manifests/ before `create cluster` ran) did NOT take effect: the
+# live IngressController's spec had no endpointPublishingStrategy at all afterward
+# (installer defaults: scope External, dnsManagementPolicy Managed), even though
+# nothing in .openshift_install.log indicated it was rejected. The newer
+# Cluster-API-based installer may process pre-seeded operator-owned CRs (CRDs that
+# don't exist until their own operator installs, unlike core/CVO-owned types)
+# differently than the manifest preseed pattern historically documented for the
+# Terraform-based installer. Patching directly against the live API, after the
+# cluster is already up, has no such ambiguity. The extra manifest in
+# tasks/main.yaml is left in place as a harmless best-effort (no-op if superseded by
+# this patch, useful if some other path reads it successfully).
+- name: Patch the default IngressController to scope Internal and dnsManagementPolicy Unmanaged
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    definition:
+      apiVersion: operator.openshift.io/v1
+      kind: IngressController
+      metadata:
+        name: default
+        namespace: openshift-ingress-operator
+      spec:
+        endpointPublishingStrategy:
+          type: LoadBalancerService
+          loadBalancer:
+            scope: Internal
+            dnsManagementPolicy: Unmanaged
+
+# Changing scope causes the ingress-operator to delete and recreate the router's
+# Service (and its backing ELB) rather than updating it in place — confirmed live
+# this takes several minutes, hence the longer retry budget than a simple readiness
+# wait would otherwise need.
 - name: Wait for the default router's LoadBalancer Service to get an ELB hostname
   kubernetes.core.k8s_info:
     kubeconfig: "{{ sno_kubeconfig }}"
@@ -18,7 +53,7 @@
   until: >
     router_service.resources | length > 0
     and router_service.resources[0].status.loadBalancer.ingress | default([]) | length > 0
-  retries: 20
+  retries: 40
   delay: 15
 
 - name: Extract the router ELB hostname

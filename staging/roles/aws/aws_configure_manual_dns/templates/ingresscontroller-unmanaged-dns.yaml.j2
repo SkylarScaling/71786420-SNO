@@ -1,3 +1,12 @@
+# scope: Internal, not External — the SNO node has no internet route at all (see
+# CLAUDE.md's "always fully disconnected"), so an internet-facing ELB here is
+# unreachable from inside the cluster's own machine network. Confirmed live: with
+# scope: External, console/authentication/the ingress canary check all failed with
+# "context deadline exceeded" dialing *.apps's internet-facing Classic ELB (verified
+# via a direct AWS API check: Scheme: internet-facing), even though the apps CNAME
+# itself resolved correctly. Internal creates a VPC-private ELB that the SNO node (and
+# staging/bastion, both inside the same VPC) can reach over normal VPC routing — same
+# reasoning as the API load balancer already being internal for api-int.
 apiVersion: operator.openshift.io/v1
 kind: IngressController
 metadata:
@@ -7,5 +16,5 @@ spec:
   endpointPublishingStrategy:
     type: LoadBalancerService
     loadBalancer:
-      scope: External
+      scope: Internal
       dnsManagementPolicy: Unmanaged

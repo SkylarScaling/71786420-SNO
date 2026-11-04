@@ -22,7 +22,15 @@ cluster` timing out waiting for cluster operators.
    `spec.endpointPublishingStrategy.loadBalancer.dnsManagementPolicy: Unmanaged` —
    this stops the ingress-operator from ever attempting the Route53 call itself, so it
    doesn't degrade waiting on something that can never succeed from inside the
-   cluster.
+   cluster. The same manifest also sets `scope: Internal` — the SNO node has no
+   internet route at all, so an internet-facing (the default, `External`) ELB for the
+   router is unreachable from inside the cluster's own machine network. Confirmed
+   live: with `scope: External`, console/authentication/the ingress canary check all
+   failed with "context deadline exceeded" dialing the apps Classic ELB even after its
+   DNS record resolved correctly (verified via a direct AWS API check that its
+   `Scheme` was `internet-facing`). `Internal` creates a VPC-private ELB reachable from
+   the SNO node (and staging/bastion, both in the same VPC) over normal VPC routing —
+   same reasoning as the API load balancer already being internal for `api-int`.
 
 2. **`tasks/create_apps_record.yml`** (included from `aws_provision_sno_ipi`'s
    `rescue:` block, after `create cluster`'s own operator-wait fails as expected):
