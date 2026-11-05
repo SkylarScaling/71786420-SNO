@@ -83,6 +83,46 @@ a pinned channel or ships from a non-default operator index. Override this in
 the list if you're not exercising every feature. Set it to `[]` to mirror the
 *entire* operator catalog instead (large and slow).
 
+### Updating a mirrored operator's channel
+
+A pinned `channel` in `oc_mirror_operator_packages` and the matching
+`roles/ocp/configure_*`'s own `*_channel` default are two separately-maintained
+values for the same actual requirement — read by two different tools at two
+different times (oc-mirror, on staging, potentially hours/days before install; the
+role's `Subscription` template, on the bastion/cluster, at install time). **Bumping
+one without the other is a real failure mode, confirmed live**: `loki_channel`'s
+`stable-6.6` pin was correct when first set, then silently dropped from the catalog
+by a later mirror run, failing `oc-mirror` outright with the real cause buried in its
+own per-component logs rather than surfaced clearly (see `tasks/main.yaml`'s "Fail if
+the oc-mirror run itself failed" for the error-message improvement that followed).
+
+When a channel needs to change (OCP upgrade, or just re-verifying periodically —
+catalogs can drop older channels even without an `openshift_version` bump):
+
+1. Re-run `oc-mirror list operators --v1 --catalog <index>[:vX.Y] --package <name>`
+   against the catalog/version actually in use to confirm the real current channel —
+   don't assume a channel that worked last time still exists.
+2. Update the entry in `oc_mirror_operator_packages` here.
+3. Update the matching role's own `*_channel` default in the **same change**.
+4. Re-run `stage_mirror_content` (`--tags` isn't scoped finely enough to just the
+   mirror step the way `bastion_prereqs` is for RPMs — a channel change needs the
+   full "mirror to disk" re-run) before the next install/upgrade.
+
+Currently-pinned entries that need both sides kept in sync: `loki-operator`
+(`configure_lokistack`'s `loki_channel`), `grafana-operator`
+(`configure_grafana`'s `grafana_channel`), `rabbitmq-cluster-operator`
+(`configure_rabbitmq`'s `rabbitmq_operator_channel`), `crunchy-postgres-operator`
+(`configure_postgres`'s `postgres_operator_channel`), and `quay-operator`
+(`configure_onprem_quay`'s `quay_channel`) — each of those roles' own
+`defaults/main.yaml` carries a comment pointing back here.
+
+`quay-operator` was found missing from this list entirely while documenting this
+(its `Subscription` is templated by `configure_onprem_quay`, but nothing had ever
+mirrored it) — added as part of the same fix. Worth treating this as a prompt to spot
+check: any `roles/ocp/configure_*` role that creates a `Subscription`/`CatalogSource`
+needs a corresponding entry here, bare or pinned; there's no automated check tying
+the two together.
+
 Before any of that, hardens sshd's `ClientAliveInterval`/`ClientAliveCountMax` on this
 host (paired with `ServerAliveInterval`/`ControlPersist` in `playbooks/ansible.cfg`) —
 the "mirror to disk" run can go quiet for long stretches with no stdout while pulling
@@ -97,17 +137,47 @@ console.redhat.com/openshift/install/pull-secret, which already bundles auths fo
 those registries alongside the cluster-facing ones. If you're using a pull secret
 that's missing those entries, merge them in before running this role.
 
+## Bastion RPMs (`bastion_packages`/`bastion_required_repos`)
+
+Separate from the container-image mirroring above — `bastion_packages` (default:
+`dnsmasq`, `httpd`, `tmux`) are plain RPMs `configure_bastion_services` installs on
+the bastion, which has no internet route of its own to reach them. `dnf download
+--resolve` (see `tasks/main.yaml` for why not `dnf install --downloadonly`) needs
+`bastion_required_repos`'s repo IDs already attached to *this* staging host's
+subscription (just not necessarily enabled by default) to resolve against — passed
+as `--enablerepo` on the download command itself rather than toggled host-wide via
+`subscription-manager`, so this role doesn't leave staging's own repo configuration
+changed as a side effect. Keep both vars and the RHEL major version staging/the
+bastion are actually provisioned from in sync — see `configure_bastion_services`'s
+README for why that match matters.
+
+Tagged `bastion_prereqs` separately from the container-mirroring tasks above so it
+can be re-run on its own (e.g. after adding a package to `bastion_packages`) without
+redoing the hour-plus `oc-mirror` run — `--tags bastion_prereqs`, then `--tags
+package` on `package_bastion_bundle` to re-bundle with the new RPMs included.
+
 ## Progress reporting
 
-The `oc-mirror` invocation runs `async: 14400, poll: 0` instead of blocking
-synchronously, and `tasks/_poll_oc_mirror_progress.yml` is included recursively every
-15 seconds to print a `debug` message with bytes written to the local archive so far,
-until `async_status` reports the job finished — same pattern as
-`package_bastion_bundle/unpack_bastion_bundle`/`package_staging_bundle/unpack_staging_backup_bundle`'s progress polling, except there's
-no known total size to mirror against up front here, so this reports progress-so-far
-rather than a percentage. Unlike v1 (which wrote a single `.oc-mirror.log` this task
-used to grep for a blob count), v2 logs per-component under
-`archive/working-dir/logs/` with filenames not yet verified against a real run —
-reporting on destination-directory size instead avoids depending on that layout.
-`_poll_oc_mirror_progress.yml` isn't meant to run standalone; it depends on
-`_stage_mirror_job` set in `tasks/main.yaml`.
+The `oc-mirror` invocation runs `async: {{ oc_mirror_job_timeout }}, poll: 0` instead
+of blocking synchronously, and `tasks/_poll_oc_mirror_progress.yml` prints a `debug`
+message with bytes written to the local archive so far every `oc_mirror_poll_interval`
+seconds, until `async_status` reports the job finished — same general pattern as
+`package_bastion_bundle/unpack_bastion_bundle`/`package_staging_bundle/unpack_staging_backup_bundle`'s
+progress polling, except there's no known total size to mirror against up front here,
+so this reports progress-so-far rather than a percentage. Unlike v1 (which wrote a
+single `.oc-mirror.log` this task used to grep for a blob count), v2 logs
+per-component under `archive/working-dir/logs/` with filenames not yet verified
+against a real run — reporting on destination-directory size instead avoids depending
+on that layout.
+
+`tasks/main.yaml`'s "Poll and report oc-mirror progress" task loops
+`_poll_oc_mirror_progress.yml` a fixed number of times (`oc_mirror_job_timeout /
+oc_mirror_poll_interval`, so always in lockstep with the async ceiling), rather than
+that file recursively `include_tasks`-ing itself — it used to, and a real multi-hour
+run at the original 15-second interval hit Ansible's "maximum recursion depth
+exceeded" (confirmed live: each recursive `include_tasks` call adds its own stack
+frame, and a 4-hour job at 15s/poll is roughly 960 levels deep). Looping the
+`include_tasks` call from the top keeps stack depth constant no matter how many times
+it fires, so `oc_mirror_poll_interval` is now free to be tuned for responsiveness
+without reintroducing that failure mode. `_poll_oc_mirror_progress.yml` isn't meant to
+run standalone; it depends on `_stage_mirror_job` set in `tasks/main.yaml`.

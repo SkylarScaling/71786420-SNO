@@ -1,4 +1,11 @@
 ---
+# MUST match staging/roles/common/stage_mirror_content/defaults/main.yaml's
+# oc_mirror_operator_packages `quay-operator` entry's `channel` exactly — that entry
+# was missing entirely until discovered alongside the loki-operator channel-mismatch
+# issue (see that file's comment): this role's Subscription requested quay-operator
+# at install time, but nothing had ever mirrored it, which on a disconnected cluster
+# fails the same way any mismatched/missing channel does — the Subscription never
+# resolves, with no obvious error pointing back at the mirror step.
 quay_channel: stable-3.13
 quay_storage_class: "{{ lvms_vg_name | default('vg1') }}"
 quay_storage_size: 200Gi

@@ -5,6 +5,20 @@ networking) alongside `install-config.yaml` (via `generate_install_config`), the
 runs `openshift-install agent create image` to produce the boot ISO that
 `baremetal_boot_node_via_bmc` mounts via Redfish virtual media.
 
+## ISO generation is guarded, not re-run unconditionally
+
+`tasks/main.yaml` only runs `agent create image` if `{{ install_dir }}/agent.x86_64.iso`
+doesn't already exist — without that check, re-running `provision-sno.yaml` after a
+later failure (e.g. the BMC boot step, a known first-run failure point per the root
+README) would regenerate the ISO every time. The ISO's own existence is the only
+reliable signal available: `openshift-install` consumes (deletes)
+`install-config.yaml`/`agent-config.yaml` as part of generating it, so both are
+guaranteed to be freshly re-templated on any re-run regardless of whether anything
+actually changed — a content- or mtime-based skip on those inputs isn't possible. To
+force a genuine regeneration (network/BMC details actually changed since the ISO was
+built), delete `{{ install_dir }}/agent.x86_64.iso` (or the whole `install_dir`)
+before re-running.
+
 ## Network topology: single_switch (default) vs dual_switch
 
 `sno_network_topology` selects the SNO node's nmstate network config:

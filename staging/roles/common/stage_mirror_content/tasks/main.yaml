@@ -125,8 +125,11 @@
   tags: [bastion_prereqs]
 
 - name: Download bastion packages (with full dependency closure) for offline install on the bastion
+  vars:
+    _bastion_repo_flags: "{{ bastion_required_repos | map('regex_replace', '^(.*)$', '--enablerepo=\\1') | join(' ') }}"
   command: >
     dnf download --resolve --destdir={{ mirror_installers_dir }}/bastion-rpms
+    {{ _bastion_repo_flags }}
     -y {{ bastion_packages | join(' ') }}
   become: true
   tags: [bastion_prereqs]
@@ -177,8 +180,8 @@
 # oc_mirror_workspace/archive/working-dir/logs/ instead of v1's single
 # .oc-mirror.log — the poll loop below reports growth of the destination directory's
 # total size instead of tailing a specific log file, since v2's exact log filenames
-# aren't verified against a real run yet. async: 14400 is a generous ceiling for a
-# full mirror of the release + operator catalogs, not an expected duration.
+# aren't verified against a real run yet. oc_mirror_job_timeout is a generous ceiling
+# for a full mirror of the release + operator catalogs, not an expected duration.
 - name: Mirror release and operator content to disk (requires internet access + the real pull secret)
   command: >
     {{ bin_dir }}/oc-mirror --v2 --config {{ oc_mirror_workspace }}/archive/imageset-config.yaml
@@ -186,21 +189,60 @@
     file://{{ oc_mirror_workspace }}/archive
   args:
     chdir: "{{ oc_mirror_workspace }}"
-  async: 14400
+  async: "{{ oc_mirror_job_timeout }}"
   poll: 0
   register: _stage_mirror_job
 
 # oc-mirror gives no advance total size to measure progress against (unlike
-# package_bastion_bundle/unpack_bastion_bundle's rsync, where the source archive size is known up front) —
-# this reports "blobs copied so far" and archive bytes written so far instead of a
-# percentage. Recursion (rather than until/retries on a single task) is needed
-# because reporting progress takes more than one task per check; include_tasks
-# recursion is the standard Ansible idiom for "repeat a group of tasks until a
-# condition holds."
+# package_bastion_bundle/unpack_bastion_bundle's rsync, where the source archive size
+# is known up front) — this reports archive bytes written so far instead of a
+# percentage.
+#
+# Looped from here (bounded, fixed iteration count) rather than _poll_oc_mirror_progress.yml
+# recursively include_tasks-ing itself, which is what this used to do — confirmed
+# against a real run: with the original 15s poll interval, a multi-hour oc-mirror job
+# recursed deeply enough to hit Ansible's "maximum recursion depth exceeded" (each
+# recursive include_tasks call adds its own stack frame; a 4-hour job at 15s/poll is
+# ~960 levels deep). Looping the include_tasks call itself from here instead keeps
+# stack depth constant regardless of iteration count — each iteration is a fresh,
+# non-nested invocation of the same file. oc_mirror_poll_interval can safely be set
+# back to a short interval now; the previous 15-minute interval was only ever a
+# workaround for the recursion limit, not a fix for it.
 - name: Poll and report oc-mirror progress until it completes
   include_tasks: _poll_oc_mirror_progress.yml
+  loop: "{{ range(0, (oc_mirror_job_timeout / oc_mirror_poll_interval) | round(0, 'ceil') | int + 1) }}"
+  loop_control:
+    loop_var: _poll_iteration
+    label: "poll {{ _poll_iteration }}"
+  when: _stage_mirror_status is not defined or not _stage_mirror_status.finished
+
+# A bare rc/stderr dump here previously left the operator to go digging through
+# {{ oc_mirror_workspace }}/archive/working-dir/logs/ by hand to find the actual
+# reason — confirmed against a real run: a pinned operator channel that no longer
+# existed in the catalog (oc_mirror_operator_packages) surfaced as a failure whose
+# real cause (a "channel not found"-style line) was buried in oc-mirror's own
+# per-component logs, not in stderr/rc. grep those logs for likely-relevant lines and
+# fold them into the failure message directly, plus a pointer at the most common
+# cause, so the first error seen is enough to act on without a manual log hunt.
+- name: Collect likely-relevant error lines from oc-mirror's own logs
+  shell: >
+    grep -rihE "error|not found|invalid|failed|unauthorized" {{ oc_mirror_workspace }}/archive/working-dir/logs/*.log 2>/dev/null | tail -n 30
+  register: _stage_mirror_error_lines
+  changed_when: false
+  failed_when: false
+  when: _stage_mirror_status.rc | default(0) != 0
 
 - name: Fail if the oc-mirror run itself failed
   fail:
-    msg: "oc-mirror failed (rc={{ _stage_mirror_status.rc }}): {{ _stage_mirror_status.stderr | default(_stage_mirror_status.msg) | default('no stderr captured') }}"
+    msg: |-
+      oc-mirror failed (rc={{ _stage_mirror_status.rc }}).
+      stderr: {{ _stage_mirror_status.stderr | default('(none)') }}
+      Likely-relevant lines from {{ oc_mirror_workspace }}/archive/working-dir/logs/*.log:
+      {{ _stage_mirror_error_lines.stdout | default('') | trim | default('(none matched — inspect that directory directly)', true) }}
+      Full stdout/logs are under {{ oc_mirror_workspace }}/archive/working-dir/logs/ if the
+      above isn't enough context. A common cause: an operator package/channel pinned in
+      oc_mirror_operator_packages (staging/roles/common/stage_mirror_content/defaults/main.yaml)
+      no longer exists in the current catalog — see that file's comments and this role's
+      README ("Updating a mirrored operator's channel") for the two places a channel bump
+      needs to land together.
   when: _stage_mirror_status.rc | default(0) != 0

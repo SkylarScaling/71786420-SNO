@@ -23,12 +23,51 @@ specific carried-forward design patterns (disconnected mirroring, backup storage
 isolation). This document is the current-state *what or where*: the full system as
 built, and a traceability table back to the customer's stated requirements.
 
+## Prerequisites (outside this automation)
+
+Nothing in this list is provisioned or validated by this repo — these are inputs
+the automation assumes already exist, either supplied by the customer or prepared by
+the operator running it, before any playbook is run. Several roles fail fast (loudly,
+not silently) when one of these is missing, but only once a playbook actually reaches
+that point — confirm the list below up front rather than discovering gaps one failed
+task at a time.
+
+**From the customer:**
+
+| Item | Detail |
+|---|---|
+| Physical hardware racked, cabled, powered | Dell PowerEdge R7725, single switch (dual switch opt-in) — §10 |
+| Staging host and bastion both provisioned as RHEL 10, with `rhel-10-for-x86_64-baseos-rpms`/`-appstream-rpms` attached to staging's subscription | Must match exactly — `stage_mirror_content` resolves/downloads RPMs on staging for an offline `dnf install` on the bastion (`bastion_packages`/`bastion_required_repos`); a version mismatch installs cleanly on neither host or silently resolves the wrong RPM set — §1 |
+| iDRAC9/10 reachable from the bastion's network, with BMC credentials | `bmc_address`/`bmc_username`/`bmc_password` — §10 |
+| Static IP/gateway/MAC assignments for the SNO node (and the bastion itself) | `rendezvous_ip`, `sno_mac_address`, `default_gateway`, `machine_network_cidr` — this repo consumes these, it doesn't assign them |
+| DNS records created against `base_domain` | `mirror.<base_domain>`, `api.`/`api-int.`/`*.apps.<cluster_name>.<base_domain>`, plus app-specific hostnames — full list and purpose in §9 |
+| NTP server reachable from the SNO node/bastion network | `ntp_server` — §9 |
+| SMTP relay reachable from the cluster network | `alert_smtp_host`/`alert_email_to` — `configure_alerting` assumes direct reachability, it doesn't stand up a relay |
+| MetalLB address pool: a contiguous, routable, reserved IP range on the machine network | `metallb_address_pool` — §5; non-HTTP TCP middleware only |
+| External S3 target (endpoint, bucket, credentials), only if `backup_egress_mode: network` or `both` | `backup_external_s3_*` — §8 |
+| Outbound firewall egress from the staging host to Red Hat's content sources | `registry.redhat.io`, `quay.io`, `mirror.openshift.com`, `console.redhat.com` and friends — §3; the bastion and SNO node need no egress at all |
+| A way to physically carry the bastion bundle from staging to the bastion | Removable media by default (`bastion_transfer_method: media`); a network path between the two hosts only if `rsync` is opted into instead — §2 |
+
+**From the operator running this automation (prepared once per environment, before
+`staging/inventory/inventory.yaml` is filled in):**
+
+| Item | Detail |
+|---|---|
+| Red Hat pull secret | From [console.redhat.com](https://console.redhat.com/openshift/install/pull-secret) under an account entitled to OpenShift Platform Plus (§1) — saved locally and referenced via `pull_secret`'s `lookup('file', ...)` |
+| SSH key pair for the staging host's own OS access | `ssh_key`/`ssh_private_key` — not related to the mirror-registry-internal SSH key `deploy_mirror_registry` generates for itself on the bastion |
+| Confirmed RAID5 block device path on the actual racked hardware | `lvms_device_paths` — can't be known until the server exists; see §13 |
+
+If a value above isn't a real per-environment value yet, `staging/inventory/inventory.yaml`
+marks it with a `TODO:` comment — grep for `TODO:` there before a first run against a
+new environment.
+
 ## 1. Target environment
 
 | Item | Value |
 |---|---|
 | Topology | Single Node OpenShift — single server, single switch (default) or dual switch (opt-in), single bastion |
 | Server | Dell PowerEdge R7725, iDRAC9/10 (Redfish), 768GB RAM |
+| OS | RHEL 10 on both the staging host and the bastion — must match exactly, see Prerequisites above |
 | Disks | 3x 3.2TB SSD + 2x 960GB NVMe, hardware RAID5 (≤6TB usable), no OCP-level storage replication on top |
 | Networking | 1G. Single NIC per function by default; dual-switch active-backup bonding on the SNO node is opt-in (§5) |
 | Install method | Agent-Based Installer (disconnected) |
@@ -63,6 +102,36 @@ installs `mirror-registry`, which runs Quay+Redis+Postgres as concurrent contain
 A 4GB/no-swap test host hard-hung under that load — confirmed by the hypervisor's own
 instance-status check as guest-level unresponsiveness, not a host fault — and needed
 8GB to install cleanly. Size the physical bastion accordingly.
+
+**8GB was only validated against the install itself, not a full sustained push** —
+on a real customer run, the "disk to mirror" push (483 images, ~22 minutes) hit a
+batch of `received unexpected HTTP status: 500 Internal Server Error` from the
+registry's own bearer-token endpoint, spread across the run rather than one clean
+cutoff (the release images, mirrored first, all succeeded; operator images, pushed
+later/concurrently with heavier shared-layer dedup traffic, took the hit).
+
+**Root cause not actually confirmed** — resource exhaustion (RAM, CPU, Postgres
+connection limits, disk I/O) is a plausible explanation for Quay returning 500s under
+sustained concurrent push load, but the Ansible/oc-mirror output this was diagnosed
+from contains no OOM-kill message, no `dmesg`, and no resource metrics at all — it
+only shows the symptom (the registry erroring), not the cause. Confirming it would
+need the actual Quay/Postgres/Redis container logs from a real failure (`podman logs
+quay-app` etc. around the failure timestamp) or host-level evidence (`journalctl -k |
+grep -i 'killed process'`, `podman stats`) captured at the time. Don't treat "upgrade
+bastion RAM" as the confirmed fix until one of those actually points at memory
+specifically — it could just as easily be a connection-pool limit or concurrency
+setting that more RAM alone wouldn't fix.
+
+`deploy_mirror_registry`'s push task now retries automatically (already-pushed blobs
+are deduped/skipped on retry, so this is safe) — see that role's README. This is a
+reasonable mitigation for a *transient* overload regardless of root cause, but it
+will not fix a *persistent* under-provisioning problem: if the same images keep
+failing across all retries, that itself is useful signal that whatever's wrong isn't
+a brief blip, and is worth chasing with the container-log/host-evidence approach
+above rather than assuming more retries (or more RAM) will eventually clear it.
+**Open item**: re-verify whether 8GB — or the customer's planned 16 cores/16GB/2TB
+spec, pending confirmation — is actually sufficient for a full mirror push under real
+content volumes, with real evidence from a live failure if it recurs.
 
 It matters here because every content-movement mechanism in this repo (inbound
 mirroring *and* backup export, §3/§8) depends on it: nothing ever assumes the
@@ -337,14 +406,28 @@ content / the actual hardware, don't assume they're already correct:
 - ~~Operator catalog channel/package names: Loki, Grafana, RabbitMQ Cluster
   Operator, Crunchy PGO~~ — confirmed against the redhat/certified/community
   operator indexes for `openshift_version: 4.22` via `oc-mirror list operators`:
-  `loki-operator` is `stable-6.6` (redhat-operators — **this channel string moves
-  with every OCP minor**, re-verify against the new version's index on upgrade);
-  `grafana-operator` is `v5` (**community-operators**, not redhat-operators);
-  `rabbitmq-cluster-operator` is `stable` (**community-operators**);
-  `crunchy-postgres-operator` is `v5` (**certified-operators**).
-  `oc_mirror_operator_packages` now supports a per-package `catalog:` key so
-  `stage_mirror_content` mirrors each from the right index — see
+  `loki-operator` is `stable-6.7` (redhat-operators); `grafana-operator` is `v5`
+  (**community-operators**, not redhat-operators); `rabbitmq-cluster-operator` is
+  `stable` (**community-operators**); `crunchy-postgres-operator` is `v5`
+  (**certified-operators**). `oc_mirror_operator_packages` supports a per-package
+  `catalog:` key so `stage_mirror_content` mirrors each from the right index — see
   `staging/roles/common/stage_mirror_content/defaults/main.yaml`.
+
+  **These channel strings move, confirmed live, not just hypothetically**:
+  `loki-operator`'s channel was `stable-6.6` when first confirmed here, then
+  silently dropped from the catalog by a later mirror run — `oc-mirror` failed
+  outright, with the real cause buried in its own per-component logs rather than
+  surfaced clearly (prompted an error-message improvement in `stage_mirror_content`'s
+  "Fail if the oc-mirror run itself failed" task). Re-verify with
+  `oc-mirror list operators` **periodically, not just on an `openshift_version`
+  bump** — a catalog refresh can drop an older channel on its own. Each pinned
+  channel exists in **two** places that must change together: the mirror-side pin
+  here, and the matching role's own `*_channel` default (what its `Subscription`
+  actually requests at install time) — see `stage_mirror_content`'s README
+  ("Updating a mirrored operator's channel") for the full procedure. The same pass
+  also found `quay-operator` (`configure_onprem_quay`) missing from
+  `oc_mirror_operator_packages` entirely — its `Subscription` requested a channel
+  nothing had ever mirrored; added as `{ name: quay-operator, channel: stable-3.13 }`.
 - OpenTelemetry/Tempo, Keycloak (`rhbk-operator` vs `keycloak-operator`)
   channel/package names — not yet independently confirmed
   (no error surfaced against these in the first real mirroring run, but that only
@@ -368,3 +451,15 @@ content / the actual hardware, don't assume they're already correct:
   https://mirror.openshift.com/pub/cgw/mirror-registry/ before a production run if
   it's been a while; a stale pin still works (older `mirror-registry` versions remain
   downloadable), it just won't have newer fixes.
+- Bastion resource sizing for a full "disk to mirror" push, not just the
+  `mirror-registry` install itself — a real customer run's 483-image push hit
+  intermittent `500 Internal Server Error` from the registry's bearer-token endpoint.
+  Resource exhaustion under sustained concurrent push load (§2's documented 8GB
+  minimum was only validated against the install) is a plausible explanation, **but
+  not a confirmed one** — the diagnosis is from Ansible/oc-mirror output alone, with
+  no OOM-kill/`dmesg`/container-log evidence actually pointing at memory specifically
+  (see §2 for what would confirm it). `deploy_mirror_registry`'s push now retries
+  automatically (safe — already-pushed blobs are deduped on retry), which mitigates a
+  transient overload but won't fix a persistent one; if the same images keep failing
+  across retries on a real run, capture Quay/Postgres/Redis container logs and
+  host-level evidence at that point rather than assuming more RAM will fix it.

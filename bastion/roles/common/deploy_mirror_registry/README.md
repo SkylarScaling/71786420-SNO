@@ -9,6 +9,14 @@ runs **on the bastion** (the disconnected target), installs a standalone Quay vi
 `mirror_registry_quay_hostname`/`mirror_registry_quay_port`, consumed by
 `roles/common/generate_install_config`.
 
+Before any of that, fails fast with guidance if `mirror_registry_quay_hostname`
+doesn't resolve (checked via `getent hosts`) — that hostname is a customer DNS
+record (`docs/bare-metal-architecture.md` §9), not something this automation
+provisions, and without this check a missing record wasn't discovered until well
+into the run: `mirror-registry install` (several minutes), `podman login`, and
+`oc-mirror`'s push all independently fail on it with a generic "Temporary failure in
+name resolution"/"Name or service not found" that gives no hint it's a DNS gap.
+
 `mirror_registry_ca_cert` is set as a fact from the registry's generated root CA, for
 `additionalTrustBundle` in the install-config. The same CA is also written to
 `/etc/pki/ca-trust/source/anchors/` and trusted via `update-ca-trust` **on the bastion
@@ -61,6 +69,17 @@ risk of an idle SSH connection getting dropped mid-run.
   `.ssl.key` and passes them back via `--sslCert`/`--sslKey` on every run after that,
   so the cert stays stable for the life of the bastion.
 
+- **Always SSHes to its install target, even for a "local" install onto the box
+  it's invoked from** — confirmed against a real run: without an existing key at its
+  default identity path, `install` fails outright with `could not find ssh key at
+  default location` rather than generating one itself or falling back to a
+  non-SSH local path. `tasks/main.yaml` generates an SSH key pair at
+  `mirror_registry_ssh_key` (default `~/.ssh/quay_installer`, matching
+  `mirror-registry`'s own default) if one doesn't already exist, adds it to this
+  same user's own `authorized_keys` (mirror-registry connects back to itself as the
+  user running the install), and passes it explicitly via `--sshKey` so the install
+  doesn't depend on whatever mirror-registry's own default resolves to.
+
 ## Registry auth for the "disk to mirror" push
 
 `mirror-registry install` creates a default `init` user and prints its password to
@@ -83,6 +102,12 @@ format for this line ever changes, the regex in the "Extract the generated init 
 credentials" task will need updating — it fails loudly (rather than silently
 proceeding unauthenticated) if it can't find a match on that first run.
 
+`tasks/main.yaml`'s login task intentionally has no `no_log` right now, so a real
+failure's stdout/stderr is visible for debugging against the live customer
+environment — which also means the init user's password prints in the task's own
+output if it fails. Re-add `no_log: true` once the bastion rollout is stable and this
+task is no longer a live debugging target.
+
 ## The "disk to mirror" push (`oc-mirror --v2`)
 
 Unlike v1 (where `--from {{ mirror_archive_dir }}` alone was enough, since the
@@ -99,6 +124,32 @@ separate sync path; this role's push points `--config` at
 `roles/common/stage_mirror_content/README.md` for why this role moved from v1 to v2
 in the first place (a release-image signature-verification failure on a real 4.22
 bootstrap).
+
+The push itself retries (`until`/`retries: 3`/`delay: 30`) rather than running once —
+on a real customer run, a ~22-minute push of 483 images hit a batch of `received
+unexpected HTTP status: 500 Internal Server Error` from the registry's own
+bearer-token endpoint, spread across the run (release images, pushed first, all
+succeeded; operator images, pushed later with heavier shared-layer dedup traffic via
+"trying to reuse blob", took the hit). Retrying is safe regardless of root cause,
+since oc-mirror/containers-image check for and reuse blobs that already exist at the
+destination before re-uploading, so a retry mostly re-attempts only what actually
+failed. On final failure after retries, the task greps `{{ mirror_archive_dir
+}}/working-dir/logs/mirroring_errors_*.txt` (the exact file oc-mirror's own output
+already points at, but buried at the bottom of a potentially huge stdout dump) and
+surfaces the tail directly in the failure message.
+
+**Root cause not confirmed.** Resource exhaustion (Quay/Redis/Postgres, all running
+as concurrent containers — see `docs/bare-metal-architecture.md` §2 for the known
+headroom risk) under sustained concurrent push load is a plausible explanation for
+Quay returning 500s, but the diagnosis above is from Ansible/oc-mirror output alone —
+no OOM-kill message, `dmesg`, or container logs were available to actually confirm
+it. The retry is a reasonable mitigation for a *transient* overload either way, but
+won't fix a *persistent* one: if the same images fail across all 3 retries on a real
+run, that's a signal to pull `podman logs quay-app`/postgres/redis and host-level
+evidence (`journalctl -k | grep -i 'killed process'`, `podman stats`) at the time of
+failure, rather than assuming more bastion RAM/CPU will resolve it — see
+`docs/bare-metal-architecture.md` §2/§13 for the open sizing question this run left
+unresolved.
 
 The same `base64("user:pass")` value (already in the exact format the pull secret's
 `auth` field needs, since that's what `slurp` returns for the `.init-credentials`

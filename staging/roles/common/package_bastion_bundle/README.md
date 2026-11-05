@@ -25,6 +25,24 @@ is no separate "first get the code onto the bastion" step.
 | `bastion_tree_dir` | `{{ playbook_dir }}/../../bastion` | The sibling `bastion/` checkout to bundle. Override if staging/ and bastion/ aren't siblings. |
 | `bastion_transfer_host`/`bastion_transfer_user`/`bastion_transfer_ssh_key`/`bastion_transfer_dest_dir` | unset / `root` / `{{ ssh_private_key }}` / `/root` | Only used when `bastion_transfer_method: rsync`. |
 
+## Assembling bundle-root is idempotent across re-runs
+
+`bundle-root` (the staging area under `bastion_bundle_export_dir` the tar.gz gets
+built from) is no longer wiped before each run — an earlier version of this role did,
+which meant the mirror-content/mirror-installers copies below it could never benefit
+from any idempotency at all: every run recopied the entire multi-GB archive from
+scratch regardless of which copy module was used, since the destination never had
+anything to diff against (confirmed worse than the equivalent gap already fixed in
+`unpack_bastion_bundle` — that one was merely slow to re-verify unchanged files; this
+one guaranteed a full re-copy by construction). The `bastion/` tree,
+mirror-content, and mirror-installers copies now use `ansible.posix.synchronize`
+(rsync) against a persistent `bundle-root`, with `delete: true` to prune anything
+stale (e.g. content removed from a refreshed mirror) — a re-run only transfers what's
+actually missing or changed. The mirror-content sync also excludes
+`working-dir` (stage_mirror_content's own oc-mirror scratch output, never read by
+`deploy_mirror_registry`'s "disk to mirror" push) via `rsync_opts`, rather than
+copying it and deleting it from the copy afterward.
+
 ## Why this is simpler than the old `sync_mirror_to_bastion` role
 
 That role had to run a raw `rsync` command with `delegate_to: inventory_hostname`
