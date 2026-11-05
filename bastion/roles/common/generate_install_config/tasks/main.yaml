@@ -10,7 +10,7 @@
     _base_pull_secret: "{{ pull_secret | from_json }}"
   no_log: true
 
-# Both providers are always fully disconnected (see CLAUDE.md) — the insights
+# Both providers are always fully disconnected — the insights
 # operator can never reach console.redhat.com/api.openshift.com regardless of
 # mirroring, so left as-is it sits permanently Degraded/Unavailable forever.
 # Confirmed live on a real AWS run: it was the ONLY operator still blocking
