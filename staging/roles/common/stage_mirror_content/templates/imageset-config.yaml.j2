@@ -51,6 +51,7 @@ mirror:
 {% if pkg is mapping %}
         - name: {{ pkg.name }}
 {% if pkg.channel is defined %}
+          defaultChannel: {{ pkg.channel }}
           channels:
             - name: {{ pkg.channel }}
 {% endif %}
