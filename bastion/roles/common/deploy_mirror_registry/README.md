@@ -61,6 +61,17 @@ risk of an idle SSH connection getting dropped mid-run.
   `.ssl.key` and passes them back via `--sslCert`/`--sslKey` on every run after that,
   so the cert stays stable for the life of the bastion.
 
+- **Always SSHes to its install target, even for a "local" install onto the box
+  it's invoked from** — confirmed against a real run: without an existing key at its
+  default identity path, `install` fails outright with `could not find ssh key at
+  default location` rather than generating one itself or falling back to a
+  non-SSH local path. `tasks/main.yaml` generates an SSH key pair at
+  `mirror_registry_ssh_key` (default `~/.ssh/quay_installer`, matching
+  `mirror-registry`'s own default) if one doesn't already exist, adds it to this
+  same user's own `authorized_keys` (mirror-registry connects back to itself as the
+  user running the install), and passes it explicitly via `--sshKey` so the install
+  doesn't depend on whatever mirror-registry's own default resolves to.
+
 ## Registry auth for the "disk to mirror" push
 
 `mirror-registry install` creates a default `init` user and prints its password to

@@ -85,10 +85,33 @@
     path: "{{ mirror_registry_install_dir }}/.ssl.cert"
   register: mirror_registry_saved_cert
 
+# mirror-registry's `install` always connects over SSH to do the actual work, even
+# when installing onto the box it's invoked from — confirmed against a real run:
+# it failed outright with "could not find ssh key at default location" rather than
+# generating one itself. Generate the key pair it expects (idempotent via `creates:`)
+# and trust it against this same user's own authorized_keys, since mirror-registry is
+# connecting back to itself as the user running this task.
+- name: Check whether the mirror-registry SSH key pair already exists
+  stat:
+    path: "{{ mirror_registry_ssh_key }}"
+  register: mirror_registry_ssh_key_stat
+
+- name: Generate the SSH key pair mirror-registry needs for its own localhost install connection
+  command: "ssh-keygen -t ed25519 -f {{ mirror_registry_ssh_key }} -N ''"
+  args:
+    creates: "{{ mirror_registry_ssh_key }}"
+  when: not mirror_registry_ssh_key_stat.stat.exists
+
+- name: Trust the mirror-registry installer's own key for its localhost SSH connection
+  ansible.posix.authorized_key:
+    user: "{{ lookup('env', 'USER') }}"
+    key: "{{ lookup('file', mirror_registry_ssh_key + '.pub') }}"
+
 - name: Install (or idempotently reconcile) the mirror registry on the bastion
   command: >
     {{ mirror_registry_install_dir }}/mirror-registry install
     --quayHostname {{ mirror_registry_quay_hostname }}:{{ mirror_registry_quay_port }}
+    --sshKey {{ mirror_registry_ssh_key }}
     {{ ('--sslCert ' + mirror_registry_install_dir + '/.ssl.cert --sslKey ' + mirror_registry_install_dir + '/.ssl.key') if mirror_registry_saved_cert.stat.exists else '' }}
   register: mirror_registry_install
 

@@ -29,3 +29,10 @@ oc_mirror_cache_dir: "{{ mirror_registry_install_dir }}/oc-mirror-cache"
 # default path as stage_mirror_content/package_bastion_bundle/unpack_bastion_bundle's
 # mirror_installers_dir.
 mirror_installers_dir: /opt/mirror-installers
+
+# mirror-registry always drives its own install over SSH, even for a "local" install
+# onto the box it's running on — it has no code path that skips SSH entirely. Default
+# matches mirror-registry's own default identity path; this role generates it (and
+# trusts it against this host's own authorized_keys) if it doesn't already exist,
+# rather than requiring an operator to pre-create it — see tasks/main.yaml.
+mirror_registry_ssh_key: "~/.ssh/quay_installer"

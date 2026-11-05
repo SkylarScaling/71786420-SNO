@@ -23,6 +23,43 @@ specific carried-forward design patterns (disconnected mirroring, backup storage
 isolation). This document is the current-state *what or where*: the full system as
 built, and a traceability table back to the customer's stated requirements.
 
+## Prerequisites (outside this automation)
+
+Nothing in this list is provisioned or validated by this repo — these are inputs
+the automation assumes already exist, either supplied by the customer or prepared by
+the operator running it, before any playbook is run. Several roles fail fast (loudly,
+not silently) when one of these is missing, but only once a playbook actually reaches
+that point — confirm the list below up front rather than discovering gaps one failed
+task at a time.
+
+**From the customer:**
+
+| Item | Detail |
+|---|---|
+| Physical hardware racked, cabled, powered | Dell PowerEdge R7725, single switch (dual switch opt-in) — §10 |
+| iDRAC9/10 reachable from the bastion's network, with BMC credentials | `bmc_address`/`bmc_username`/`bmc_password` — §10 |
+| Static IP/gateway/MAC assignments for the SNO node (and the bastion itself) | `rendezvous_ip`, `sno_mac_address`, `default_gateway`, `machine_network_cidr` — this repo consumes these, it doesn't assign them |
+| DNS records created against `base_domain` | `mirror.<base_domain>`, `api.`/`api-int.`/`*.apps.<cluster_name>.<base_domain>`, plus app-specific hostnames — full list and purpose in §9 |
+| NTP server reachable from the SNO node/bastion network | `ntp_server` — §9 |
+| SMTP relay reachable from the cluster network | `alert_smtp_host`/`alert_email_to` — `configure_alerting` assumes direct reachability, it doesn't stand up a relay |
+| MetalLB address pool: a contiguous, routable, reserved IP range on the machine network | `metallb_address_pool` — §5; non-HTTP TCP middleware only |
+| External S3 target (endpoint, bucket, credentials), only if `backup_egress_mode: network` or `both` | `backup_external_s3_*` — §8 |
+| Outbound firewall egress from the staging host to Red Hat's content sources | `registry.redhat.io`, `quay.io`, `mirror.openshift.com`, `console.redhat.com` and friends — §3; the bastion and SNO node need no egress at all |
+| A way to physically carry the bastion bundle from staging to the bastion | Removable media by default (`bastion_transfer_method: media`); a network path between the two hosts only if `rsync` is opted into instead — §2 |
+
+**From the operator running this automation (prepared once per environment, before
+`staging/inventory/inventory.yaml` is filled in):**
+
+| Item | Detail |
+|---|---|
+| Red Hat pull secret | From [console.redhat.com](https://console.redhat.com/openshift/install/pull-secret) under an account entitled to OpenShift Platform Plus (§1) — saved locally and referenced via `pull_secret`'s `lookup('file', ...)` |
+| SSH key pair for the staging host's own OS access | `ssh_key`/`ssh_private_key` — not related to the mirror-registry-internal SSH key `deploy_mirror_registry` generates for itself on the bastion |
+| Confirmed RAID5 block device path on the actual racked hardware | `lvms_device_paths` — can't be known until the server exists; see §13 |
+
+If a value above isn't a real per-environment value yet, `staging/inventory/inventory.yaml`
+marks it with a `TODO:` comment — grep for `TODO:` there before a first run against a
+new environment.
+
 ## 1. Target environment
 
 | Item | Value |

@@ -42,7 +42,7 @@ all:
     rendezvous_ip: 192.168.1.30      # TODO: the SNO node's static IP
     sno_mac_address: "AA:BB:CC:DD:EE:FF"   # TODO: the SNO node's primary NIC MAC
     default_gateway: 192.168.1.1     # TODO: customer-provided gateway
-    dns_server: 192.168.1.2          # TODO: customer-provided Windows DNS server — see bastion/README.md's "DNS records to request" section
+    dns_server: 192.168.1.2          # TODO: customer-provided Windows DNS server — see docs/bare-metal-architecture.md §9 "DNS and NTP" for the DNS records to request
     ntp_server: 192.168.1.3          # TODO: customer-provided NTP server
 
     # Single switch (default) — leave sno_network_topology unset/single_switch and
