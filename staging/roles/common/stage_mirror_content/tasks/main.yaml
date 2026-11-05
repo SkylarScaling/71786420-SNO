@@ -125,8 +125,11 @@
   tags: [bastion_prereqs]
 
 - name: Download bastion packages (with full dependency closure) for offline install on the bastion
+  vars:
+    _bastion_repo_flags: "{{ bastion_required_repos | map('regex_replace', '^(.*)$', '--enablerepo=\\1') | join(' ') }}"
   command: >
     dnf download --resolve --destdir={{ mirror_installers_dir }}/bastion-rpms
+    {{ _bastion_repo_flags }}
     -y {{ bastion_packages | join(' ') }}
   become: true
   tags: [bastion_prereqs]

@@ -37,6 +37,7 @@ task at a time.
 | Item | Detail |
 |---|---|
 | Physical hardware racked, cabled, powered | Dell PowerEdge R7725, single switch (dual switch opt-in) — §10 |
+| Staging host and bastion both provisioned as RHEL 10, with `rhel-10-for-x86_64-baseos-rpms`/`-appstream-rpms` attached to staging's subscription | Must match exactly — `stage_mirror_content` resolves/downloads RPMs on staging for an offline `dnf install` on the bastion (`bastion_packages`/`bastion_required_repos`); a version mismatch installs cleanly on neither host or silently resolves the wrong RPM set — §1 |
 | iDRAC9/10 reachable from the bastion's network, with BMC credentials | `bmc_address`/`bmc_username`/`bmc_password` — §10 |
 | Static IP/gateway/MAC assignments for the SNO node (and the bastion itself) | `rendezvous_ip`, `sno_mac_address`, `default_gateway`, `machine_network_cidr` — this repo consumes these, it doesn't assign them |
 | DNS records created against `base_domain` | `mirror.<base_domain>`, `api.`/`api-int.`/`*.apps.<cluster_name>.<base_domain>`, plus app-specific hostnames — full list and purpose in §9 |
@@ -66,6 +67,7 @@ new environment.
 |---|---|
 | Topology | Single Node OpenShift — single server, single switch (default) or dual switch (opt-in), single bastion |
 | Server | Dell PowerEdge R7725, iDRAC9/10 (Redfish), 768GB RAM |
+| OS | RHEL 10 on both the staging host and the bastion — must match exactly, see Prerequisites above |
 | Disks | 3x 3.2TB SSD + 2x 960GB NVMe, hardware RAID5 (≤6TB usable), no OCP-level storage replication on top |
 | Networking | 1G. Single NIC per function by default; dual-switch active-backup bonding on the SNO node is opt-in (§5) |
 | Install method | Agent-Based Installer (disconnected) |

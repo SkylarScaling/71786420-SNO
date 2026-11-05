@@ -30,13 +30,28 @@ mirror_registry_url: "https://developers.redhat.com/content-gateway/file/pub/cgw
 
 # RPM packages configure_bastion_services needs installed on the bastion, which has
 # no internet route to reach RHUI/dnf repos itself — downloaded here (with their full
-# dependency closure, not just these two names) and synced over the same way as the
-# tool tarballs above. Same default list duplicated in configure_bastion_services's
+# dependency closure, not just these names) and synced over the same way as the tool
+# tarballs above. Same default list duplicated in configure_bastion_services's
 # defaults (role defaults aren't shared across roles) purely for documentation; only
-# this role's copy is actually used to drive the download.
+# this role's copy is actually used to drive the download. tmux is an operator
+# convenience (long-running oc-mirror/mirror-registry sessions on the bastion), not a
+# functional dependency of any role.
 bastion_packages:
   - dnsmasq
   - httpd
+  - tmux
+
+# Repo IDs `dnf download` must be able to resolve bastion_packages (and their
+# dependency closure) against — this staging host's subscription must already have
+# these attached, just not necessarily enabled by default. Passed as --enablerepo on
+# the download command itself (below) rather than toggled host-wide via
+# subscription-manager, so this role doesn't leave the staging host's own repo
+# configuration changed as a side effect. Keep in sync with whatever RHEL major
+# version staging and the bastion are actually provisioned from (see this role's
+# README: both must match).
+bastion_required_repos:
+  - rhel-10-for-x86_64-baseos-rpms
+  - rhel-10-for-x86_64-appstream-rpms
 
 # The standard set this repo's feature roles install: LVM Storage (configure_lvms —
 # true-SNO storage), OADP (configure_oadp_backup), cluster logging

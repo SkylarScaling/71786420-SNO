@@ -273,7 +273,7 @@
   command: "podman restart {{ quay_container_name.stdout | trim }}"
   when: mirror_registry_install is changed
 
-- name: Open the mirror registry port in firewalld (RHEL 9 default; Podman doesn't do this itself)
+- name: Open the mirror registry port in firewalld (on by default on RHEL; Podman doesn't do this itself)
   block:
     - name: Check whether firewalld is installed
       command: which firewall-cmd

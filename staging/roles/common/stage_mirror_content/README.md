@@ -97,6 +97,25 @@ console.redhat.com/openshift/install/pull-secret, which already bundles auths fo
 those registries alongside the cluster-facing ones. If you're using a pull secret
 that's missing those entries, merge them in before running this role.
 
+## Bastion RPMs (`bastion_packages`/`bastion_required_repos`)
+
+Separate from the container-image mirroring above — `bastion_packages` (default:
+`dnsmasq`, `httpd`, `tmux`) are plain RPMs `configure_bastion_services` installs on
+the bastion, which has no internet route of its own to reach them. `dnf download
+--resolve` (see `tasks/main.yaml` for why not `dnf install --downloadonly`) needs
+`bastion_required_repos`'s repo IDs already attached to *this* staging host's
+subscription (just not necessarily enabled by default) to resolve against — passed
+as `--enablerepo` on the download command itself rather than toggled host-wide via
+`subscription-manager`, so this role doesn't leave staging's own repo configuration
+changed as a side effect. Keep both vars and the RHEL major version staging/the
+bastion are actually provisioned from in sync — see `configure_bastion_services`'s
+README for why that match matters.
+
+Tagged `bastion_prereqs` separately from the container-mirroring tasks above so it
+can be re-run on its own (e.g. after adding a package to `bastion_packages`) without
+redoing the hour-plus `oc-mirror` run — `--tags bastion_prereqs`, then `--tags
+package` on `package_bastion_bundle` to re-bundle with the new RPMs included.
+
 ## Progress reporting
 
 The `oc-mirror` invocation runs `async: 14400, poll: 0` instead of blocking
