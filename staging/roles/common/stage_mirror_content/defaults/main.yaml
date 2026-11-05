@@ -82,15 +82,20 @@ bastion_packages:
 # against the redhat/certified/community operator indexes for the openshift_version
 # actually configured for this environment (4.22 as of this writing) — these are
 # NOT catalog-version-independent. loki-operator's default channel in particular
-# moves with every OCP minor (stable-6.4 on 4.18, stable-6.6 on 4.22) — re-verify
-# with the same command against the new version's index whenever openshift_version
-# changes, don't assume the pinned channel here still exists.
+# moves with every OCP minor, and even within a minor as the catalog gets republished
+# (stable-6.4 on 4.18, stable-6.6 then stable-6.7 on 4.22, confirmed live when a real
+# mirror run hard-failed with "invalid default channel configuration ... the default
+# channel 'stable-6.7' was filtered out" after the catalog moved its default off
+# stable-6.6) — oc-mirror v2 requires the pinned channel here to match the catalog's
+# CURRENT default channel for that package, not just any channel that exists. If a
+# mirror run fails this way, re-run `oc-mirror list operators` against the live index
+# and update the pinned channel to match, don't assume it's stable once verified.
 oc_mirror_operator_packages:
   - lvms-operator
   - redhat-oadp-operator
   - cluster-logging
   - odf-operator                                                              # configure_mcg
-  - { name: loki-operator, channel: stable-6.6 }                              # configure_lokistack — pinned for openshift_version 4.22, re-verify on upgrade
+  - { name: loki-operator, channel: stable-6.7 }                              # configure_lokistack — pinned for openshift_version 4.22, re-verify on upgrade
   - { name: grafana-operator, catalog: community, channel: v5 }               # configure_grafana — not in redhat-operator-index
   - opentelemetry-product                                                     # configure_opentelemetry
   - tempo-product                                                             # configure_opentelemetry

@@ -1,10 +1,13 @@
 ---
-# Confirmed via `oc-mirror list operators --v1 --catalog
-# registry.redhat.io/redhat/redhat-operator-index:v4.22 --package loki-operator` —
-# stable-6.6 is the current default channel for openshift_version 4.22 (this
-# channel string moves with every OCP minor — re-verify with the same command
-# against the new version's index whenever openshift_version changes).
-loki_channel: stable-6.6
+# Confirmed live against a real mirror run of registry.redhat.io/redhat/redhat-operator-index:v4.22 —
+# stable-6.7 is the current default channel for openshift_version 4.22 (this
+# channel string moves with every OCP minor, and even within a minor as the catalog
+# is republished — oc-mirror v2 hard-fails the whole catalog collection with
+# "invalid default channel configuration ... the default channel was filtered out"
+# if the pinned channel here doesn't match the catalog's actual default, so re-verify
+# against the live catalog whenever a mirror run fails this way or openshift_version
+# changes).
+loki_channel: stable-6.7
 
 # Smallest documented LokiStack size tier, intended for demo/single-small-node use —
 # NOT for production log volumes. `1x.demo` trades HA/replica count for the smallest
