@@ -58,12 +58,18 @@
     path: "{{ bastion_bundle_dir }}/mirror-content"
   register: _bundle_mirror_content_stat
 
+# synchronize (rsync), not copy — this archive is tens of GB, and copy's per-file
+# checksum comparison means every re-run re-hashes the entire tree just to find
+# nothing's changed. rsync only transfers what's missing or different, so a retry
+# after a partial/interrupted copy (e.g. the disk-full failure mode noted below)
+# resumes cheaply instead of re-verifying everything from scratch. ansible.posix is
+# already a required collection (requirements.yml) and rsync is already a direct
+# dependency elsewhere in this repo (package_bastion_bundle's bastion transfer).
 - name: Copy the bundled mirror content into place
-  copy:
+  ansible.posix.synchronize:
     src: "{{ bastion_bundle_dir }}/mirror-content/"
     dest: "{{ mirror_archive_dir }}/"
-    remote_src: true
-    mode: preserve
+    recursive: true
   when: _bundle_mirror_content_stat.stat.exists
 
 - name: Check whether the destination already has content from a prior run
@@ -96,12 +102,12 @@
     path: "{{ bastion_bundle_dir }}/mirror-installers"
   register: _bundle_mirror_installers_stat
 
+# synchronize, not copy — same reasoning as the mirror content copy above.
 - name: Copy the bundled installer tarballs/RPMs into place
-  copy:
+  ansible.posix.synchronize:
     src: "{{ bastion_bundle_dir }}/mirror-installers/"
     dest: "{{ mirror_installers_dir }}/"
-    remote_src: true
-    mode: preserve
+    recursive: true
   when: _bundle_mirror_installers_stat.stat.exists
 
 # The mirror content archive and installer tarballs/RPMs are large (the content

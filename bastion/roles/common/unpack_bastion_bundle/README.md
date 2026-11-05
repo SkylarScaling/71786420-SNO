@@ -11,6 +11,13 @@ other playbook in this tree via Ansible's normal `group_vars` auto-load).
 already extracts those itself directly from `mirror_installers_dir` (unchanged
 behavior from before the split).
 
+The mirror content/installer copies use `ansible.posix.synchronize` (rsync), not
+`copy` — the mirror content archive alone is tens of GB, and `copy`'s per-file
+checksum comparison means every re-run re-hashes the entire tree just to find nothing
+changed. rsync only transfers what's missing or different, so retrying after a
+partial/interrupted copy (e.g. the disk-full failure mode below) resumes cheaply
+instead of re-verifying everything from scratch.
+
 ## Variables
 
 | Variable | Default | Notes |

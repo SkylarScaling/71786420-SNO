@@ -239,7 +239,6 @@
   command: >
     podman login -u {{ _mirror_registry_creds[0] }} -p {{ _mirror_registry_creds[1] }}
     {{ mirror_registry_quay_hostname }}:{{ mirror_registry_quay_port }}
-  no_log: true
 
 # mirror-registry has no --quayConfig install flag (it's silently ignored and can
 # leave the CA cert unwritten) — patch the generated config.yaml directly instead.

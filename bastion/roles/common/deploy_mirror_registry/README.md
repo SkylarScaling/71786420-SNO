@@ -17,6 +17,15 @@ mirror" push below runs `oc-mirror` on the bastion, talking to Quay over HTTPS, 
 without this it fails immediately with `x509: certificate signed by unknown
 authority` before attempting any push (confirmed against a real run).
 
+`update-ca-trust` alone wasn't sufficient on a real run — `podman login` still failed
+with the same `x509: certificate signed by unknown authority` even after the system
+trust store was updated. `podman`/`skopeo` (via containers/image) look up per-registry
+trust under `/etc/containers/certs.d/<host>:<port>/ca.crt` first and don't reliably
+fall back to the system bundle for registry TLS verification — the role now writes
+the same CA there as well, keyed by `mirror_registry_quay_hostname:mirror_registry_quay_port`.
+This path is readable by rootless podman too, so a `become: true` write is enough
+regardless of which user actually runs the later `podman`/`oc-mirror` commands.
+
 Also extracts the `oc-mirror` binary into `{{ bin_dir }}` for the push, and the
 `mirror-registry` installer itself — this host has no internet route at all, so both
 are unarchived from the tarballs `package_bastion_bundle/unpack_bastion_bundle` already
@@ -93,6 +102,12 @@ thereafter — `podman login`s with whatever that file contains before the
 format for this line ever changes, the regex in the "Extract the generated init user
 credentials" task will need updating — it fails loudly (rather than silently
 proceeding unauthenticated) if it can't find a match on that first run.
+
+`tasks/main.yaml`'s login task intentionally has no `no_log` right now, so a real
+failure's stdout/stderr is visible for debugging against the live customer
+environment — which also means the init user's password prints in the task's own
+output if it fails. Re-add `no_log: true` once the bastion rollout is stable and this
+task is no longer a live debugging target.
 
 ## The "disk to mirror" push (`oc-mirror --v2`)
 
