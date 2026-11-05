@@ -103,6 +103,36 @@ A 4GB/no-swap test host hard-hung under that load — confirmed by the hyperviso
 instance-status check as guest-level unresponsiveness, not a host fault — and needed
 8GB to install cleanly. Size the physical bastion accordingly.
 
+**8GB was only validated against the install itself, not a full sustained push** —
+on a real customer run, the "disk to mirror" push (483 images, ~22 minutes) hit a
+batch of `received unexpected HTTP status: 500 Internal Server Error` from the
+registry's own bearer-token endpoint, spread across the run rather than one clean
+cutoff (the release images, mirrored first, all succeeded; operator images, pushed
+later/concurrently with heavier shared-layer dedup traffic, took the hit).
+
+**Root cause not actually confirmed** — resource exhaustion (RAM, CPU, Postgres
+connection limits, disk I/O) is a plausible explanation for Quay returning 500s under
+sustained concurrent push load, but the Ansible/oc-mirror output this was diagnosed
+from contains no OOM-kill message, no `dmesg`, and no resource metrics at all — it
+only shows the symptom (the registry erroring), not the cause. Confirming it would
+need the actual Quay/Postgres/Redis container logs from a real failure (`podman logs
+quay-app` etc. around the failure timestamp) or host-level evidence (`journalctl -k |
+grep -i 'killed process'`, `podman stats`) captured at the time. Don't treat "upgrade
+bastion RAM" as the confirmed fix until one of those actually points at memory
+specifically — it could just as easily be a connection-pool limit or concurrency
+setting that more RAM alone wouldn't fix.
+
+`deploy_mirror_registry`'s push task now retries automatically (already-pushed blobs
+are deduped/skipped on retry, so this is safe) — see that role's README. This is a
+reasonable mitigation for a *transient* overload regardless of root cause, but it
+will not fix a *persistent* under-provisioning problem: if the same images keep
+failing across all retries, that itself is useful signal that whatever's wrong isn't
+a brief blip, and is worth chasing with the container-log/host-evidence approach
+above rather than assuming more retries (or more RAM) will eventually clear it.
+**Open item**: re-verify whether 8GB — or the customer's planned 16 cores/16GB/2TB
+spec, pending confirmation — is actually sufficient for a full mirror push under real
+content volumes, with real evidence from a live failure if it recurs.
+
 It matters here because every content-movement mechanism in this repo (inbound
 mirroring *and* backup export, §3/§8) depends on it: nothing ever assumes the
 cluster, the bastion, or staging can reach each other over a live network by
@@ -421,3 +451,15 @@ content / the actual hardware, don't assume they're already correct:
   https://mirror.openshift.com/pub/cgw/mirror-registry/ before a production run if
   it's been a while; a stale pin still works (older `mirror-registry` versions remain
   downloadable), it just won't have newer fixes.
+- Bastion resource sizing for a full "disk to mirror" push, not just the
+  `mirror-registry` install itself — a real customer run's 483-image push hit
+  intermittent `500 Internal Server Error` from the registry's bearer-token endpoint.
+  Resource exhaustion under sustained concurrent push load (§2's documented 8GB
+  minimum was only validated against the install) is a plausible explanation, **but
+  not a confirmed one** — the diagnosis is from Ansible/oc-mirror output alone, with
+  no OOM-kill/`dmesg`/container-log evidence actually pointing at memory specifically
+  (see §2 for what would confirm it). `deploy_mirror_registry`'s push now retries
+  automatically (safe — already-pushed blobs are deduped on retry), which mitigates a
+  transient overload but won't fix a persistent one; if the same images keep failing
+  across retries on a real run, capture Quay/Postgres/Redis container logs and
+  host-level evidence at that point rather than assuming more RAM will fix it.

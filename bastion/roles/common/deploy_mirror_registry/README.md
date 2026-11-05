@@ -125,6 +125,32 @@ separate sync path; this role's push points `--config` at
 in the first place (a release-image signature-verification failure on a real 4.22
 bootstrap).
 
+The push itself retries (`until`/`retries: 3`/`delay: 30`) rather than running once —
+on a real customer run, a ~22-minute push of 483 images hit a batch of `received
+unexpected HTTP status: 500 Internal Server Error` from the registry's own
+bearer-token endpoint, spread across the run (release images, pushed first, all
+succeeded; operator images, pushed later with heavier shared-layer dedup traffic via
+"trying to reuse blob", took the hit). Retrying is safe regardless of root cause,
+since oc-mirror/containers-image check for and reuse blobs that already exist at the
+destination before re-uploading, so a retry mostly re-attempts only what actually
+failed. On final failure after retries, the task greps `{{ mirror_archive_dir
+}}/working-dir/logs/mirroring_errors_*.txt` (the exact file oc-mirror's own output
+already points at, but buried at the bottom of a potentially huge stdout dump) and
+surfaces the tail directly in the failure message.
+
+**Root cause not confirmed.** Resource exhaustion (Quay/Redis/Postgres, all running
+as concurrent containers — see `docs/bare-metal-architecture.md` §2 for the known
+headroom risk) under sustained concurrent push load is a plausible explanation for
+Quay returning 500s, but the diagnosis above is from Ansible/oc-mirror output alone —
+no OOM-kill message, `dmesg`, or container logs were available to actually confirm
+it. The retry is a reasonable mitigation for a *transient* overload either way, but
+won't fix a *persistent* one: if the same images fail across all 3 retries on a real
+run, that's a signal to pull `podman logs quay-app`/postgres/redis and host-level
+evidence (`journalctl -k | grep -i 'killed process'`, `podman stats`) at the time of
+failure, rather than assuming more bastion RAM/CPU will resolve it — see
+`docs/bare-metal-architecture.md` §2/§13 for the open sizing question this run left
+unresolved.
+
 The same `base64("user:pass")` value (already in the exact format the pull secret's
 `auth` field needs, since that's what `slurp` returns for the `.init-credentials`
 file) is also exposed as the `mirror_registry_auth_b64` fact, which

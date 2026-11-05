@@ -358,9 +358,53 @@
 # imageset-config.yaml directly into the archive dir specifically so it travels here
 # via package_bastion_bundle/unpack_bastion_bundle without a separate sync path. --cache-dir is scoped to
 # this host, independent of the synced archive content.
+#
+# Retried (until/retries/delay), not a single attempt — confirmed against a real run:
+# a ~22-minute push of 483 images (mostly already-pushed shared base layers being
+# deduped via "trying to reuse blob") hit a batch of "received unexpected HTTP status:
+# 500 Internal Server Error" from the mirror registry's own bearer-token endpoint,
+# spread across the run rather than one clean cutoff — consistent with the registry
+# (Quay+Redis+Postgres, all running as concurrent containers on the bastion itself —
+# see this role's README/docs/bare-metal-architecture.md §2 for the known headroom
+# risk) being intermittently overloaded under sustained concurrent push load, not a
+# content/config problem. The push is safe to retry wholesale: oc-mirror/containers-image
+# check for and reuse blobs that already exist at the destination before
+# re-uploading, so a retry mostly re-attempts only what actually failed rather than
+# redoing the whole archive.
 - name: Push the synced archive into the bastion's mirror registry ("disk to mirror")
   command: >
     {{ bin_dir }}/oc-mirror --v2 --config {{ mirror_archive_dir }}/imageset-config.yaml
     --cache-dir {{ oc_mirror_cache_dir }}
     --from file://{{ mirror_archive_dir }}
     docker://{{ mirror_registry_quay_hostname }}:{{ mirror_registry_quay_port }}
+  register: _mirror_disk_push
+  until: _mirror_disk_push.rc == 0
+  retries: 3
+  delay: 30
+
+# oc-mirror itself already points at the right file on failure ("Please review
+# .../working-dir/logs/mirroring_errors_*.txt") but that guidance is buried at the
+# bottom of a potentially huge stdout dump — surface the actual error lines directly
+# rather than relying on the operator to find it themselves, same approach already
+# applied to stage_mirror_content's "mirror to disk" failure handling.
+- name: Collect likely-relevant error lines from oc-mirror's own mirroring-errors log
+  shell: >
+    tail -n 40 {{ mirror_archive_dir }}/working-dir/logs/mirroring_errors_*.txt 2>/dev/null
+  register: _mirror_disk_push_error_lines
+  changed_when: false
+  failed_when: false
+  when: _mirror_disk_push.rc != 0
+
+- name: Fail with oc-mirror's own error context if the push still failed after retries
+  fail:
+    msg: |-
+      oc-mirror "disk to mirror" push failed after {{ _mirror_disk_push.attempts | default(1) }} attempt(s) (rc={{ _mirror_disk_push.rc }}).
+      Tail of {{ mirror_archive_dir }}/working-dir/logs/mirroring_errors_*.txt:
+      {{ _mirror_disk_push_error_lines.stdout | default('') | trim | default('(none found — inspect that directory directly)', true) }}
+      Repeated "received unexpected HTTP status: 500 Internal Server Error" from the
+      registry's bearer-token endpoint, especially spread across the run rather than
+      failing immediately, points at the mirror registry itself (Quay/Redis/Postgres,
+      all running as concurrent containers on this bastion) being under-resourced for
+      a sustained concurrent push — see this role's README and
+      docs/bare-metal-architecture.md §2 for the known headroom requirement.
+  when: _mirror_disk_push.rc != 0
