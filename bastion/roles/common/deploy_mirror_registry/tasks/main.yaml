@@ -3,6 +3,32 @@
 # mirror-registry, then pushes the synced archive into it ("disk to mirror"). This
 # becomes the registry that install-config.yaml's imageContentSources points at.
 
+# mirror_registry_quay_hostname isn't provisioned by this automation at all — it's a
+# customer DNS record (docs/bare-metal-architecture.md §9) that has to exist before
+# any of this role can work. Without this check, a missing record isn't discovered
+# until well into the run: mirror-registry install (several minutes), then podman
+# login, then oc-mirror's push all fail on it independently, each with a generic
+# "Temporary failure in name resolution"/"Name or service not found" that gives no
+# hint it's a DNS gap rather than something this role actually got wrong. Checked
+# with getent (NSS-based, same resolution path dnf/podman/oc-mirror all use) rather
+# than a module that implies network reachability — DNS resolution failing is a
+# different, cheaper-to-diagnose problem than the registry being down.
+- name: Check whether the mirror registry hostname resolves
+  command: "getent hosts {{ mirror_registry_quay_hostname }}"
+  register: _mirror_registry_hostname_resolved
+  changed_when: false
+  failed_when: false
+
+- name: Fail fast with guidance if the mirror registry hostname doesn't resolve
+  fail:
+    msg: >-
+      {{ mirror_registry_quay_hostname }} does not resolve on this host. This is a
+      customer DNS record (mirror.<base_domain> -> the bastion's own IP), not
+      something this automation creates — see docs/bare-metal-architecture.md §9 for
+      the full DNS record list, and confirm the bastion is actually pointed at the
+      customer's DNS server before re-running.
+  when: _mirror_registry_hostname_resolved.rc != 0
+
 # Same long-quiet-stdout risk as stage_mirror_content's "mirror to disk" run applies
 # here to the "disk to mirror" push and the mirror-registry install itself — see the
 # comment there for the full rationale. Paired with the client-side

@@ -9,6 +9,14 @@ runs **on the bastion** (the disconnected target), installs a standalone Quay vi
 `mirror_registry_quay_hostname`/`mirror_registry_quay_port`, consumed by
 `roles/common/generate_install_config`.
 
+Before any of that, fails fast with guidance if `mirror_registry_quay_hostname`
+doesn't resolve (checked via `getent hosts`) — that hostname is a customer DNS
+record (`docs/bare-metal-architecture.md` §9), not something this automation
+provisions, and without this check a missing record wasn't discovered until well
+into the run: `mirror-registry install` (several minutes), `podman login`, and
+`oc-mirror`'s push all independently fail on it with a generic "Temporary failure in
+name resolution"/"Name or service not found" that gives no hint it's a DNS gap.
+
 `mirror_registry_ca_cert` is set as a fact from the registry's generated root CA, for
 `additionalTrustBundle` in the install-config. The same CA is also written to
 `/etc/pki/ca-trust/source/anchors/` and trusted via `update-ca-trust` **on the bastion
