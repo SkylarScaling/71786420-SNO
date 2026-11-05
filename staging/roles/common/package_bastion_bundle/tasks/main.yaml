@@ -54,12 +54,14 @@
     src: "{{ bastion_tree_dir }}/"
     dest: "{{ bastion_bundle_export_dir }}/bundle-root/bastion/"
     mode: preserve
+    remote_src: true
 
 - name: Copy the mirrored content archive into the bundle root
   copy:
     src: "{{ mirror_sync_source_dir }}/"
     dest: "{{ bastion_bundle_export_dir }}/bundle-root/mirror-content/"
     mode: preserve
+    remote_src: true
   # Same exclusion sync_mirror_to_bastion used to apply: stage_mirror_content's own
   # "mirror to disk" scratch output, which deploy_mirror_registry's "disk to mirror"
   # push never reads (it regenerates its own working-dir from the tar chunks).
@@ -75,6 +77,7 @@
     src: "{{ mirror_installers_dir }}/"
     dest: "{{ bastion_bundle_export_dir }}/bundle-root/mirror-installers/"
     mode: preserve
+    remote_src: true
 
 - name: Copy the flattened resolved-vars file into the bundle root
   copy:
@@ -91,13 +94,23 @@
 
 - name: Report the media-transfer next step
   debug:
-    msg: >
-      Bundle packaged to {{ bastion_bundle_export_dir }}/{{ bastion_bundle_name }}.
-      Copy it to removable media, carry it to the bastion, and extract it into an empty
-      working directory there (e.g. ~/sno-deploy/) — it unpacks to bastion/,
-      mirror-content/, mirror-installers/, and bastion-resolved-vars.yaml, a complete,
-      self-sufficient checkout. Then cd into bastion/playbooks and run
-      unpack_bastion_bundle (via provision-sno.yaml).
+    msg:
+      - "=================================================================="
+      - "Bundle packaged"
+      - "=================================================================="
+      - "Location: {{ bastion_bundle_export_dir }}/{{ bastion_bundle_name }}"
+      - "------------------------------------------------------------------"
+      - "Next: copy it to removable media, carry it to the bastion, and"
+      - "extract it into an empty working directory there:"
+      - "  mkdir -p ~/sno-deploy"
+      - "  tar -xzf {{ bastion_bundle_name }} -C ~/sno-deploy"
+      - "It unpacks to bastion/, mirror-content/, mirror-installers/, and"
+      - "bastion-resolved-vars.yaml — a complete, self-sufficient checkout. Then:"
+      - "  cd ~/sno-deploy/bastion/playbooks"
+      - "  ansible-playbook provision-sno.yaml -i ../inventory/inventory.yaml"
+      - "Once that completes, delete the tar.gz itself (rm ~/{{ bastion_bundle_name }}) —"
+      - "unpack_bastion_bundle already cleans up its own extracted copy, but not the"
+      - "original archive, which is tens of GB and can fill the bastion's disk on repeat runs."
   when: bastion_transfer_method == 'media'
 
 - name: Stage the SSH private key here for the rsync push to the bastion
@@ -105,6 +118,7 @@
     src: "{{ bastion_transfer_ssh_key }}"
     dest: "/tmp/.bastion_bundle_transfer_key"
     mode: '0600'
+    remote_src: true
   when: bastion_transfer_method == 'rsync'
 
 - name: Fail fast if rsync transfer was requested without a target host
@@ -134,9 +148,20 @@
 
 - name: Report the rsync-transfer next step
   debug:
-    msg: >
-      Bundle pushed to {{ bastion_transfer_user }}@{{ bastion_transfer_host }}:
-      {{ bastion_transfer_dest_dir }}/{{ bastion_bundle_name }}. Extract it into an
-      empty working directory on the bastion, then run unpack_bastion_bundle (via
-      bastion/playbooks/provision-sno.yaml).
+    msg:
+      - "=================================================================="
+      - "Bundle pushed to the bastion"
+      - "=================================================================="
+      - "Destination: {{ bastion_transfer_user }}@{{ bastion_transfer_host }}:{{ bastion_transfer_dest_dir }}/{{ bastion_bundle_name }}"
+      - "------------------------------------------------------------------"
+      - "Next: SSH to the bastion, extract the bundle into an empty working"
+      - "directory, and run the provision playbook:"
+      - "  ssh -i {{ bastion_transfer_ssh_key }} {{ bastion_transfer_user }}@{{ bastion_transfer_host }}"
+      - "  mkdir -p ~/sno-deploy"
+      - "  tar -xzf ~/{{ bastion_bundle_name }} -C ~/sno-deploy"
+      - "  cd ~/sno-deploy/bastion/playbooks"
+      - "  ansible-playbook provision-sno.yaml -i ../inventory/inventory.yaml"
+      - "Once that completes, delete the tar.gz itself (rm ~/{{ bastion_bundle_name }}) —"
+      - "unpack_bastion_bundle already cleans up its own extracted copy, but not the"
+      - "original archive, which is tens of GB and can fill the bastion's disk on repeat runs."
   when: bastion_transfer_method == 'rsync'

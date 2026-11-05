@@ -15,7 +15,6 @@
 - name: Export application S3 data from the bastion
   hosts: localhost
   connection: local
-  become: true
   gather_facts: true
   tags: [configure_backup_export]
   tasks:

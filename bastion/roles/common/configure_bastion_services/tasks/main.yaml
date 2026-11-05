@@ -28,7 +28,7 @@
     mode: '0644'
   become: true
   notify: restart dnsmasq
-  when: sno_node_ip is defined
+  when: rendezvous_ip is defined
 
 - name: Ensure ISO-hosting directory exists (for bare-metal BMC virtual media boot)
   file:
@@ -43,7 +43,7 @@
     state: started
     enabled: true
   become: true
-  when: sno_node_ip is defined
+  when: rendezvous_ip is defined
 
 - name: Enable and start httpd (serves the agent ISO for BMC virtual media)
   service:

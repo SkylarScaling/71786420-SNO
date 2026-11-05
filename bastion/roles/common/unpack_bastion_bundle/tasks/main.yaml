@@ -24,11 +24,35 @@
     remote_src: true
     mode: '0600'
 
-- name: Ensure the mirror content destination exists
+# group_vars/all.yaml is only read once, when the playbook run starts — overwriting it
+# above has no effect on THIS run (confirmed live: every var that only exists in the
+# bundle, e.g. mirror_registry_quay_hostname, came back "undefined" in a later role,
+# since this is the very first run ever to actually reach this point end-to-end).
+# Explicitly loading it into the current play's vars makes every later role in this
+# same run see the real values immediately, not just on the next invocation.
+- name: Load the newly-written resolved vars into this run
+  include_vars:
+    file: "{{ playbook_dir }}/group_vars/all.yaml"
+
+- name: Ensure the mirror content destination exists, owned by the connecting user (/opt requires root to create)
   file:
     path: "{{ mirror_archive_dir }}"
     state: directory
     mode: '0755'
+    owner: "{{ ansible_user_id }}"
+    group: "{{ ansible_user_id }}"
+  become: true
+
+# Stat'd rather than copied unconditionally: a previous run of this same role already
+# deletes these two directories out of the bundle right after copying them (see
+# below) — so on any run after the first, the source is legitimately gone and that's
+# fine, {{ mirror_archive_dir }} already has the real content from last time. Only a
+# genuinely fresh bundle (first run, or the operator re-extracted a newer tar.gz)
+# needs the copy to actually happen.
+- name: Check whether the bundled mirror content is still present to copy
+  stat:
+    path: "{{ bastion_bundle_dir }}/mirror-content"
+  register: _bundle_mirror_content_stat
 
 - name: Copy the bundled mirror content into place
   copy:
@@ -36,12 +60,37 @@
     dest: "{{ mirror_archive_dir }}/"
     remote_src: true
     mode: preserve
+  when: _bundle_mirror_content_stat.stat.exists
 
-- name: Ensure the installers destination exists
+- name: Check whether the destination already has content from a prior run
+  find:
+    paths: "{{ mirror_archive_dir }}"
+  register: _mirror_archive_dir_listing
+  when: not _bundle_mirror_content_stat.stat.exists
+
+- name: Fail clearly if there's neither a fresh bundle copy nor a prior destination copy to fall back on
+  fail:
+    msg: >
+      Neither {{ bastion_bundle_dir }}/mirror-content nor {{ mirror_archive_dir }}
+      has any content. Re-extract a fresh staging-produced tar.gz into
+      {{ bastion_bundle_dir }} before running this playbook.
+  when:
+    - not _bundle_mirror_content_stat.stat.exists
+    - _mirror_archive_dir_listing.matched | default(0) == 0
+
+- name: Ensure the installers destination exists, owned by the connecting user (/opt requires root to create)
   file:
     path: "{{ mirror_installers_dir }}"
     state: directory
     mode: '0755'
+    owner: "{{ ansible_user_id }}"
+    group: "{{ ansible_user_id }}"
+  become: true
+
+- name: Check whether the bundled installer tarballs/RPMs are still present to copy
+  stat:
+    path: "{{ bastion_bundle_dir }}/mirror-installers"
+  register: _bundle_mirror_installers_stat
 
 - name: Copy the bundled installer tarballs/RPMs into place
   copy:
@@ -49,6 +98,27 @@
     dest: "{{ mirror_installers_dir }}/"
     remote_src: true
     mode: preserve
+  when: _bundle_mirror_installers_stat.stat.exists
+
+# The mirror content archive and installer tarballs/RPMs are large (the content
+# archive alone is tens of GB) and now exist twice — once just-copied into {{
+# mirror_archive_dir }}/{{ mirror_installers_dir }}, once still sitting in the
+# extracted bundle under bastion_bundle_dir. Left alongside the original downloaded
+# tar.gz (never cleaned up by anything, since that's a manual operator download step),
+# this tripled the real disk footprint and filled the bastion's root volume entirely
+# on a real run (confirmed live: "No space left on device" starting a later playbook
+# run). Safe to remove here since nothing reads mirror-content/mirror-installers out
+# of bastion_bundle_dir again after this point — deploy_mirror_registry/
+# configure_bastion_services only ever read from mirror_archive_dir/
+# mirror_installers_dir. Doesn't touch bastion_bundle_dir's bastion/ tree or
+# bastion-resolved-vars.yaml, which this role still needs.
+- name: Remove the now-redundant mirror content/installers copy from the extracted bundle
+  file:
+    path: "{{ bastion_bundle_dir }}/{{ item }}"
+    state: absent
+  loop:
+    - mirror-content
+    - mirror-installers
 
 - name: Ensure bin_dir exists
   file:
