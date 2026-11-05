@@ -4,7 +4,7 @@
 # stable-6.6 is the current default channel for openshift_version 4.22 (this
 # channel string moves with every OCP minor — re-verify with the same command
 # against the new version's index whenever openshift_version changes).
-loki_channel: stable-6.6
+loki_channel: stable-6.7
 
 # Smallest documented LokiStack size tier, intended for demo/single-small-node use —
 # NOT for production log volumes. `1x.demo` trades HA/replica count for the smallest
