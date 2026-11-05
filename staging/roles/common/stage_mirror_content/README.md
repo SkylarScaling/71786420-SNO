@@ -118,15 +118,26 @@ package` on `package_bastion_bundle` to re-bundle with the new RPMs included.
 
 ## Progress reporting
 
-The `oc-mirror` invocation runs `async: 14400, poll: 0` instead of blocking
-synchronously, and `tasks/_poll_oc_mirror_progress.yml` is included recursively every
-15 seconds to print a `debug` message with bytes written to the local archive so far,
-until `async_status` reports the job finished — same pattern as
-`package_bastion_bundle/unpack_bastion_bundle`/`package_staging_bundle/unpack_staging_backup_bundle`'s progress polling, except there's
-no known total size to mirror against up front here, so this reports progress-so-far
-rather than a percentage. Unlike v1 (which wrote a single `.oc-mirror.log` this task
-used to grep for a blob count), v2 logs per-component under
-`archive/working-dir/logs/` with filenames not yet verified against a real run —
-reporting on destination-directory size instead avoids depending on that layout.
-`_poll_oc_mirror_progress.yml` isn't meant to run standalone; it depends on
-`_stage_mirror_job` set in `tasks/main.yaml`.
+The `oc-mirror` invocation runs `async: {{ oc_mirror_job_timeout }}, poll: 0` instead
+of blocking synchronously, and `tasks/_poll_oc_mirror_progress.yml` prints a `debug`
+message with bytes written to the local archive so far every `oc_mirror_poll_interval`
+seconds, until `async_status` reports the job finished — same general pattern as
+`package_bastion_bundle/unpack_bastion_bundle`/`package_staging_bundle/unpack_staging_backup_bundle`'s
+progress polling, except there's no known total size to mirror against up front here,
+so this reports progress-so-far rather than a percentage. Unlike v1 (which wrote a
+single `.oc-mirror.log` this task used to grep for a blob count), v2 logs
+per-component under `archive/working-dir/logs/` with filenames not yet verified
+against a real run — reporting on destination-directory size instead avoids depending
+on that layout.
+
+`tasks/main.yaml`'s "Poll and report oc-mirror progress" task loops
+`_poll_oc_mirror_progress.yml` a fixed number of times (`oc_mirror_job_timeout /
+oc_mirror_poll_interval`, so always in lockstep with the async ceiling), rather than
+that file recursively `include_tasks`-ing itself — it used to, and a real multi-hour
+run at the original 15-second interval hit Ansible's "maximum recursion depth
+exceeded" (confirmed live: each recursive `include_tasks` call adds its own stack
+frame, and a 4-hour job at 15s/poll is roughly 960 levels deep). Looping the
+`include_tasks` call from the top keeps stack depth constant no matter how many times
+it fires, so `oc_mirror_poll_interval` is now free to be tuned for responsiveness
+without reintroducing that failure mode. `_poll_oc_mirror_progress.yml` isn't meant to
+run standalone; it depends on `_stage_mirror_job` set in `tasks/main.yaml`.

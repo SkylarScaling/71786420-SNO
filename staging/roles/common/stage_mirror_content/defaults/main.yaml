@@ -16,6 +16,19 @@ ocp_mirror_url: "https://mirror.openshift.com/pub/openshift-v4/clients/ocp/{{ op
 # defaults (role defaults aren't shared across roles).
 mirror_installers_dir: /opt/mirror-installers
 
+# Ceiling for the async "mirror to disk" job (seconds) — generous for a full mirror
+# of the release + operator catalogs, not an expected duration.
+oc_mirror_job_timeout: 14400
+
+# How often (seconds) to check the async job and report progress — see
+# tasks/main.yaml's "Poll and report oc-mirror progress" task for why this can now
+# safely be short: polling used to be self-recursive include_tasks, which hit
+# Ansible's "maximum recursion depth exceeded" on a real multi-hour run at a 15s
+# interval (confirmed live); it's now a bounded loop with constant stack depth
+# regardless of how many times it fires, so this is free to tune for responsiveness
+# vs. log noise without reintroducing that failure mode.
+oc_mirror_poll_interval: 60
+
 # mirror.openshift.com/pub/cgw/mirror-registry/latest/mirror-registry.tar.gz (the
 # previous URL here) 404s — Red Hat moved this distribution behind
 # developers.redhat.com/content-gateway and the filename is now

@@ -1,6 +1,8 @@
 ---
-# Included recursively from main.yaml's "Poll and report oc-mirror progress" task
-# until the async oc-mirror job finishes. Not meant to be run standalone — relies on
+# Looped (not recursively included) from main.yaml's "Poll and report oc-mirror
+# progress" task until the async oc-mirror job finishes, or the loop's fixed
+# iteration count is exhausted — see that task's comment for why this isn't
+# self-recursive include_tasks anymore. Not meant to be run standalone — relies on
 # _stage_mirror_job (set in main.yaml).
 
 - name: Check whether the oc-mirror run has finished
@@ -33,9 +35,5 @@
 
 - name: Wait before checking again
   pause:
-    seconds: 15
-  when: not _stage_mirror_status.finished
-
-- name: Repeat until the transfer finishes
-  include_tasks: _poll_oc_mirror_progress.yml
+    seconds: "{{ oc_mirror_poll_interval }}"
   when: not _stage_mirror_status.finished
