@@ -9,7 +9,9 @@
 - name: Refresh the bastion's mirror registry from a freshly-copied bundle
   hosts: localhost
   connection: local
-  gather_facts: true
+  # unpack_bastion_bundle/deploy_mirror_registry use lookup('env', 'USER'), not a
+  # gathered fact — see their tasks for why; nothing else here needs gather_facts.
+  gather_facts: false
   tags: [mirror_content, registry]
   tasks:
     - include_role:

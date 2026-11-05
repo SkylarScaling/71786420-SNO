@@ -26,13 +26,20 @@
       when: sshd_keepalive_config.changed
   become: true
 
+# lookup('env', 'USER') rather than the ansible_user_id fact — this repo's roles
+# never otherwise rely on gather_facts having run, and a fact lookup here is fragile
+# against a mid-playbook resume (--start-at-task, or --tags narrower than this play's
+# own) skipping the implicit "Gathering Facts" step ahead of this task (confirmed
+# live in staging/playbooks/stage-and-package.yaml — see its comment). The env lookup
+# is evaluated on the controller at template time regardless, and is safe here since
+# every play in this repo runs connection: local (controller == target).
 - name: Ensure the install directory exists, owned by the connecting user (/opt requires root to create)
   file:
     path: "{{ mirror_registry_install_dir }}"
     state: directory
     mode: '0755'
-    owner: "{{ ansible_user_id }}"
-    group: "{{ ansible_user_id }}"
+    owner: "{{ lookup('env', 'USER') }}"
+    group: "{{ lookup('env', 'USER') }}"
   become: true
 
 # Unarchived from the tarball package_bastion_bundle/unpack_bastion_bundle already synced here, not

@@ -9,7 +9,10 @@
 - name: Provision the bare-metal SNO environment
   hosts: localhost
   connection: local
-  gather_facts: true
+  # No role under roles/ocp or roles/common/roles/baremetal in this play consumes a
+  # gathered fact (ansible_user_id was the only one, now lookup('env', 'USER') in
+  # unpack_bastion_bundle/deploy_mirror_registry instead — see their tasks for why).
+  gather_facts: false
   tags: [provision_sno, baremetal]
   tasks:
     - include_role:

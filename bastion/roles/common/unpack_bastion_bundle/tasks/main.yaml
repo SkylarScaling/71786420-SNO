@@ -34,13 +34,17 @@
   include_vars:
     file: "{{ playbook_dir }}/group_vars/all.yaml"
 
+# lookup('env', 'USER') rather than the ansible_user_id fact — see
+# deploy_mirror_registry's tasks for why: this run's being this role's first task
+# makes it the most exposed to a resume (--start-at-task mid-provision-sno.yaml)
+# skipping the implicit "Gathering Facts" step entirely.
 - name: Ensure the mirror content destination exists, owned by the connecting user (/opt requires root to create)
   file:
     path: "{{ mirror_archive_dir }}"
     state: directory
     mode: '0755'
-    owner: "{{ ansible_user_id }}"
-    group: "{{ ansible_user_id }}"
+    owner: "{{ lookup('env', 'USER') }}"
+    group: "{{ lookup('env', 'USER') }}"
   become: true
 
 # Stat'd rather than copied unconditionally: a previous run of this same role already
@@ -83,8 +87,8 @@
     path: "{{ mirror_installers_dir }}"
     state: directory
     mode: '0755'
-    owner: "{{ ansible_user_id }}"
-    group: "{{ ansible_user_id }}"
+    owner: "{{ lookup('env', 'USER') }}"
+    group: "{{ lookup('env', 'USER') }}"
   become: true
 
 - name: Check whether the bundled installer tarballs/RPMs are still present to copy
