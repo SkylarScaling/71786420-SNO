@@ -26,8 +26,24 @@
     dest: "{{ install_dir }}/agent-config.yaml"
     mode: '0600'
 
+# openshift-install consumes (deletes) install-config.yaml/agent-config.yaml as part
+# of generating the ISO — "Consuming Install Config"/"Consuming Agent Config" — so on
+# any re-run they're guaranteed to be freshly re-templated by the tasks above
+# regardless of whether anything actually changed, making a content/mtime-based skip
+# on those inputs meaningless. The ISO's own existence is the only reliable
+# idempotency signal: without this check, re-running provision-sno.yaml after a later
+# failure (e.g. the BMC boot step, a known first-run failure point) would
+# unconditionally regenerate the ISO every time. To force a genuine regeneration
+# (network/BMC details actually changed), delete {{ install_dir }}/agent.x86_64.iso
+# (or the whole install_dir) before re-running.
+- name: Check whether an agent ISO has already been generated
+  stat:
+    path: "{{ install_dir }}/agent.x86_64.iso"
+  register: _agent_iso_stat
+
 - name: Generate agent ISO image
   command: "{{ bin_dir | default('~/.local/bin') }}/openshift-install --dir={{ install_dir }} agent create image"
+  when: not _agent_iso_stat.stat.exists
 
 - name: Report ISO location
   debug:

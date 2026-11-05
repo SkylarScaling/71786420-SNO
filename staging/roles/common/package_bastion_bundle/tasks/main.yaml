@@ -42,42 +42,52 @@
 # resulting tar.gz extracts cleanly at the bastion checkout's root with predictable
 # top-level entries (bastion/, mirror-content/, mirror-installers/,
 # bastion-resolved-vars.yaml) regardless of each source's own absolute path.
-- name: Ensure a clean staging-root directory for assembling the bundle contents
+#
+# NOT wiped (state: absent) before re-populating, unlike an earlier version of this
+# task — mirror-content alone is tens of GB, and wiping bundle-root first meant the
+# copies below could never benefit from any idempotency at all: every single run
+# recopied the entire archive from scratch, even using `copy`'s own per-file checksum
+# skip, since the destination never had anything to compare against. Worse than the
+# equivalent gap already fixed in unpack_bastion_bundle (confirmed by comparing the
+# two): that one was merely slow to re-verify unchanged files; this one guaranteed a
+# full re-copy by construction. ansible.posix.synchronize (rsync) below instead
+# diffs against whatever's already in bundle-root from a previous run and only
+# transfers what's missing/changed, with delete: true to prune anything stale (e.g.
+# content removed from a refreshed mirror).
+- name: Ensure the staging-root directory exists for assembling the bundle contents
   file:
     path: "{{ bastion_bundle_export_dir }}/bundle-root"
-    state: "{{ item }}"
+    state: directory
     mode: '0755'
-  loop: [absent, directory]
 
 - name: Copy the bastion/ automation tree into the bundle root
-  copy:
+  ansible.posix.synchronize:
     src: "{{ bastion_tree_dir }}/"
     dest: "{{ bastion_bundle_export_dir }}/bundle-root/bastion/"
-    mode: preserve
-    remote_src: true
+    recursive: true
+    delete: true
 
+# rsync_opts excludes stage_mirror_content's own "mirror to disk" scratch output up
+# front, rather than copying it and deleting it from the copy afterward (the previous
+# approach, forced by ansible.builtin.copy having no --exclude) — deploy_mirror_registry's
+# "disk to mirror" push never reads it; it regenerates its own working-dir from the
+# tar chunks. delete: true still prunes it from bundle-root if an older bundle (from
+# before this exclusion existed) already has a copy sitting there.
 - name: Copy the mirrored content archive into the bundle root
-  copy:
+  ansible.posix.synchronize:
     src: "{{ mirror_sync_source_dir }}/"
     dest: "{{ bastion_bundle_export_dir }}/bundle-root/mirror-content/"
-    mode: preserve
-    remote_src: true
-  # Same exclusion sync_mirror_to_bastion used to apply: stage_mirror_content's own
-  # "mirror to disk" scratch output, which deploy_mirror_registry's "disk to mirror"
-  # push never reads (it regenerates its own working-dir from the tar chunks).
-  # ansible.builtin.copy has no --exclude, so this dir is removed right after.
-
-- name: Remove the oc-mirror working-dir scratch output from the bundled copy (not needed on the bastion)
-  file:
-    path: "{{ bastion_bundle_export_dir }}/bundle-root/mirror-content/working-dir"
-    state: absent
+    recursive: true
+    delete: true
+    rsync_opts:
+      - "--exclude=working-dir"
 
 - name: Copy the installer tarballs (oc-mirror, mirror-registry, openshift-install, oc) into the bundle root
-  copy:
+  ansible.posix.synchronize:
     src: "{{ mirror_installers_dir }}/"
     dest: "{{ bastion_bundle_export_dir }}/bundle-root/mirror-installers/"
-    mode: preserve
-    remote_src: true
+    recursive: true
+    delete: true
 
 - name: Copy the flattened resolved-vars file into the bundle root
   copy:
