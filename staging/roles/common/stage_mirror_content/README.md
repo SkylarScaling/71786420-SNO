@@ -83,6 +83,46 @@ a pinned channel or ships from a non-default operator index. Override this in
 the list if you're not exercising every feature. Set it to `[]` to mirror the
 *entire* operator catalog instead (large and slow).
 
+### Updating a mirrored operator's channel
+
+A pinned `channel` in `oc_mirror_operator_packages` and the matching
+`roles/ocp/configure_*`'s own `*_channel` default are two separately-maintained
+values for the same actual requirement — read by two different tools at two
+different times (oc-mirror, on staging, potentially hours/days before install; the
+role's `Subscription` template, on the bastion/cluster, at install time). **Bumping
+one without the other is a real failure mode, confirmed live**: `loki_channel`'s
+`stable-6.6` pin was correct when first set, then silently dropped from the catalog
+by a later mirror run, failing `oc-mirror` outright with the real cause buried in its
+own per-component logs rather than surfaced clearly (see `tasks/main.yaml`'s "Fail if
+the oc-mirror run itself failed" for the error-message improvement that followed).
+
+When a channel needs to change (OCP upgrade, or just re-verifying periodically —
+catalogs can drop older channels even without an `openshift_version` bump):
+
+1. Re-run `oc-mirror list operators --v1 --catalog <index>[:vX.Y] --package <name>`
+   against the catalog/version actually in use to confirm the real current channel —
+   don't assume a channel that worked last time still exists.
+2. Update the entry in `oc_mirror_operator_packages` here.
+3. Update the matching role's own `*_channel` default in the **same change**.
+4. Re-run `stage_mirror_content` (`--tags` isn't scoped finely enough to just the
+   mirror step the way `bastion_prereqs` is for RPMs — a channel change needs the
+   full "mirror to disk" re-run) before the next install/upgrade.
+
+Currently-pinned entries that need both sides kept in sync: `loki-operator`
+(`configure_lokistack`'s `loki_channel`), `grafana-operator`
+(`configure_grafana`'s `grafana_channel`), `rabbitmq-cluster-operator`
+(`configure_rabbitmq`'s `rabbitmq_operator_channel`), `crunchy-postgres-operator`
+(`configure_postgres`'s `postgres_operator_channel`), and `quay-operator`
+(`configure_onprem_quay`'s `quay_channel`) — each of those roles' own
+`defaults/main.yaml` carries a comment pointing back here.
+
+`quay-operator` was found missing from this list entirely while documenting this
+(its `Subscription` is templated by `configure_onprem_quay`, but nothing had ever
+mirrored it) — added as part of the same fix. Worth treating this as a prompt to spot
+check: any `roles/ocp/configure_*` role that creates a `Subscription`/`CatalogSource`
+needs a corresponding entry here, bare or pinned; there's no automated check tying
+the two together.
+
 Before any of that, hardens sshd's `ClientAliveInterval`/`ClientAliveCountMax` on this
 host (paired with `ServerAliveInterval`/`ControlPersist` in `playbooks/ansible.cfg`) —
 the "mirror to disk" run can go quiet for long stretches with no stdout while pulling

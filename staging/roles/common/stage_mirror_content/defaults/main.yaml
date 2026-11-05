@@ -78,20 +78,40 @@ bastion_required_repos:
 # Entries can be a bare string (default catalog, default channel) or a dict with
 # `name`, optional `channel` (pin a non-default channel), and optional `catalog`
 # (redhat|certified|community|marketplace, default redhat — which index this
-# package actually ships from). Keep each entry's channel/catalog in sync with the
-# matching roles/ocp/configure_* role's own *_channel/*_catalog_source default
-# vars; this list only controls what's mirrored, the role's Subscription template
-# is what actually requests that channel/CatalogSource at install time.
+# package actually ships from).
+#
+# EVERY pinned `channel` here MUST be updated together with the matching
+# roles/ocp/configure_*'s own `*_channel`/`*_catalog_source` default — these are two
+# independently-maintained values for the same actual requirement, read by two
+# different tools at two different times:
+#   - This list controls what oc-mirror actually fetches to disk, on staging,
+#     potentially hours/days before install.
+#   - The role's own `*_channel` default controls what its Subscription template
+#     requests at install time, on the bastion/cluster.
+# A mismatch doesn't fail at either single point in an obvious way:
+#   - If the role's value names a channel that was never mirrored, the Subscription/
+#     CatalogSource just never resolves — no clear error, it sits pending.
+#   - If THIS file's pin goes stale first — i.e. the channel it names no longer
+#     exists in the live catalog by the time staging actually runs — oc-mirror itself
+#     fails outright (confirmed live: this happened to loki-operator's stable-6.6 pin,
+#     which existed when first set and was gone from the catalog by a later run; see
+#     the "Fail if the oc-mirror run itself failed" task in tasks/main.yaml for the
+#     error-message improvement that followed).
+# Bumping one without the other is the most likely way to hit either failure mode —
+# treat every entry below with a pinned channel as a two-file edit, not one.
 #
 # Catalog/channel values below for loki-operator, grafana-operator,
 # rabbitmq-cluster-operator, and crunchy-postgres-operator are confirmed via
 # `oc-mirror list operators --v1 --catalog <index>[:vX.Y] [--package <name>]`
 # against the redhat/certified/community operator indexes for the openshift_version
 # actually configured for this environment (4.22 as of this writing) — these are
-# NOT catalog-version-independent. loki-operator's default channel in particular
-# moves with every OCP minor (stable-6.4 on 4.18, stable-6.6 on 4.22) — re-verify
-# with the same command against the new version's index whenever openshift_version
-# changes, don't assume the pinned channel here still exists.
+# NOT catalog-version-independent, and can drift even without an openshift_version
+# bump (a catalog refresh can drop an older channel on its own, as above).
+# loki-operator's channel in particular moves with every OCP minor (stable-6.4 on
+# 4.18, stable-6.7 on 4.22 as of this writing, previously stable-6.6 on the same
+# 4.22 until the catalog refresh above) — re-verify with the same command whenever
+# openshift_version changes, AND periodically even without one; don't assume a
+# pinned channel here still exists just because it did last time this was run.
 oc_mirror_operator_packages:
   - lvms-operator
   - redhat-oadp-operator
@@ -105,3 +125,4 @@ oc_mirror_operator_packages:
   - { name: rabbitmq-cluster-operator, catalog: community, channel: stable }  # configure_rabbitmq — not in redhat-operator-index
   - { name: crunchy-postgres-operator, catalog: certified, channel: v5 }      # configure_postgres — not in redhat-operator-index
   - rhbk-operator                                                             # configure_keycloak
+  - { name: quay-operator, channel: stable-3.13 }                             # configure_onprem_quay — was missing entirely (requested by that role's Subscription but never mirrored); add here, not as a bare entry, since its install-time channel is pinned (stable-3.13, not the catalog default)

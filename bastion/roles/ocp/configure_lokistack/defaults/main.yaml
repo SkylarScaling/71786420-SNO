@@ -1,9 +1,22 @@
 ---
 # Confirmed via `oc-mirror list operators --v1 --catalog
 # registry.redhat.io/redhat/redhat-operator-index:v4.22 --package loki-operator` —
-# stable-6.6 is the current default channel for openshift_version 4.22 (this
-# channel string moves with every OCP minor — re-verify with the same command
-# against the new version's index whenever openshift_version changes).
+# stable-6.7 is the current channel for openshift_version 4.22 (this channel string
+# moves with every OCP minor, and sometimes between catalog refreshes within the same
+# minor — confirmed live: stable-6.6, correct when this default was first set, had
+# been dropped from the catalog entirely by the time of a later mirror run, failing
+# oc-mirror outright with no indication from this file that the pin itself was the
+# problem). Re-verify with the same command whenever openshift_version changes, AND
+# periodically even without a version bump.
+#
+# MUST match staging/roles/common/stage_mirror_content/defaults/main.yaml's
+# oc_mirror_operator_packages `loki-operator` entry's `channel` exactly — this value
+# only controls what the Subscription requests at install time; that one controls
+# what oc-mirror actually fetches to disk. A mismatch doesn't fail loudly at either
+# single point: if this is ahead of the mirror, install-time CatalogSource/Subscription
+# resolution hangs with no matching channel in the mirrored catalog; if the mirror
+# pin goes stale first (as happened), oc-mirror itself fails. See that file's own
+# comment and this role's README for the full two-place update procedure.
 loki_channel: stable-6.7
 
 # Smallest documented LokiStack size tier, intended for demo/single-small-node use —

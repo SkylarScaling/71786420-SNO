@@ -1,4 +1,9 @@
 ---
+# MUST match staging/roles/common/stage_mirror_content/defaults/main.yaml's
+# oc_mirror_operator_packages `rabbitmq-cluster-operator` entry's `channel` exactly —
+# see that file's comment (and configure_lokistack's loki_channel, which hit this for
+# real) for why a mismatch here is a silent install-time or mirror-time failure, not
+# an obvious one.
 rabbitmq_operator_channel: stable
 
 # Confirmed via `oc-mirror list operators --v1 --catalog

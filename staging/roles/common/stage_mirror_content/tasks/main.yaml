@@ -216,7 +216,33 @@
     label: "poll {{ _poll_iteration }}"
   when: _stage_mirror_status is not defined or not _stage_mirror_status.finished
 
+# A bare rc/stderr dump here previously left the operator to go digging through
+# {{ oc_mirror_workspace }}/archive/working-dir/logs/ by hand to find the actual
+# reason — confirmed against a real run: a pinned operator channel that no longer
+# existed in the catalog (oc_mirror_operator_packages) surfaced as a failure whose
+# real cause (a "channel not found"-style line) was buried in oc-mirror's own
+# per-component logs, not in stderr/rc. grep those logs for likely-relevant lines and
+# fold them into the failure message directly, plus a pointer at the most common
+# cause, so the first error seen is enough to act on without a manual log hunt.
+- name: Collect likely-relevant error lines from oc-mirror's own logs
+  shell: >
+    grep -rihE "error|not found|invalid|failed|unauthorized" {{ oc_mirror_workspace }}/archive/working-dir/logs/*.log 2>/dev/null | tail -n 30
+  register: _stage_mirror_error_lines
+  changed_when: false
+  failed_when: false
+  when: _stage_mirror_status.rc | default(0) != 0
+
 - name: Fail if the oc-mirror run itself failed
   fail:
-    msg: "oc-mirror failed (rc={{ _stage_mirror_status.rc }}): {{ _stage_mirror_status.stderr | default(_stage_mirror_status.msg) | default('no stderr captured') }}"
+    msg: |-
+      oc-mirror failed (rc={{ _stage_mirror_status.rc }}).
+      stderr: {{ _stage_mirror_status.stderr | default('(none)') }}
+      Likely-relevant lines from {{ oc_mirror_workspace }}/archive/working-dir/logs/*.log:
+      {{ _stage_mirror_error_lines.stdout | default('') | trim | default('(none matched — inspect that directory directly)', true) }}
+      Full stdout/logs are under {{ oc_mirror_workspace }}/archive/working-dir/logs/ if the
+      above isn't enough context. A common cause: an operator package/channel pinned in
+      oc_mirror_operator_packages (staging/roles/common/stage_mirror_content/defaults/main.yaml)
+      no longer exists in the current catalog — see that file's comments and this role's
+      README ("Updating a mirrored operator's channel") for the two places a channel bump
+      needs to land together.
   when: _stage_mirror_status.rc | default(0) != 0

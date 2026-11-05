@@ -376,14 +376,28 @@ content / the actual hardware, don't assume they're already correct:
 - ~~Operator catalog channel/package names: Loki, Grafana, RabbitMQ Cluster
   Operator, Crunchy PGO~~ — confirmed against the redhat/certified/community
   operator indexes for `openshift_version: 4.22` via `oc-mirror list operators`:
-  `loki-operator` is `stable-6.6` (redhat-operators — **this channel string moves
-  with every OCP minor**, re-verify against the new version's index on upgrade);
-  `grafana-operator` is `v5` (**community-operators**, not redhat-operators);
-  `rabbitmq-cluster-operator` is `stable` (**community-operators**);
-  `crunchy-postgres-operator` is `v5` (**certified-operators**).
-  `oc_mirror_operator_packages` now supports a per-package `catalog:` key so
-  `stage_mirror_content` mirrors each from the right index — see
+  `loki-operator` is `stable-6.7` (redhat-operators); `grafana-operator` is `v5`
+  (**community-operators**, not redhat-operators); `rabbitmq-cluster-operator` is
+  `stable` (**community-operators**); `crunchy-postgres-operator` is `v5`
+  (**certified-operators**). `oc_mirror_operator_packages` supports a per-package
+  `catalog:` key so `stage_mirror_content` mirrors each from the right index — see
   `staging/roles/common/stage_mirror_content/defaults/main.yaml`.
+
+  **These channel strings move, confirmed live, not just hypothetically**:
+  `loki-operator`'s channel was `stable-6.6` when first confirmed here, then
+  silently dropped from the catalog by a later mirror run — `oc-mirror` failed
+  outright, with the real cause buried in its own per-component logs rather than
+  surfaced clearly (prompted an error-message improvement in `stage_mirror_content`'s
+  "Fail if the oc-mirror run itself failed" task). Re-verify with
+  `oc-mirror list operators` **periodically, not just on an `openshift_version`
+  bump** — a catalog refresh can drop an older channel on its own. Each pinned
+  channel exists in **two** places that must change together: the mirror-side pin
+  here, and the matching role's own `*_channel` default (what its `Subscription`
+  actually requests at install time) — see `stage_mirror_content`'s README
+  ("Updating a mirrored operator's channel") for the full procedure. The same pass
+  also found `quay-operator` (`configure_onprem_quay`) missing from
+  `oc_mirror_operator_packages` entirely — its `Subscription` requested a channel
+  nothing had ever mirrored; added as `{ name: quay-operator, channel: stable-3.13 }`.
 - OpenTelemetry/Tempo, Keycloak (`rhbk-operator` vs `keycloak-operator`)
   channel/package names — not yet independently confirmed
   (no error surfaced against these in the first real mirroring run, but that only

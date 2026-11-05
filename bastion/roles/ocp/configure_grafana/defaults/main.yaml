@@ -3,6 +3,12 @@
 # registry.redhat.io/redhat/community-operator-index:v4.18 --package
 # grafana-operator` — v5 is the current default channel. grafana-operator isn't in
 # redhat-operator-index, hence grafana_catalog_source below.
+#
+# MUST match staging/roles/common/stage_mirror_content/defaults/main.yaml's
+# oc_mirror_operator_packages `grafana-operator` entry's `channel` exactly — see that
+# file's comment (and configure_lokistack's loki_channel, which hit this for real)
+# for why a mismatch here is a silent install-time or mirror-time failure, not an
+# obvious one.
 grafana_channel: v5
 grafana_catalog_source: community-operators
 grafana_catalog_source_namespace: openshift-marketplace
