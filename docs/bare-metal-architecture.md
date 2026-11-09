@@ -82,6 +82,12 @@ to mirror" — installs `mirror-registry`/Quay and is what `generate_install_con
 credentials `generate_install_config` also merges into `pullSecret` — without that,
 nothing on the node can authenticate to pull images from it, which otherwise
 manifests as bootstrapping silently timing out rather than a clear auth error). The
+bundle also carries a minimal oc-mirror cache subset (`release-cache/`) that
+`unpack_bastion_bundle` drops directly into `deploy_mirror_registry`'s own
+`--cache-dir` — confirmed live, oc-mirror v2's archive doesn't carry the actual blob
+content for the OCP release's per-component images, only lightweight tag pointers, so
+disk-to-mirror fails with `manifest unknown` on a fresh cache-dir without it (see
+`stage_mirror_content`'s README for the full defect writeup). The
 bastion has no internet route at all (§2), so it can't fetch the
 `mirror-registry`/`oc-mirror`/`openshift-install`/`oc` tool tarballs itself either —
 `stage_mirror_content` downloads all of them on the internet-connected staging host

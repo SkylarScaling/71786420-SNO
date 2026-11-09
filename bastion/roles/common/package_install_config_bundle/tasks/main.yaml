@@ -30,11 +30,22 @@
 
 - name: Report the media-transfer next step
   debug:
-    msg: >
-      install-config.yaml packaged to
-      {{ install_config_bundle_export_dir }}/{{ install_config_bundle_name }}. Copy it
-      to staging, then run unpack_install_config_bundle there (via
-      staging/playbooks/provision-sno-aws.yaml).
+    msg:
+      - "=================================================================="
+      - "install-config.yaml packaged"
+      - "=================================================================="
+      - "Location: {{ install_config_bundle_export_dir }}/{{ install_config_bundle_name }}"
+      - "------------------------------------------------------------------"
+      - "Next: get it to staging, then run staging/playbooks/provision-sno-aws.yaml"
+      - "there (which runs unpack_install_config_bundle). If a network path to"
+      - "staging exists (true for AWS's private-subnet VPC — set"
+      - "install_config_transfer_method: rsync in inventory.yaml to have this role"
+      - "push it automatically instead of doing this by hand every run):"
+      - "  scp -i {{ install_config_transfer_ssh_key }} {{ install_config_bundle_export_dir }}/{{ install_config_bundle_name }} {{ install_config_transfer_user }}@{{ install_config_transfer_host }}:{{ install_config_transfer_dest_dir }}/"
+      - "Otherwise, carry it over on removable media and place it in"
+      - "{{ install_config_transfer_dest_dir }} on staging manually. Then, on staging:"
+      - "  cd <staging checkout>/playbooks"
+      - "  ansible-playbook provision-sno-aws.yaml -i ../inventory/inventory.yaml"
   when: install_config_transfer_method == 'media'
 
 - name: Stage the SSH private key here for the rsync push to staging

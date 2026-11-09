@@ -15,6 +15,7 @@ bastion_bundle_name: "sno-bastion-bundle-{{ cluster_name }}.tar.gz"
 # across roles, so duplicated rather than centralized).
 mirror_sync_source_dir: "{{ oc_mirror_workspace | default('/opt/oc-mirror-workspace') }}/archive"
 mirror_installers_dir: /opt/mirror-installers
+release_cache_handoff_dir: "{{ oc_mirror_workspace | default('/opt/oc-mirror-workspace') }}/release-cache-handoff"
 
 # The root of this checkout's bastion/ tree, bundled wholesale alongside the content —
 # the bastion has no other way to get the automation code itself. Default assumes
