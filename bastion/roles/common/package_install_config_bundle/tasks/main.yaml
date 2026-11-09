@@ -79,10 +79,15 @@
 
 - name: Report the rsync-transfer next step
   debug:
-    msg: >
-      install-config.yaml's bundle pushed to
-      {{ install_config_transfer_user }}@{{ install_config_transfer_host }}:
-      {{ install_config_transfer_dest_dir }}/{{ install_config_bundle_name }}. Run
-      unpack_install_config_bundle on staging (via
-      staging/playbooks/provision-sno-aws.yaml).
+    msg:
+      - "=================================================================="
+      - "install-config.yaml's bundle pushed to staging"
+      - "=================================================================="
+      - "Destination: {{ install_config_transfer_user }}@{{ install_config_transfer_host }}:{{ install_config_transfer_dest_dir }}/{{ install_config_bundle_name }}"
+      - "------------------------------------------------------------------"
+      - "Next: on staging, run provision-sno-aws.yaml (which runs"
+      - "unpack_install_config_bundle, then creates the cluster):"
+      - "  ssh -i {{ install_config_transfer_ssh_key }} {{ install_config_transfer_user }}@{{ install_config_transfer_host }}"
+      - "  cd <staging checkout>/playbooks"
+      - "  ansible-playbook provision-sno-aws.yaml -i ../inventory/inventory.yaml"
   when: install_config_transfer_method == 'rsync'
