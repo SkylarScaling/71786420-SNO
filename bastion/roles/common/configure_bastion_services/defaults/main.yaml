@@ -9,3 +9,11 @@ iso_serve_dir: /var/www/html/sno-iso
 # stage_mirror_content/deploy_mirror_registry's mirror_installers_dir (role defaults
 # aren't shared across roles).
 mirror_installers_dir: /opt/mirror-installers
+
+# Same default list as stage_mirror_content's own (role defaults aren't shared
+# across roles) — must match, since this is what dnf installs by name against the
+# local repo stage_mirror_content built from exactly this list.
+bastion_packages:
+  - dnsmasq
+  - httpd
+  - tmux

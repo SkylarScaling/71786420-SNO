@@ -124,6 +124,19 @@
     mode: '0755'
   tags: [bastion_prereqs]
 
+# Needed to turn the downloaded RPMs below into a real local repo (see the
+# "Generate repo metadata" task further down) — ships in AppStream, so this
+# installs cleanly from the same repos already required for bastion_packages
+# itself, no extra subscription/repo attachment needed beyond what's already
+# documented as a prerequisite.
+- name: Ensure createrepo_c is installed on staging
+  dnf:
+    name: createrepo_c
+    state: present
+    enablerepo: "{{ bastion_required_repos }}"
+  become: true
+  tags: [bastion_prereqs]
+
 - name: Download bastion packages (with full dependency closure) for offline install on the bastion
   vars:
     _bastion_repo_flags: "{{ bastion_required_repos | map('regex_replace', '^(.*)$', '--enablerepo=\\1') | join(' ') }}"
@@ -131,6 +144,24 @@
     dnf download --resolve --destdir={{ mirror_installers_dir }}/bastion-rpms
     {{ _bastion_repo_flags }}
     -y {{ bastion_packages | join(' ') }}
+  become: true
+  tags: [bastion_prereqs]
+
+# Confirmed against a real customer environment: installing straight from this
+# directory as a raw list of RPM file paths (`dnf install <path1> <path2> ...
+# --disablerepo='*'`, the original approach here) isn't reliable — dnf's solver only
+# considers exactly the files named on the command line, with none of the repo
+# metadata it normally uses to work out a correct install order/transaction across a
+# large closure, which doesn't always match what a real repo-backed solve produces.
+# createrepo_c turns this directory into an actual (local-only) dnf repo — repodata/
+# written alongside the RPMs, carried over by package_bastion_bundle/
+# unpack_bastion_bundle the same way as the RPMs themselves — so
+# configure_bastion_services can `dnf install` by package name against real repo
+# metadata instead of a hand-assembled file list. Requires createrepo_c installed on
+# this (internet-connected) staging host — see the "Ensure createrepo_c is
+# installed" task above.
+- name: Generate repo metadata for the downloaded bastion RPMs (turns the directory into a real local repo)
+  command: createrepo_c {{ mirror_installers_dir }}/bastion-rpms
   become: true
   tags: [bastion_prereqs]
 

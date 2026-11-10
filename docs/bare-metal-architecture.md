@@ -166,8 +166,12 @@ push the bastion can originate (the backup-export relay, §8) since that key
 otherwise only ever lives on staging. The bastion's own OS packages (`dnsmasq`/`httpd`, installed by
 `bastion/bastion/roles/common/configure_bastion_services`) go through the identical path —
 `stage_mirror_content` resolves their full dependency closure into
-`mirror_installers_dir/bastion-rpms` via `dnf install --downloadonly`, and
-`configure_bastion_services` installs from that bundled copy with `disablerepo: '*'`,
+`mirror_installers_dir/bastion-rpms` via `dnf download --resolve`, then runs
+`createrepo_c` against that directory so it travels as a real local-only dnf repo
+(not just a pile of RPM files — dnf's solver needs repo metadata to resolve a
+dependency closure correctly, confirmed against a real customer environment where
+installing from a raw file list wasn't reliable), and `configure_bastion_services`
+installs by package name against that local repo's metadata (`disablerepo: '*'`),
 since a direct `dnf install` on the bastion itself fails (RHUI has no route either).
 
 `oc_mirror_operator_packages` (role default in `stage_mirror_content`) controls which

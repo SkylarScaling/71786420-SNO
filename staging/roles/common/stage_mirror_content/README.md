@@ -183,10 +183,23 @@ changed as a side effect. Keep both vars and the RHEL major version staging/the
 bastion are actually provisioned from in sync — see `configure_bastion_services`'s
 README for why that match matters.
 
+After downloading, `createrepo_c` runs against `mirror_installers_dir/bastion-rpms`
+so it becomes a real (local-only) dnf repo — `repodata/` alongside the RPMs — rather
+than a bare pile of files. Confirmed against a real customer environment: handing
+dnf a raw list of RPM file paths to install (an earlier version of both this role
+and `configure_bastion_services`) isn't reliable, since dnf's solver only considers
+exactly the files named on the command line, with none of the repo metadata it
+normally uses to work out a correct transaction across a larger closure. `createrepo_c`
+itself is installed on staging from the same `bastion_required_repos` (ships in
+AppStream), so no extra subscription attachment is needed beyond what's already a
+documented prerequisite.
+
 Tagged `bastion_prereqs` separately from the container-mirroring tasks above so it
-can be re-run on its own (e.g. after adding a package to `bastion_packages`) without
-redoing the hour-plus `oc-mirror` run — `--tags bastion_prereqs`, then `--tags
-package` on `package_bastion_bundle` to re-bundle with the new RPMs included.
+can be re-run on its own (e.g. after adding a package to `bastion_packages` — update
+`configure_bastion_services`'s own copy of the list too, see that role's README)
+without redoing the hour-plus `oc-mirror` run — `--tags bastion_prereqs`, then
+`--tags package` on `package_bastion_bundle` to re-bundle with the new RPMs/metadata
+included.
 
 ## Progress reporting
 
