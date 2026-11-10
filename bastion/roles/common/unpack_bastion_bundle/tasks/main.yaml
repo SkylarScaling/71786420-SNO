@@ -34,6 +34,29 @@
   include_vars:
     file: "{{ playbook_dir }}/group_vars/all.yaml"
 
+- name: Ensure ~/.ssh exists for the relay key
+  file:
+    path: "~/.ssh"
+    state: directory
+    mode: '0700'
+
+- name: Check whether the bundle shipped a relay key for the bastion's own return-trip pushes
+  stat:
+    path: "{{ bastion_bundle_dir }}/relay-key"
+  register: _bundle_relay_key_stat
+
+# ssh_private_key (from the resolved vars just loaded above) points at a fixed
+# bastion-local path — package_staging_bundle's backup-export relay and (on AWS)
+# package_install_config_bundle both default their own transfer key to this var, so
+# staging it here once covers both without either role needing to know this exists.
+- name: Stage the relay key at the path ssh_private_key points to
+  copy:
+    src: "{{ bastion_bundle_dir }}/relay-key"
+    dest: "{{ ssh_private_key }}"
+    remote_src: true
+    mode: '0600'
+  when: _bundle_relay_key_stat.stat.exists
+
 - name: Ensure the mirror content destination exists, owned by the connecting user (/opt requires root to create)
   file:
     path: "{{ mirror_archive_dir }}"
@@ -78,6 +101,38 @@
     - not _bundle_mirror_content_stat.stat.exists
     - _mirror_archive_dir_listing.matched | default(0) == 0
 
+# stage_mirror_content/package_bastion_bundle carry this because oc-mirror v2's
+# archive doesn't include the actual blob content for the openshift/release repo's
+# per-component synthetic tags (manifest/config/layers) — only the lightweight tag/
+# revision pointer files. Without this, deploy_mirror_registry's disk-to-mirror step
+# fails immediately with "manifest unknown" on the first release-component image,
+# confirmed live, since a fresh --cache-dir has no other way to resolve that content.
+# Merged into oc_mirror_cache_dir's own .oc-mirror cache layout (not replaced) so a
+# bastion that's already run deploy_mirror_registry once keeps whatever else is
+# there. Stat-gated and cleaned up after copying, same reasoning (and same disk-usage
+# risk — this is tens of GB too) as mirror-content/mirror-installers below.
+- name: Ensure the oc-mirror cache destination exists, owned by the connecting user (/opt requires root to create)
+  file:
+    path: "{{ oc_mirror_cache_dir }}"
+    state: directory
+    mode: '0755'
+    owner: "{{ ansible_user_id }}"
+    group: "{{ ansible_user_id }}"
+  become: true
+
+- name: Check whether the bundled release-content cache handoff is still present to copy
+  stat:
+    path: "{{ bastion_bundle_dir }}/release-cache"
+  register: _bundle_release_cache_stat
+
+- name: Copy the release-content cache handoff into the oc-mirror cache directory
+  copy:
+    src: "{{ bastion_bundle_dir }}/release-cache/"
+    dest: "{{ oc_mirror_cache_dir }}/"
+    remote_src: true
+    mode: preserve
+  when: _bundle_release_cache_stat.stat.exists
+
 - name: Ensure the installers destination exists, owned by the connecting user (/opt requires root to create)
   file:
     path: "{{ mirror_installers_dir }}"
@@ -100,25 +155,28 @@
     mode: preserve
   when: _bundle_mirror_installers_stat.stat.exists
 
-# The mirror content archive and installer tarballs/RPMs are large (the content
-# archive alone is tens of GB) and now exist twice — once just-copied into {{
-# mirror_archive_dir }}/{{ mirror_installers_dir }}, once still sitting in the
+# The mirror content archive, installer tarballs/RPMs, and release-content cache
+# handoff are all large (the content archive alone is tens of GB, the release-cache
+# handoff tens more) and now exist twice — once just-copied into {{ mirror_archive_dir
+# }}/{{ mirror_installers_dir }}/{{ oc_mirror_cache_dir }}, once still sitting in the
 # extracted bundle under bastion_bundle_dir. Left alongside the original downloaded
 # tar.gz (never cleaned up by anything, since that's a manual operator download step),
 # this tripled the real disk footprint and filled the bastion's root volume entirely
 # on a real run (confirmed live: "No space left on device" starting a later playbook
-# run). Safe to remove here since nothing reads mirror-content/mirror-installers out
-# of bastion_bundle_dir again after this point — deploy_mirror_registry/
-# configure_bastion_services only ever read from mirror_archive_dir/
-# mirror_installers_dir. Doesn't touch bastion_bundle_dir's bastion/ tree or
-# bastion-resolved-vars.yaml, which this role still needs.
-- name: Remove the now-redundant mirror content/installers copy from the extracted bundle
+# run). Safe to remove here since nothing reads mirror-content/mirror-installers/
+# release-cache out of bastion_bundle_dir again after this point —
+# deploy_mirror_registry/configure_bastion_services only ever read from
+# mirror_archive_dir/mirror_installers_dir/oc_mirror_cache_dir. Doesn't touch
+# bastion_bundle_dir's bastion/ tree or bastion-resolved-vars.yaml, which this role
+# still needs.
+- name: Remove the now-redundant mirror content/installers/release-cache copy from the extracted bundle
   file:
     path: "{{ bastion_bundle_dir }}/{{ item }}"
     state: absent
   loop:
     - mirror-content
     - mirror-installers
+    - release-cache
 
 - name: Ensure bin_dir exists
   file:

@@ -1,0 +1,30 @@
+---
+# Identical copy of bastion/roles/common/wait_for_sno_install — each tree's
+# playbooks/ansible.cfg scopes roles_path to that tree's own roles/* only (see
+# CLAUDE.md), so this provider-agnostic wait logic has to physically exist in both
+# trees rather than being referenced cross-tree. staging/playbooks/provision-sno-aws.yaml
+# is the only AWS-side caller (bare metal's bastion/playbooks/provision-sno-baremetal.yaml
+# uses the bastion copy directly, since wait-for there runs on the bastion after
+# baremetal_boot_node_via_bmc). Keep both copies in sync if this logic ever changes.
+- name: Confirm kubeconfig was generated
+  stat:
+    path: "{{ sno_kubeconfig }}"
+  register: kubeconfig_stat
+  until: kubeconfig_stat.stat.exists
+  retries: 30
+  delay: 30
+
+- name: Wait for the cluster API to come up and report a completed version
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: config.openshift.io/v1
+    kind: ClusterVersion
+    name: version
+  register: cv_status
+  until: >
+    cv_status.resources | length > 0
+    and cv_status.resources[0].status.conditions
+      | selectattr('type', 'equalto', 'Available')
+      | map(attribute='status') | first == 'True'
+  retries: 40
+  delay: 30

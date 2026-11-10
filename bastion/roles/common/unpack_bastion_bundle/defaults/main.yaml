@@ -13,3 +13,7 @@ bin_dir: "~/.local/bin"
 # shared across roles, so duplicated rather than centralized).
 mirror_archive_dir: /opt/mirror-content/archive
 mirror_installers_dir: /opt/mirror-installers
+
+# Same variable name (and default path) deploy_mirror_registry reads this back out
+# of — must match, same reasoning as mirror_archive_dir/mirror_installers_dir above.
+oc_mirror_cache_dir: /opt/mirror-registry/oc-mirror-cache

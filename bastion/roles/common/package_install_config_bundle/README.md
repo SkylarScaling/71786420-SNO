@@ -27,6 +27,17 @@ in `install_dir` is needed there yet; `aws_configure_manual_credentials`/
 | `install_config_bundle_name` | `sno-install-config-{{ cluster_name }}.tar.gz` | |
 | `install_config_transfer_host`/`_user`/`_ssh_key`/`_dest_dir` | unset / `root` / `{{ ssh_private_key }}` / `/root` | Only used when `install_config_transfer_method: rsync`. |
 
+## Automatic rsync
+
+Set `install_config_transfer_method: rsync` and `install_config_transfer_host`/
+`_user`/`_dest_dir` in `staging/inventory/inventory.yaml` (already the default for
+AWS in `inventory-aws.yaml.j2`, pointed at the mirror-staging host's private IP) and
+this role pushes the bundle itself instead of printing manual-copy instructions. This
+needs `ssh_private_key` (`_ssh_key`'s default) to resolve to a real file on the
+bastion — `unpack_bastion_bundle` stages one there automatically from the main
+bundle's `relay-key` (see that role's README); don't point `_ssh_key` at a path that
+doesn't exist on the bastion itself.
+
 ## Known gap
 
 Unverified against a real AWS run since this restructuring.

@@ -108,6 +108,19 @@
         name: aws_configure_manual_credentials
         tasks_from: reapply_credentials.yml
 
+    # wait-for install-complete has no --timeout flag (confirmed against this
+    # release's binary — only -h/--log-level), and its internal budget is a fixed
+    # 40m. Confirmed live: after this exact rescue path (DNS record created,
+    # credentials reapplied) image-registry transiently failed its own reconcile with
+    # WebIdentityErr/InvalidIdentityToken against the just-applied STS credentials,
+    # still unresolved when the first 40m window ran out — then converged on its own
+    # about 8 minutes later with no further intervention. Not a real credential/OIDC
+    # bug, just the operator needing a couple more reconcile cycles than one 40m
+    # window allows right after a mid-install credentials/DNS fixup. Retrying the
+    # command itself (rather than lengthening a single wait) is safe: each invocation
+    # independently re-polls live cluster state from scratch and returns immediately
+    # once everything's actually converged, so a retry here costs nothing extra if
+    # the first window happened to be enough.
     - name: Resume waiting for cluster initialization now that DNS resolves
       command: "{{ bin_dir | default('~/.local/bin') }}/openshift-install --dir={{ install_dir }} wait-for install-complete --log-level=info"
       environment:
@@ -115,6 +128,9 @@
         AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key }}"
         AWS_DEFAULT_REGION: "{{ aws_region }}"
       register: sno_install
+      until: sno_install.rc == 0
+      retries: 2
+      delay: 0
 
 - name: Record install result
   debug:

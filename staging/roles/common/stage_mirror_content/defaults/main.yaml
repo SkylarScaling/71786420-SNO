@@ -16,6 +16,13 @@ ocp_mirror_url: "https://mirror.openshift.com/pub/openshift-v4/clients/ocp/{{ op
 # defaults (role defaults aren't shared across roles).
 mirror_installers_dir: /opt/mirror-installers
 
+# Where this role assembles the minimal oc-mirror cache subset deploy_mirror_registry
+# needs on the bastion for its disk-to-mirror step to resolve release-component
+# images — see the "Build the release-content cache handoff" task below for why this
+# exists at all. Same default path duplicated in package_bastion_bundle's defaults
+# (role defaults aren't shared across roles).
+release_cache_handoff_dir: "{{ oc_mirror_workspace }}/release-cache-handoff"
+
 # mirror.openshift.com/pub/cgw/mirror-registry/latest/mirror-registry.tar.gz (the
 # previous URL here) 404s — Red Hat moved this distribution behind
 # developers.redhat.com/content-gateway and the filename is now
@@ -76,21 +83,33 @@ bastion_packages:
 # vars; this list only controls what's mirrored, the role's Subscription template
 # is what actually requests that channel/CatalogSource at install time.
 #
+# imageset-config.yaml.j2 renders any `channel:` entry here as BOTH the package's
+# `channels:` filter AND an explicit `defaultChannel:` override — not just
+# `channels:` alone. oc-mirror v2 hard-fails catalog collection ("invalid default
+# channel configuration ... the default channel was filtered out") if the channel(s)
+# you keep don't include the catalog's CURRENT default — and that default can change
+# any time Red Hat republishes the index (confirmed live: loki-operator's default on
+# redhat-operator-index:v4.22 moved from stable-6.6 to stable-6.7 between mirror
+# runs, with no openshift_version change on our side). Setting `defaultChannel`
+# explicitly to the same channel we pin sidesteps that check entirely — oc-mirror
+# only requires defaultChannel to be one of the channels we're keeping, not that it
+# match the catalog's own default — so this list no longer needs to track upstream
+# catalog-default churn at all, only real channel pins we actually care about.
+#
 # Catalog/channel values below for loki-operator, grafana-operator,
 # rabbitmq-cluster-operator, and crunchy-postgres-operator are confirmed via
 # `oc-mirror list operators --v1 --catalog <index>[:vX.Y] [--package <name>]`
 # against the redhat/certified/community operator indexes for the openshift_version
 # actually configured for this environment (4.22 as of this writing) — these are
-# NOT catalog-version-independent. loki-operator's default channel in particular
-# moves with every OCP minor (stable-6.4 on 4.18, stable-6.6 on 4.22) — re-verify
-# with the same command against the new version's index whenever openshift_version
-# changes, don't assume the pinned channel here still exists.
+# NOT catalog-version-independent across an openshift_version upgrade, so re-verify
+# with the same command against the new version's index when openshift_version
+# changes, don't assume a pinned channel still exists on the new index.
 oc_mirror_operator_packages:
   - lvms-operator
   - redhat-oadp-operator
   - cluster-logging
   - odf-operator                                                              # configure_mcg
-  - { name: loki-operator, channel: stable-6.6 }                              # configure_lokistack — pinned for openshift_version 4.22, re-verify on upgrade
+  - { name: loki-operator, channel: stable-6.7 }                              # configure_lokistack — pinned for openshift_version 4.22, re-verify on upgrade
   - { name: grafana-operator, catalog: community, channel: v5 }               # configure_grafana — not in redhat-operator-index
   - opentelemetry-product                                                     # configure_opentelemetry
   - tempo-product                                                             # configure_opentelemetry

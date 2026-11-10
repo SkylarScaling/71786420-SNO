@@ -1,4 +1,8 @@
 ---
+# Identical copy also exists at staging/roles/common/wait_for_sno_install, used by
+# staging/playbooks/provision-sno-aws.yaml — each tree's roles_path is scoped to its
+# own roles/* only (see CLAUDE.md), so this provider-agnostic wait logic can't be
+# referenced cross-tree. Keep both copies in sync if this logic ever changes.
 - name: Confirm kubeconfig was generated
   stat:
     path: "{{ sno_kubeconfig }}"

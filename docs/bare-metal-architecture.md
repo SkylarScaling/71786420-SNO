@@ -82,6 +82,12 @@ to mirror" — installs `mirror-registry`/Quay and is what `generate_install_con
 credentials `generate_install_config` also merges into `pullSecret` — without that,
 nothing on the node can authenticate to pull images from it, which otherwise
 manifests as bootstrapping silently timing out rather than a clear auth error). The
+bundle also carries a minimal oc-mirror cache subset (`release-cache/`) that
+`unpack_bastion_bundle` drops directly into `deploy_mirror_registry`'s own
+`--cache-dir` — confirmed live, oc-mirror v2's archive doesn't carry the actual blob
+content for the OCP release's per-component images, only lightweight tag pointers, so
+disk-to-mirror fails with `manifest unknown` on a fresh cache-dir without it (see
+`stage_mirror_content`'s README for the full defect writeup). The
 bastion has no internet route at all (§2), so it can't fetch the
 `mirror-registry`/`oc-mirror`/`openshift-install`/`oc` tool tarballs itself either —
 `stage_mirror_content` downloads all of them on the internet-connected staging host
@@ -337,8 +343,12 @@ content / the actual hardware, don't assume they're already correct:
 - ~~Operator catalog channel/package names: Loki, Grafana, RabbitMQ Cluster
   Operator, Crunchy PGO~~ — confirmed against the redhat/certified/community
   operator indexes for `openshift_version: 4.22` via `oc-mirror list operators`:
-  `loki-operator` is `stable-6.6` (redhat-operators — **this channel string moves
-  with every OCP minor**, re-verify against the new version's index on upgrade);
+  `loki-operator` is `stable-6.7` (redhat-operators — **this channel string moves
+  with every OCP minor, and even within a minor as the catalog is republished** —
+  confirmed live when a real mirror run hard-failed after the catalog's default
+  channel moved from `stable-6.6` to `stable-6.7`; re-verify against the live index
+  whenever a mirror run fails with "invalid default channel configuration", not just
+  on upgrade);
   `grafana-operator` is `v5` (**community-operators**, not redhat-operators);
   `rabbitmq-cluster-operator` is `stable` (**community-operators**);
   `crunchy-postgres-operator` is `v5` (**certified-operators**).
