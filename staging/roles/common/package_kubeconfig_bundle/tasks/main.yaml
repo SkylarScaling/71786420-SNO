@@ -27,11 +27,22 @@
 
 - name: Report the media-transfer next step
   debug:
-    msg: >
-      kubeconfig packaged to
-      {{ kubeconfig_bundle_export_dir }}/{{ kubeconfig_bundle_name }}. Copy it to the
-      bastion, then run unpack_kubeconfig_bundle there (via
-      bastion/playbooks/unpack-cluster-access.yaml).
+    msg:
+      - "=================================================================="
+      - "kubeconfig packaged"
+      - "=================================================================="
+      - "Location: {{ kubeconfig_bundle_export_dir }}/{{ kubeconfig_bundle_name }}"
+      - "------------------------------------------------------------------"
+      - "Next: get it to the bastion, then run unpack-cluster-access.yaml there"
+      - "(which runs unpack_kubeconfig_bundle). If a network path to the bastion"
+      - "exists (true for AWS's private-subnet VPC — set"
+      - "kubeconfig_transfer_method: rsync in inventory.yaml to have this role"
+      - "push it automatically instead of doing this by hand every run):"
+      - "  scp -i {{ kubeconfig_transfer_ssh_key }} {{ kubeconfig_bundle_export_dir }}/{{ kubeconfig_bundle_name }} {{ kubeconfig_transfer_user }}@{{ kubeconfig_transfer_host }}:{{ kubeconfig_transfer_dest_dir }}/"
+      - "Otherwise, carry it over on removable media and place it in"
+      - "{{ kubeconfig_transfer_dest_dir }} on the bastion manually. Then, on the bastion:"
+      - "  cd <bastion checkout>/playbooks"
+      - "  ansible-playbook unpack-cluster-access.yaml -i ../inventory/inventory.yaml"
   when: kubeconfig_transfer_method == 'media'
 
 - name: Stage the SSH private key here for the rsync push to the bastion
@@ -65,10 +76,16 @@
 
 - name: Report the rsync-transfer next step
   debug:
-    msg: >
-      kubeconfig bundle pushed to
-      {{ kubeconfig_transfer_user }}@{{ kubeconfig_transfer_host }}:
-      {{ kubeconfig_transfer_dest_dir }}/{{ kubeconfig_bundle_name }}. Run
-      unpack_kubeconfig_bundle on the bastion (via
-      bastion/playbooks/unpack-cluster-access.yaml).
+    msg:
+      - "=================================================================="
+      - "kubeconfig bundle pushed to the bastion"
+      - "=================================================================="
+      - "Destination: {{ kubeconfig_transfer_user }}@{{ kubeconfig_transfer_host }}:{{ kubeconfig_transfer_dest_dir }}/{{ kubeconfig_bundle_name }}"
+      - "------------------------------------------------------------------"
+      - "Next: on the bastion, run unpack-cluster-access.yaml (which runs"
+      - "unpack_kubeconfig_bundle, laying sno_kubeconfig into place for the"
+      - "shared roles/ocp/* day-2 roles):"
+      - "  ssh -i {{ kubeconfig_transfer_ssh_key }} {{ kubeconfig_transfer_user }}@{{ kubeconfig_transfer_host }}"
+      - "  cd <bastion checkout>/playbooks"
+      - "  ansible-playbook unpack-cluster-access.yaml -i ../inventory/inventory.yaml"
   when: kubeconfig_transfer_method == 'rsync'
