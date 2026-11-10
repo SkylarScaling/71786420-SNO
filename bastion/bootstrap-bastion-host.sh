@@ -56,7 +56,20 @@ ansible-galaxy collection install -r "${INSTALLERS_DIR}/bastion-collections/requ
 # requirements-bastion.txt (the source of truth stage_mirror_content's pip download
 # step uses) — that file lives outside bastion/, so it isn't part of what actually
 # gets bundled onto this host.
-python3 -m pip install --user --no-index --find-links "${INSTALLERS_DIR}/bastion-wheelhouse" kubernetes openshift
+#
+# --ignore-installed is required, not optional: confirmed live, plain `pip install`
+# sees this RHEL image's RPM-provided python3-oauthlib (3.1.1, in system
+# site-packages) and treats requests_oauthlib's oauthlib dependency as already
+# satisfied, so it silently skips installing the newer oauthlib (4.0.1) actually
+# bundled in bastion-wheelhouse. The result imports fine at the top level but fails
+# deep inside kubernetes' own config loader with "cannot import name 'SIGNATURE_RSA'
+# from 'oauthlib.oauth1'" the first time any roles/ocp/* task actually runs — the
+# RPM's oauthlib predates the API requests_oauthlib 2.0.0 expects. Same root cause as
+# the `dnf download --resolve` (not `--downloadonly`) comment in
+# stage_mirror_content: both package managers must be told to ignore what the host
+# already has and install the full closure from the bundle, or a system-provided
+# package can silently shadow a required newer version.
+python3 -m pip install --user --no-index --ignore-installed --find-links "${INSTALLERS_DIR}/bastion-wheelhouse" kubernetes openshift
 
 # Same PATH gap as staging's bootstrap script, same fix: this shell can't inherit an
 # export from the script that just ran, but future logins can via ~/.bashrc.
