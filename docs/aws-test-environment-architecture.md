@@ -122,7 +122,7 @@ host:
 bastion: generate_install_config → package_install_config_bundle
             │
             ▼ (bastion_transfer_method, same media/rsync pattern as the main bundle)
-staging: unpack_install_config_bundle → aws_provision_sno_ipi (create cluster) → package_kubeconfig_bundle
+staging: unpack_install_config_bundle → aws_provision_sno_ipi (create cluster) → wait_for_sno_install → package_kubeconfig_bundle
             │
             ▼
 bastion: unpack_kubeconfig_bundle → (now day-2 roles run normally)
@@ -143,9 +143,17 @@ bastion: unpack_kubeconfig_bundle → (now day-2 roles run normally)
    bastion), self-heals stale state from a previous attempt by clearing
    `install_dir` except `install-config.yaml`, then `openshift-install create
    cluster`, with `aws_configure_manual_credentials`/`aws_configure_manual_dns`
-   nested inside it exactly as before (§5). `package_kubeconfig_bundle` then
-   archives the resulting kubeconfig and transfers it back to the bastion the same
-   way.
+   nested inside it exactly as before (§5), retrying its post-DNS-rescue
+   `wait-for install-complete` up to twice more (confirmed live:
+   `openshift-install` imposes a fixed 40m budget per invocation, with no
+   `--timeout` flag, and `image-registry` can need a few extra reconcile cycles
+   right after that rescue's credentials reapply before it converges — see
+   `aws_provision_sno_ipi`'s README). `wait_for_sno_install` (an identical copy of
+   the one `bastion/playbooks/provision-sno-baremetal.yaml` uses, duplicated here
+   since each tree's `roles_path` only reaches its own `roles/*` — see CLAUDE.md)
+   then confirms the cluster API is actually reachable before
+   `package_kubeconfig_bundle` archives the resulting kubeconfig and transfers it
+   back to the bastion the same way.
 3. **`bastion/playbooks/unpack-cluster-access.yaml`** runs
    `unpack_kubeconfig_bundle` on the bastion, after which `sno_kubeconfig` points at
    a real, reachable cluster and every `bastion/roles/ocp/*` day-2 role runs exactly
