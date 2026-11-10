@@ -159,6 +159,32 @@
   changed_when: true
   tags: [bastion_prereqs]
 
+# ansible-core's RPM gets Ansible itself running and the wheelhouse above gets the
+# kubernetes/openshift Python packages importable, but neither installs the
+# kubernetes.core Ansible Galaxy COLLECTION every roles/ocp/* role actually invokes
+# (kubernetes.core.k8s/k8s_info/k8s_scale) — a separate artifact from both of those.
+# Confirmed live: without this, ansible-playbook fails immediately with "couldn't
+# resolve module/action 'kubernetes.core.k8s'" on the very first roles/ocp/* task,
+# distinct from (and not caught by) baremetal_prepare_bastion's existing
+# Python-importability check. `ansible-galaxy collection download` (not `install`)
+# resolves this collection's own dependency tree and writes both the tarball(s) and
+# a requirements.yml manifest into this directory — bootstrap-bastion-host.sh
+# installs offline from that manifest with `--offline`.
+- name: Ensure the bastion-collections directory exists
+  file:
+    path: "{{ mirror_installers_dir }}/bastion-collections"
+    state: directory
+    mode: '0755'
+  tags: [bastion_prereqs]
+
+- name: Download the Ansible collection(s) the bastion needs for offline install
+  command: >
+    ansible-galaxy collection download
+    -r {{ playbook_dir }}/../../requirements-bastion-collections.yml
+    -p {{ mirror_installers_dir }}/bastion-collections
+  changed_when: true
+  tags: [bastion_prereqs]
+
 - name: Extract the oc-mirror binary from the downloaded tarball
   unarchive:
     src: "{{ mirror_installers_dir }}/oc-mirror.tar.gz"

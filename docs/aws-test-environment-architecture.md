@@ -216,8 +216,11 @@ the staging side automatically, then the operator takes over:
    printed by `aws_provision_bastion`'s README) to extract it and run commands there —
    only the transfer itself is automated. On a bastion with nothing on it yet (this
    loop's freshly provisioned EC2 instance, as opposed to a pre-imaged bare-metal
-   one), first run `bastion/bootstrap-bastion-host.sh` — it installs `ansible-core`
-   and the `kubernetes`/`openshift` Python modules offline, from RPMs/a wheelhouse
+   one), first run `bastion/bootstrap-bastion-host.sh` — it installs `ansible-core`,
+   the `kubernetes.core` Galaxy collection every `roles/ocp/*` role actually invokes
+   (a separate artifact from `ansible-core` itself, which ships zero collections on
+   its own), and the `kubernetes`/`openshift` Python modules that collection's code
+   calls into at runtime, all offline from RPMs/a collection download/a wheelhouse
    `stage_mirror_content` already downloaded and bundled in (see
    `baremetal_prepare_bastion`'s README for why bare metal doesn't need this: its
    bastion is assumed to already have these pre-baked into its base image). Then run

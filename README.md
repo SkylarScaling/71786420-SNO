@@ -71,6 +71,8 @@ shared-defaults.yaml  # the few constants genuinely shared across trees (current
 requirements.txt       # staging's own Python deps (ansible, kubernetes, openshift, boto3, botocore)
 requirements-bastion.txt  # the bastion's subset (kubernetes, openshift only) — pip-downloaded into
                           #   a wheelhouse by stage_mirror_content, installed offline by bootstrap-bastion-host.sh
+requirements-bastion-collections.yml  # the bastion's Galaxy collection(s) (kubernetes.core) — downloaded by
+                                       #   stage_mirror_content, installed offline by bootstrap-bastion-host.sh
 requirements.yml       # Ansible Galaxy collections (kubernetes.core, community.general, amazon.aws, ansible.posix)
 aws-infra/       # AWS only, no bare-metal equivalent — provisions the staging + bastion EC2 hosts
   inventory/inventory.yaml      # per-environment, rendered by configure-aws-env.yaml

@@ -4,16 +4,18 @@ set -euo pipefail
 # Minimal, non-Ansible bootstrap for a brand-new, fully disconnected bastion — same
 # "do the least possible in bash to get Ansible running" philosophy as
 # ../staging/bootstrap-staging-host.sh, adapted for a host with NO internet route at
-# all (unlike staging). Bare-metal bastions are expected to already have Ansible and
-# the kubernetes/openshift Python modules baked into their base image/build — see
-# roles/baremetal/baremetal_prepare_bastion's README — so this script is normally only
-# needed on the AWS test loop's freshly provisioned, blank EC2 bastion. Installs
-# ansible-core and python3-pip from the RPMs stage_mirror_content already downloaded
-# and package_bastion_bundle already bundled into ../mirror-installers/bastion-rpms/,
-# then the kubernetes/openshift Python modules from the matching
-# ../mirror-installers/bastion-wheelhouse/ — both entirely offline (--disablerepo/
-# --no-index), since dnf/pip's normal remote repos are unreachable here. Run this once,
-# before any ansible-playbook invocation on this host.
+# all (unlike staging). Bare-metal bastions are expected to already have Ansible, the
+# kubernetes.core Galaxy collection, and the kubernetes/openshift Python modules
+# baked into their base image/build — see roles/baremetal/baremetal_prepare_bastion's
+# README — so this script is normally only needed on the AWS test loop's freshly
+# provisioned, blank EC2 bastion. Installs ansible-core and python3-pip from the RPMs
+# stage_mirror_content already downloaded and package_bastion_bundle already bundled
+# into ../mirror-installers/bastion-rpms/, then the kubernetes.core collection from
+# ../mirror-installers/bastion-collections/, then the kubernetes/openshift Python
+# modules from ../mirror-installers/bastion-wheelhouse/ — all entirely offline
+# (--disablerepo/--offline/--no-index), since dnf/ansible-galaxy/pip's normal remote
+# sources are unreachable here. Run this once, before any ansible-playbook invocation
+# on this host.
 #
 # Usage: ./bootstrap-bastion-host.sh (run from inside this bastion/ directory, after
 # extracting the bundle staging handed you)
@@ -33,6 +35,18 @@ fi
 # installing all of it now is harmless; configure_bastion_services' own install of
 # the same RPMs later is just a no-op.
 sudo dnf install -y --disablerepo='*' "${INSTALLERS_DIR}"/bastion-rpms/*.rpm
+
+# roles/ocp/*'s kubernetes.core.k8s*/k8s_info/k8s_scale modules are code shipped by
+# the kubernetes.core Ansible Galaxy COLLECTION — a separate artifact from the
+# kubernetes/openshift Python packages installed below (those are the runtime
+# library that module code calls into). ansible-core (just installed above) ships
+# zero collections on its own; without this, every roles/ocp/* task fails
+# immediately with "couldn't resolve module/action 'kubernetes.core.k8s'" (confirmed
+# live), a different and earlier failure than a missing Python import would produce.
+# --offline forces ansible-galaxy to use only the bundled tarball(s)/manifest
+# stage_mirror_content's "ansible-galaxy collection download" step produced on
+# staging, never reaching out to galaxy.ansible.com.
+ansible-galaxy collection install -r "${INSTALLERS_DIR}/bastion-collections/requirements.yml" --offline
 
 # kubernetes.core.k8s* modules (used by every roles/ocp/* role) need these importable
 # by whatever Python interpreter Ansible uses here — not RPM-packaged, so pip (not

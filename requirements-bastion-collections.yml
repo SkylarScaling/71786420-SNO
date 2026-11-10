@@ -1,0 +1,17 @@
+# Ansible Galaxy collection(s) the bastion needs — NOT the full requirements.yml.
+# ansible-core (what the bastion gets from its RPM, see bastion_packages in
+# stage_mirror_content's defaults) ships zero collections on its own; this is a
+# separate requirement from requirements-bastion.txt's kubernetes/openshift Python
+# packages, which are that runtime library the kubernetes.core *module code* calls
+# into — the collection itself (the module/plugin code every roles/ocp/* role
+# actually invokes as kubernetes.core.k8s/k8s_info/k8s_scale) is a distinct artifact
+# that has to be installed separately via ansible-galaxy.
+#
+# Downloaded (with `ansible-galaxy collection download`, which also resolves and
+# bundles this collection's own dependency tree) into a local directory by
+# stage_mirror_content (staging has internet), bundled by package_bastion_bundle,
+# and installed offline by bastion/bootstrap-bastion-host.sh
+# (`ansible-galaxy collection install -r .../requirements.yml --offline`) — see that
+# script and stage_mirror_content's README for the full flow.
+collections:
+  - name: kubernetes.core
