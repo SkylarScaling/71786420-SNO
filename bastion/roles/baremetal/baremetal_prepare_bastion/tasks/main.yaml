@@ -24,6 +24,47 @@
       not the public internet. Review the bastion's network path if this is unexpected.
   when: internet_check.status is defined and internet_check.status == 200
 
+# Every roles/ocp/* role below invokes kubernetes.core.k8s*/k8s_info/k8s_scale, which
+# are code shipped by the kubernetes.core Ansible Galaxy COLLECTION — a distinct
+# artifact from ansible-core itself (ships zero collections on its own) and from the
+# kubernetes/openshift Python packages checked below (the runtime library that
+# module code calls into). Confirmed live: without this collection installed,
+# ansible-playbook fails immediately with "couldn't resolve module/action
+# 'kubernetes.core.k8s'" on the very first roles/ocp/* task — an earlier, different
+# failure than a missing Python import produces, so it needs its own check. This is a
+# known gap on bare metal, not fixed by this automation: the bastion's base
+# image/build must already have kubernetes.core installed (e.g. from an internal
+# Galaxy/Automation Hub mirror, or `ansible-galaxy collection install` run once
+# during bastion imaging with its own internet access), the same "assume
+# pre-existing, only validate" treatment this role already gives the rest of the
+# bastion's prerequisites. The AWS test loop's bastion has no such pre-baked image to
+# assume, so it IS fixed there — ../../../bootstrap-bastion-host.sh installs this
+# collection offline from a download stage_mirror_content builds on staging, before
+# this role (or any Ansible) ever runs.
+#
+# ansible-doc resolves plugins via the exact same collection-lookup path
+# ansible-playbook itself uses, so it reproduces the real failure mode cheaply and
+# without touching the cluster. It doesn't exit non-zero for an unresolvable plugin
+# (confirmed live: only prints a `[WARNING]:` to stderr) — but also prints nothing to
+# stdout in that case (a found module dumps its full DOCUMENTATION block there), so
+# checking for empty stdout is the reliable signal here, not rc.
+- name: Check whether the kubernetes.core collection is installed
+  command: ansible-doc -t module kubernetes.core.k8s
+  register: _k8s_core_collection_check
+  changed_when: false
+  failed_when: false
+
+- name: Fail with guidance if the kubernetes.core collection is missing
+  fail:
+    msg: >
+      The kubernetes.core Ansible Galaxy collection isn't installed for this
+      bastion's Ansible, and the bastion has no internet route to `ansible-galaxy
+      collection install` it from galaxy.ansible.com. Every roles/ocp/* role needs
+      this collection for kubernetes.core.k8s*/k8s_info/k8s_scale to resolve at all.
+      Pre-install it on the bastion (internal Galaxy/Automation Hub mirror, or
+      `ansible-galaxy collection install` during bastion imaging) before re-running.
+  when: _k8s_core_collection_check.stdout == ""
+
 # Every roles/ocp/* role below uses kubernetes.core.k8s* modules, which need the
 # `kubernetes`/`openshift` Python packages importable by whatever Python interpreter
 # Ansible is using on the bastion. Unlike openshift-install/oc (plain binaries
