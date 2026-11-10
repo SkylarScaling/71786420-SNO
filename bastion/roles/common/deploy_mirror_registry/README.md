@@ -120,10 +120,15 @@ directory specifically so it arrives here via `package_bastion_bundle/unpack_bas
 separate sync path; this role's push points `--config` at
 `{{ mirror_archive_dir }}/imageset-config.yaml`. It also needs its own
 `--cache-dir` (`oc_mirror_cache_dir`, default under `{{ mirror_registry_install_dir
-}}`), independent of `stage_mirror_content`'s cache on the mirror-staging host. See
-`roles/common/stage_mirror_content/README.md` for why this role moved from v1 to v2
-in the first place (a release-image signature-verification failure on a real 4.22
-bootstrap).
+}}`) — a separate directory from `stage_mirror_content`'s cache on the mirror-staging
+host (different machine), but **not independent of it**: `unpack_bastion_bundle`
+pre-populates this directory with a minimal subset of that staging-side cache before
+this role ever runs, because the archive alone doesn't carry everything disk-to-mirror
+needs — see `roles/common/stage_mirror_content/README.md`'s "release-content
+manifests never make it into the archive at all" section for the full story. Don't
+clear or recreate this directory before the push; it needs to arrive pre-populated.
+See the same README for why this role moved from v1 to v2 in the first place (a
+release-image signature-verification failure on a real 4.22 bootstrap).
 
 The push itself retries (`until`/`retries: 3`/`delay: 30`) rather than running once —
 on a real customer run, a ~22-minute push of 483 images hit a batch of `received

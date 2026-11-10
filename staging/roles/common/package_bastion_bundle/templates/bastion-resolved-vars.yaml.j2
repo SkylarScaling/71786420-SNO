@@ -9,9 +9,18 @@ infra_provider: "{{ infra_provider }}"
 base_domain: "{{ base_domain }}"
 
 ssh_key: "{{ ssh_key }}"
+# A fixed bastion-local path, not a direct substitution of staging's own
+# ssh_private_key value (that path only resolves on staging's filesystem).
+# package_bastion_bundle ships the actual key file into the bundle root as
+# "relay-key"; unpack_bastion_bundle copies it to exactly this path. The bastion
+# needs its own copy of the operator's keypair (not a dedicated relay pair — both
+# ends are already inside the same disconnected trust boundary) for the one
+# return-trip rsync push it can originate: package_staging_bundle's backup-export
+# relay (§8).
+ssh_private_key: "~/.ssh/relay_key"
 # pull_secret arrives here as either a dict or a plain JSON-text string, depending on
-# whether Ansible's native-type templating parsed inventory.yaml's
-# "{{ lookup('file', ...) }}" into a real dict (confirmed live: it does, since the
+# whether Ansible's native-type templating parsed inventory.yaml's pull_secret lookup
+# (a "lookup('file', <path>)" call) into a real dict (confirmed live: it does, since the
 # pull secret's JSON text is also valid Python dict syntax) — normalized to JSON text
 # first, then to_json'd again so the result is always a properly quoted YAML string
 # here. Without the first normalization, to_json on an already-dict pull_secret

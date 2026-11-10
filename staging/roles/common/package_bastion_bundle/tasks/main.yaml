@@ -40,7 +40,7 @@
 
 # Staged into one directory first (rather than a multi-source `archive:` call) so the
 # resulting tar.gz extracts cleanly at the bastion checkout's root with predictable
-# top-level entries (bastion/, mirror-content/, mirror-installers/,
+# top-level entries (bastion/, mirror-content/, mirror-installers/, release-cache/, relay-key,
 # bastion-resolved-vars.yaml) regardless of each source's own absolute path.
 #
 # NOT wiped (state: absent) before re-populating, unlike an earlier version of this
@@ -89,10 +89,33 @@
     recursive: true
     delete: true
 
+# stage_mirror_content's "Build the release-content cache handoff" task populates
+# this — the minimal oc-mirror cache subset deploy_mirror_registry's disk-to-mirror
+# step needs, since the archive above doesn't carry this content on its own (see that
+# task's comment for the full "manifest unknown" story, confirmed live).
+- name: Copy the release-content cache handoff into the bundle root
+  ansible.posix.synchronize:
+    src: "{{ release_cache_handoff_dir }}/"
+    dest: "{{ bastion_bundle_export_dir }}/bundle-root/release-cache/"
+    recursive: true
+    delete: true
+
 - name: Copy the flattened resolved-vars file into the bundle root
   copy:
     src: "{{ bastion_bundle_export_dir }}/bastion-resolved-vars.yaml"
     dest: "{{ bastion_bundle_export_dir }}/bundle-root/bastion-resolved-vars.yaml"
+    mode: '0600'
+    remote_src: true
+
+# The bastion needs its own copy of the operator's private key for the one
+# return-trip rsync push it can originate (package_staging_bundle's backup-export
+# relay, §8) — unlike the bastion_transfer_* push below, which runs FROM staging,
+# where this key already lives on disk. unpack_bastion_bundle copies this to the
+# path bastion-resolved-vars.yaml's ssh_private_key points at.
+- name: Stage the SSH private key into the bundle root for the bastion's own return-trip pushes
+  copy:
+    src: "{{ ssh_private_key }}"
+    dest: "{{ bastion_bundle_export_dir }}/bundle-root/relay-key"
     mode: '0600'
     remote_src: true
 
@@ -114,7 +137,7 @@
       - "extract it into an empty working directory there:"
       - "  mkdir -p ~/sno-deploy"
       - "  tar -xzf {{ bastion_bundle_name }} -C ~/sno-deploy"
-      - "It unpacks to bastion/, mirror-content/, mirror-installers/, and"
+      - "It unpacks to bastion/, mirror-content/, mirror-installers/, release-cache/, relay-key, and"
       - "bastion-resolved-vars.yaml — a complete, self-sufficient checkout. Then:"
       - "  cd ~/sno-deploy/bastion/playbooks"
       - "  ansible-playbook provision-sno.yaml -i ../inventory/inventory.yaml"

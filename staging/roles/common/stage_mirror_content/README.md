@@ -58,6 +58,38 @@ or pipeline. If this recurs: re-run this role (`stage_mirror_content`) rather th
 suspecting `package_bastion_bundle/unpack_bastion_bundle` or `deploy_mirror_registry` — both were verified
 innocent by testing against a fully-cleared, freshly-synced bastion first.
 
+## Known `oc-mirror --v2` defect: release-content manifests never make it into the archive at all
+
+Confirmed against a real run, and reproduced two more ways to rule out transfer
+corruption or stale bastion-side state: `deploy_mirror_registry`'s disk-to-mirror
+push failed with `manifest unknown` on the very first `openshift/release`
+per-component image (e.g. `openshift/release:4.22.17-x86_64-cluster-kube-apiserver-operator`),
+even against a freshly-synced archive and a freshly-unpacked bastion. A same-host,
+no-transfer reproduction (mirror-to-disk and disk-to-mirror both run from the exact
+same archive, same machine, no bundle/rsync step in between at all) failed
+identically, ruling out `package_bastion_bundle`/`unpack_bastion_bundle`. Direct `tar
+tvf` inspection of the archive confirmed the root cause: the tag/revision "link"
+pointer files for every `openshift/release` component tag are present, but the
+actual manifest/config/layer blob content those links point at is simply never
+written into the exported `mirror_NNNNNN.tar` in the first place — a different,
+100%-reproducible defect from the intermittent one above. Operator bundle content IS
+fully archived; this gap is specific to `openshift/release`'s synthetic
+per-component tags.
+
+The fix: this role's "Build the release-content cache handoff" task computes the
+minimal blob subset actually referenced by `stage_mirror_content`'s own
+`openshift/release` cache metadata (every digest reachable from each tag's manifest —
+config, layers, and any nested manifests for multi-arch), hardlinks just those into
+`release_cache_handoff_dir`, laid out identically to oc-mirror's own
+`.oc-mirror/.cache/docker/registry/v2/...` structure. `package_bastion_bundle` ships
+that alongside the bundle as `release-cache/`, and `unpack_bastion_bundle` merges it
+into the bastion's own `--cache-dir` (`oc_mirror_cache_dir`) before
+`deploy_mirror_registry` ever runs, so disk-to-mirror has the content locally instead
+of needing to reconstruct it from the archive. Confirmed ~20GiB for this subset vs.
+~60GiB for the full cache in a real run — a fresh `--cache-dir` containing only this
+handoff's output, with no other prior state, mirrored all 306 images successfully
+end to end, including every previously-failing release-component image.
+
 ## Platform release pinning
 
 `imageset-config.yaml.j2`'s `mirror.platform.channels` entry pins both `minVersion`

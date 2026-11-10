@@ -157,7 +157,13 @@ bastion has no internet route at all (§2), so it can't fetch the
 under `mirror_installers_dir`, and `package_bastion_bundle`/`unpack_bastion_bundle`
 carry them over inside the bundle the same way they carry the content archive;
 `deploy_mirror_registry` unarchives `mirror-registry`/`oc-mirror` from that bundled
-local copy. The bastion's own OS packages (`dnsmasq`/`httpd`, installed by
+local copy. The bundle also carries a minimal oc-mirror cache handoff
+(`release-cache/`) that `deploy_mirror_registry`'s disk-to-mirror push needs for
+`openshift/release`'s per-component images — oc-mirror v2's own archive format never
+includes that content on its own (see `stage_mirror_content`'s README) — and a copy
+of the operator's own SSH private key (`relay-key`), needed for the one return-trip
+push the bastion can originate (the backup-export relay, §8) since that key
+otherwise only ever lives on staging. The bastion's own OS packages (`dnsmasq`/`httpd`, installed by
 `bastion/bastion/roles/common/configure_bastion_services`) go through the identical path —
 `stage_mirror_content` resolves their full dependency closure into
 `mirror_installers_dir/bastion-rpms` via `dnf install --downloadonly`, and

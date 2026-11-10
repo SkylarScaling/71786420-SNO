@@ -4,6 +4,13 @@
 # run on this host.
 oc_mirror_workspace: /opt/oc-mirror-workspace
 
+# Where this role assembles the minimal oc-mirror cache subset deploy_mirror_registry
+# needs on the bastion for its disk-to-mirror step to resolve release-component
+# images — see the "Build the release-content cache handoff" task below for why this
+# exists at all. Same default path duplicated in package_bastion_bundle's defaults
+# (role defaults aren't shared across roles).
+release_cache_handoff_dir: "{{ oc_mirror_workspace }}/release-cache-handoff"
+
 bin_dir: "~/.local/bin"
 ocp_mirror_url: "https://mirror.openshift.com/pub/openshift-v4/clients/ocp/{{ openshift_version }}"
 
