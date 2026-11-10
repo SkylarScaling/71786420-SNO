@@ -112,6 +112,16 @@ bastion_required_repos:
 # 4.22 until the catalog refresh above) — re-verify with the same command whenever
 # openshift_version changes, AND periodically even without one; don't assume a
 # pinned channel here still exists just because it did last time this was run.
+#
+# The template (imageset-config.yaml.j2) also sets `defaultChannel` to this same
+# value alongside `channels`, not just `channels` alone — oc-mirror v2 otherwise
+# validates the package's CATALOG default channel even though it isn't being
+# mirrored, so a catalog-side default-channel move alone (with no change to the
+# channel actually pinned/mirrored here) was enough to break mirroring outright.
+# `defaultChannel` only needs to be *one of* the channels being kept, not the
+# catalog's actual current default, which decouples this pin from that kind of
+# drift entirely — it no longer needs to track the catalog's live default, only to
+# keep being a real channel.
 oc_mirror_operator_packages:
   - lvms-operator
   - redhat-oadp-operator
