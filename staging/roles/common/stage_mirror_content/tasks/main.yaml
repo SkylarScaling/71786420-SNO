@@ -100,23 +100,18 @@
     mode: '0644'
 
 # The bastion has no internet route at all, so configure_bastion_services can't
-# `dnf install` dnsmasq/httpd directly there either. Downloaded here instead, same
+# `dnf install` dnsmasq/httpd directly there either. Mirrored here instead, same
 # pattern as the oc-mirror/mirror-registry tarballs above into mirror_installers_dir,
 # which package_bastion_bundle/unpack_bastion_bundle already carries over wholesale.
-# Both hosts must run the same RHEL major.minor, so RPMs resolved here install
-# cleanly there with all repos disabled.
+# Both hosts must run the same RHEL major.minor, so RPMs synced here install cleanly
+# there with all other repos disabled.
 #
-# `dnf download --resolve` (not `dnf install --downloadonly`): the latter only
-# downloads what it would actually *install*, so any package already installed on
-# this staging host is silently skipped even when named explicitly — producing an
-# RPM set that's fine on staging but fails offline on the bastion with a missing
-# dependency, since the bastion starts with none of staging's pre-existing packages.
-# `dnf download` fetches the named packages and, with --resolve, their full
-# dependency closure, regardless of what's already installed on this host.
-# Tagged separately (bastion_prereqs) from the rest of this role so it can be
-# re-run on its own — e.g. after adding a new entry to bastion_packages — without
-# redoing the hour-plus oc-mirror run below (`--tags bastion_prereqs`, then
-# `--tags package` on package_bastion_bundle to re-bundle with the new RPMs included).
+# Two methods, picked by bastion_rpm_sync_method (default reposync) — see
+# defaults/main.yaml. Tagged bastion_prereqs separately from the rest of this role
+# so either can be re-run on its own (e.g. after adding a new entry to
+# bastion_packages, or after switching bastion_rpm_sync_method) without redoing the
+# hour-plus oc-mirror run below (`--tags bastion_prereqs`, then `--tags package` on
+# package_bastion_bundle to re-bundle with the refreshed RPM content included).
 - name: Ensure the bastion-rpms directory exists
   file:
     path: "{{ mirror_installers_dir }}/bastion-rpms"
@@ -124,20 +119,64 @@
     mode: '0755'
   tags: [bastion_prereqs]
 
-# Needed to turn the downloaded RPMs below into a real local repo (see the
-# "Generate repo metadata" task further down) — ships in AppStream, so this
-# installs cleanly from the same repos already required for bastion_packages
-# itself, no extra subscription/repo attachment needed beyond what's already
-# documented as a prerequisite.
-- name: Ensure createrepo_c is installed on staging
+# reposync (default): mirrors bastion_required_repos wholesale — every RPM in each
+# repo, not just bastion_packages' own dependency closure. A deliberate customer
+# choice (confirmed: they explicitly accepted the larger transfer size) after the
+# `resolve` method below proved unreliable: `dnf download --resolve` resolves
+# dependencies in the context of what's already installed on THIS staging host, so a
+# dependency already satisfied here (even transitively) can be silently skipped from
+# the download set, even with --resolve — producing an RPM closure that looks
+# complete on staging but is missing something offline on the bastion, which starts
+# with none of staging's pre-existing packages. reposync mirrors the repos' actual
+# RPM sets independent of what's locally installed, so this class of gap can't
+# happen — at the cost of pulling everything in both repos, most of which
+# bastion_packages will never actually install.
+#
+# --download-metadata has reposync carry over each repo's own published repodata
+# as-is, rather than needing createrepo_c to regenerate it afterward. --delete prunes
+# RPMs dropped from the upstream repo on a re-run, so this doesn't just grow forever
+# across repeated bastion_prereqs runs. One subdirectory per repoid under
+# bastion-rpms/ (reposync's own layout), carried over wholesale by
+# package_bastion_bundle/unpack_bastion_bundle the same as everything else under
+# mirror_installers_dir — configure_bastion_services enables each as its own local
+# repo on the bastion when bastion_rpm_sync_method is reposync (see that role's
+# tasks).
+- name: Mirror the full bastion-required repos for offline install on the bastion (reposync)
+  vars:
+    _bastion_repo_enable_flags: "{{ bastion_required_repos | map('regex_replace', '^(.*)$', '--enablerepo=\\1') | join(' ') }}"
+    _bastion_repoid_flags: "{{ bastion_required_repos | map('regex_replace', '^(.*)$', '--repoid=\\1') | join(' ') }}"
+  command: >
+    dnf {{ _bastion_repo_enable_flags }} reposync
+    {{ _bastion_repoid_flags }}
+    --download-path={{ mirror_installers_dir }}/bastion-rpms
+    --download-metadata
+    --delete
+    -y
+  become: true
+  when: bastion_rpm_sync_method == 'reposync'
+  tags: [bastion_prereqs]
+
+# resolve (opt-in): the original, narrower approach — downloads only
+# bastion_packages' own dependency closure instead of each full repo. Smaller
+# transfer, but see the reposync comment above for the gap this can hit: a
+# dependency already satisfied on staging itself can be silently omitted even with
+# --resolve. `dnf download --resolve` (not `dnf install --downloadonly`, which only
+# downloads what it would actually *install* and so skips already-installed
+# packages even more aggressively) fetches the named packages and their full
+# dependency closure as best it can into a single flat directory, which createrepo_c
+# then turns into one real (local-only) dnf repo — configure_bastion_services
+# expects this exact single-directory layout when bastion_rpm_sync_method is
+# resolve, as opposed to reposync's one-subdirectory-per-repoid layout.
+- name: Ensure createrepo_c is installed on staging (resolve method only)
   dnf:
     name: createrepo_c
     state: present
     enablerepo: "{{ bastion_required_repos }}"
   become: true
+  when: bastion_rpm_sync_method == 'resolve'
   tags: [bastion_prereqs]
 
-- name: Download bastion packages (with full dependency closure) for offline install on the bastion
+- name: Download bastion packages (with full dependency closure) for offline install on the bastion (resolve method only)
   vars:
     _bastion_repo_flags: "{{ bastion_required_repos | map('regex_replace', '^(.*)$', '--enablerepo=\\1') | join(' ') }}"
   command: >
@@ -145,24 +184,13 @@
     {{ _bastion_repo_flags }}
     -y {{ bastion_packages | join(' ') }}
   become: true
+  when: bastion_rpm_sync_method == 'resolve'
   tags: [bastion_prereqs]
 
-# Confirmed against a real customer environment: installing straight from this
-# directory as a raw list of RPM file paths (`dnf install <path1> <path2> ...
-# --disablerepo='*'`, the original approach here) isn't reliable — dnf's solver only
-# considers exactly the files named on the command line, with none of the repo
-# metadata it normally uses to work out a correct install order/transaction across a
-# large closure, which doesn't always match what a real repo-backed solve produces.
-# createrepo_c turns this directory into an actual (local-only) dnf repo — repodata/
-# written alongside the RPMs, carried over by package_bastion_bundle/
-# unpack_bastion_bundle the same way as the RPMs themselves — so
-# configure_bastion_services can `dnf install` by package name against real repo
-# metadata instead of a hand-assembled file list. Requires createrepo_c installed on
-# this (internet-connected) staging host — see the "Ensure createrepo_c is
-# installed" task above.
-- name: Generate repo metadata for the downloaded bastion RPMs (turns the directory into a real local repo)
+- name: Generate repo metadata for the downloaded bastion RPMs (resolve method only)
   command: createrepo_c {{ mirror_installers_dir }}/bastion-rpms
   become: true
+  when: bastion_rpm_sync_method == 'resolve'
   tags: [bastion_prereqs]
 
 - name: Extract the oc-mirror binary from the downloaded tarball

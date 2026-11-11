@@ -185,27 +185,51 @@ that's missing those entries, merge them in before running this role.
 ## Bastion RPMs (`bastion_packages`/`bastion_required_repos`)
 
 Separate from the container-image mirroring above — `bastion_packages` (default:
-`dnsmasq`, `httpd`, `tmux`) are plain RPMs `configure_bastion_services` installs on
-the bastion, which has no internet route of its own to reach them. `dnf download
---resolve` (see `tasks/main.yaml` for why not `dnf install --downloadonly`) needs
-`bastion_required_repos`'s repo IDs already attached to *this* staging host's
-subscription (just not necessarily enabled by default) to resolve against — passed
-as `--enablerepo` on the download command itself rather than toggled host-wide via
+`dnsmasq`, `httpd`, `tmux`, `bind-utils`) are plain RPMs `configure_bastion_services`
+installs on the bastion, which has no internet route of its own to reach them.
+`bastion_required_repos` is mirrored **wholesale** via `reposync` — every RPM in
+each listed repo, not just `bastion_packages`' own dependency closure — needing
+those repo IDs already attached to *this* staging host's subscription (just not
+necessarily enabled by default) to sync against; passed as `--enablerepo` on the
+`reposync` invocation itself rather than toggled host-wide via
 `subscription-manager`, so this role doesn't leave staging's own repo configuration
 changed as a side effect. Keep both vars and the RHEL major version staging/the
 bastion are actually provisioned from in sync — see `configure_bastion_services`'s
 README for why that match matters.
 
-After downloading, `createrepo_c` runs against `mirror_installers_dir/bastion-rpms`
-so it becomes a real (local-only) dnf repo — `repodata/` alongside the RPMs — rather
-than a bare pile of files. Confirmed against a real customer environment: handing
-dnf a raw list of RPM file paths to install (an earlier version of both this role
-and `configure_bastion_services`) isn't reliable, since dnf's solver only considers
-exactly the files named on the command line, with none of the repo metadata it
-normally uses to work out a correct transaction across a larger closure. `createrepo_c`
-itself is installed on staging from the same `bastion_required_repos` (ships in
-AppStream), so no extra subscription attachment is needed beyond what's already a
-documented prerequisite.
+**This is a deliberate customer choice, not the smallest possible transfer.** An
+earlier version of this task used `dnf download --resolve` to pull just
+`bastion_packages`' own dependency closure (see `tasks/main.yaml` for why not `dnf
+install --downloadonly`) — a much smaller payload, but confirmed unreliable in
+practice: `dnf download --resolve` resolves dependencies in the context of what's
+already installed on *this* staging host, so a dependency already satisfied here
+(even transitively) can be silently skipped from the download set even with
+`--resolve`, producing a closure that looks complete on staging but is missing
+something offline on the bastion (which starts with none of staging's pre-existing
+packages). The customer explicitly chose full-repo `reposync` as the **default**
+after being told it would transfer substantially more data than actually gets
+installed — `reposync` mirrors each repo's real RPM set independent of what's
+locally installed, so this class of gap can't happen. `--download-metadata` has
+`reposync` carry over each repo's own published `repodata/` directly, so no
+`createrepo_c` step is needed in this path. `--delete` prunes RPMs dropped from the
+upstream repo on a re-run, so repeated `bastion_prereqs` runs don't grow this
+directory unbounded. One subdirectory per repoid lands under
+`mirror_installers_dir/bastion-rpms/` — `configure_bastion_services` enables each as
+its own local repo on the bastion.
+
+**`bastion_rpm_sync_method` controls which of the two approaches runs** — `reposync`
+(default) or `resolve` (the original, narrower `dnf download --resolve` approach,
+left in place as an opt-in for after `reposync` has been validated against a real
+run, or for anyone who's confirmed `resolve`'s gap doesn't apply to their
+`bastion_packages` set and wants the smaller transfer). `resolve` downloads into a
+single flat directory and still needs `createrepo_c` (installed from
+`bastion_required_repos` itself) to turn it into a real repo afterward — a different
+on-disk layout from `reposync`'s one-subdirectory-per-repoid, so
+**`bastion_rpm_sync_method` must match between staging and the bastion** — see
+`configure_bastion_services`'s README. If a value mismatch happens, it won't fail
+loudly on its own; `configure_bastion_services` will just look for repo metadata in
+the wrong place and fail with a `repodata not found` guidance message from whichever
+check doesn't match what's actually on disk.
 
 Tagged `bastion_prereqs` separately from the container-mirroring tasks above so it
 can be re-run on its own (e.g. after adding a package to `bastion_packages` — update

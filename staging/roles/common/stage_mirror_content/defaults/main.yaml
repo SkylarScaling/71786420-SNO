@@ -66,14 +66,28 @@ bastion_packages:
   # /etc/hosts/NSS entirely and queries the configured nameserver directly.
   - bind-utils
 
-# Repo IDs `dnf download` must be able to resolve bastion_packages (and their
-# dependency closure) against — this staging host's subscription must already have
-# these attached, just not necessarily enabled by default. Passed as --enablerepo on
-# the download command itself (below) rather than toggled host-wide via
-# subscription-manager, so this role doesn't leave the staging host's own repo
-# configuration changed as a side effect. Keep in sync with whatever RHEL major
-# version staging and the bastion are actually provisioned from (see this role's
-# README: both must match).
+# `reposync` (default): mirrors bastion_required_repos wholesale — every RPM in each
+# repo, not just bastion_packages' own dependency closure. Larger transfer, but
+# immune to the gap `resolve` below can hit. Customer-requested default after an
+# earlier `resolve`-only approach proved unreliable in practice (see this role's
+# README). `resolve`: the original, narrower `dnf download --resolve` approach —
+# left in place as an opt-in for environments that want the smaller transfer once
+# `reposync` has been validated, or that have confirmed `resolve`'s gap doesn't
+# apply to their bastion_packages set. Must match configure_bastion_services' own
+# copy of this var (role defaults aren't shared across roles) — a mismatch between
+# what staging produced and what the bastion expects to find fails fast with
+# guidance rather than silently installing nothing.
+bastion_rpm_sync_method: reposync
+
+# Repo IDs staging mirrors from, by either method above — this staging host's
+# subscription must already have these attached, just not necessarily enabled by
+# default. Passed as --enablerepo on the reposync/download command itself rather
+# than toggled host-wide via subscription-manager, so this role doesn't leave the
+# staging host's own repo configuration changed as a side effect. Keep in sync with
+# whatever RHEL major version staging and the bastion are actually provisioned from
+# (see this role's README: both must match), and with configure_bastion_services'
+# own copy of this list on the bastion side (role defaults aren't shared across
+# roles).
 bastion_required_repos:
   - rhel-10-for-x86_64-baseos-rpms
   - rhel-10-for-x86_64-appstream-rpms

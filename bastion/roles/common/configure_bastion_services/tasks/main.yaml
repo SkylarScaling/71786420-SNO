@@ -10,26 +10,63 @@
 # of local RPM file paths (`dnf install <path1> <path2> ... --disablerepo='*'`, this
 # role's original approach) isn't reliable — dnf's solver only considers exactly the
 # files named on the command line, with none of the repo metadata it normally uses to
-# work out a correct transaction across a larger closure. stage_mirror_content now
-# runs createrepo_c against mirror_installers_dir/bastion-rpms before bundling it, so
-# this directory is a real (local-only) dnf repo, not just a pile of RPM files —
-# installing by package name against its actual metadata is what a repo-backed solve
-# is supposed to look like, instead of working around the lack of one.
-- name: Confirm the local bastion RPM repo's metadata is present
+# work out a correct transaction across a larger closure. stage_mirror_content syncs
+# real repo metadata by one of two methods, picked by bastion_rpm_sync_method
+# (default reposync — see that role's defaults/main.yaml): `reposync` produces one
+# subdirectory per repoid under mirror_installers_dir/bastion-rpms, each already a
+# real repo; `resolve` (opt-in, smaller transfer, narrower dependency closure instead
+# of each full repo) produces a single combined repo directly under bastion-rpms/.
+# bastion_rpm_sync_method here MUST match staging's — it determines which of the two
+# layouts below this role actually looks for.
+
+- name: Confirm each local bastion RPM repo's metadata is present (reposync method)
+  stat:
+    path: "{{ mirror_installers_dir }}/bastion-rpms/{{ item }}/repodata"
+  loop: "{{ bastion_required_repos }}"
+  register: _bastion_repo_metadata
+  when: bastion_rpm_sync_method == 'reposync'
+
+- name: Fail with guidance if any local bastion repo's metadata wasn't synced (reposync method)
+  fail:
+    msg: >
+      {{ mirror_installers_dir }}/bastion-rpms/{{ item.item }}/repodata not found.
+      stage_mirror_content's "Mirror the full bastion-required repos" task (reposync)
+      must run on staging before this bundle is built — re-run stage_mirror_content
+      with --tags bastion_prereqs, repackage with package_bastion_bundle, and resync.
+  loop: "{{ _bastion_repo_metadata.results | default([]) }}"
+  when:
+    - bastion_rpm_sync_method == 'reposync'
+    - not item.stat.exists
+
+- name: Add the synced bastion RPM repos as local-only dnf repos (reposync method)
+  yum_repository:
+    name: "bastion-local-{{ item }}"
+    description: "Locally synced bastion RPM repo ({{ item }}, via reposync)"
+    baseurl: "file://{{ mirror_installers_dir }}/bastion-rpms/{{ item }}"
+    gpgcheck: false
+    enabled: true
+  loop: "{{ bastion_required_repos }}"
+  become: true
+  when: bastion_rpm_sync_method == 'reposync'
+
+- name: Confirm the local bastion RPM repo's metadata is present (resolve method)
   stat:
     path: "{{ mirror_installers_dir }}/bastion-rpms/repodata"
-  register: _bastion_repo_metadata
+  register: _bastion_repo_metadata_resolve
+  when: bastion_rpm_sync_method == 'resolve'
 
-- name: Fail with guidance if the local bastion repo's metadata wasn't synced
+- name: Fail with guidance if the local bastion repo's metadata wasn't synced (resolve method)
   fail:
     msg: >
       {{ mirror_installers_dir }}/bastion-rpms/repodata not found. stage_mirror_content's
       "Generate repo metadata for the downloaded bastion RPMs" task (createrepo_c) must
       run on staging before this bundle is built — re-run stage_mirror_content with
       --tags bastion_prereqs, repackage with package_bastion_bundle, and resync.
-  when: not _bastion_repo_metadata.stat.exists
+  when:
+    - bastion_rpm_sync_method == 'resolve'
+    - not _bastion_repo_metadata_resolve.stat.exists
 
-- name: Add the synced bastion RPMs as a local-only dnf repo
+- name: Add the synced bastion RPMs as a local-only dnf repo (resolve method)
   yum_repository:
     name: bastion-local-rpms
     description: Locally synced bastion RPM closure (stage_mirror_content)
@@ -37,13 +74,16 @@
     gpgcheck: false
     enabled: true
   become: true
+  when: bastion_rpm_sync_method == 'resolve'
 
-- name: Install bastion packages from the local repo
+- name: Install bastion packages from the local repo(s)
   dnf:
     name: "{{ bastion_packages }}"
     state: present
     disablerepo: '*'
-    enablerepo: bastion-local-rpms
+    enablerepo: >-
+      {{ (bastion_required_repos | map('regex_replace', '^(.*)$', 'bastion-local-\\1') | list)
+         if bastion_rpm_sync_method == 'reposync' else ['bastion-local-rpms'] }}
   become: true
 
 - name: Configure DNS records for the SNO cluster (requires a known static node IP)
