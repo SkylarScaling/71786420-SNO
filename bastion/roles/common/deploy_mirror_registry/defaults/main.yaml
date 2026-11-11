@@ -36,3 +36,11 @@ mirror_installers_dir: /opt/mirror-installers
 # trusts it against this host's own authorized_keys) if it doesn't already exist,
 # rather than requiring an operator to pre-create it — see tasks/main.yaml.
 mirror_registry_ssh_key: "~/.ssh/quay_installer"
+
+# Rough placeholder, not confirmed against real mirrored-content sizes on a customer
+# environment — a real run's "disk to mirror" push failed with /var at 100%
+# utilization (podman's default storage root, /var/lib/containers, backs both
+# mirror-registry's containers and every blob oc-mirror copies). Tune this once an
+# actual run's real /var usage is known for this customer's oc_mirror_operator_packages
+# selection — see tasks/main.yaml's disk-space check.
+bastion_min_free_disk_gb: 100

@@ -29,6 +29,36 @@
       customer's DNS server before re-running.
   when: _mirror_registry_hostname_resolved.rc != 0
 
+# Confirmed root cause of a real customer failure (the "disk to mirror" push dying
+# partway through with "500 Internal Server Error" from the registry's bearer-token
+# endpoint — see this role's README): /var was at 100% utilization, not a memory/CPU
+# constraint as first suspected. Podman's default storage root (/var/lib/containers)
+# backs both mirror-registry's own Quay/Postgres/Redis containers and the local
+# staging podman/oc-mirror does for every blob it copies — filling it up breaks
+# container storage in ways that surface as a registry-side 500, not an obvious
+# "disk full" error. Checked up front so a future run fails in seconds instead of
+# ~20+ minutes into the push. bastion_min_free_disk_gb is a rough placeholder, not a
+# value confirmed against real mirrored-content sizes on this customer's
+# environment — tune it once a real run's actual /var usage is known.
+- name: Check available disk space on /var (backs podman's default container storage)
+  command: df -BG --output=avail /var
+  register: _var_disk_free
+  changed_when: false
+
+- name: Fail fast if /var doesn't have enough free space for mirror-registry/oc-mirror
+  vars:
+    _var_free_gb: "{{ _var_disk_free.stdout_lines[-1] | trim | regex_replace('G$', '') | int }}"
+  fail:
+    msg: >-
+      /var has only {{ _var_free_gb }}GB free, below the {{ bastion_min_free_disk_gb }}GB
+      this role expects. Podman's default storage root (/var/lib/containers) backs
+      both mirror-registry's own containers and every blob oc-mirror copies during
+      the "disk to mirror" push — confirmed on a real run: /var filling to 100% broke
+      container storage mid-push, surfacing as a registry "500 Internal Server Error"
+      rather than an obvious disk-full error. Free up space (or grow the volume
+      backing /var) before re-running.
+  when: (_var_disk_free.stdout_lines[-1] | trim | regex_replace('G$', '') | int) < bastion_min_free_disk_gb
+
 # Same long-quiet-stdout risk as stage_mirror_content's "mirror to disk" run applies
 # here to the "disk to mirror" push and the mirror-registry install itself — see the
 # comment there for the full rationale. Paired with the client-side

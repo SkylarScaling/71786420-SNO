@@ -110,28 +110,26 @@ registry's own bearer-token endpoint, spread across the run rather than one clea
 cutoff (the release images, mirrored first, all succeeded; operator images, pushed
 later/concurrently with heavier shared-layer dedup traffic, took the hit).
 
-**Root cause not actually confirmed** — resource exhaustion (RAM, CPU, Postgres
-connection limits, disk I/O) is a plausible explanation for Quay returning 500s under
-sustained concurrent push load, but the Ansible/oc-mirror output this was diagnosed
-from contains no OOM-kill message, no `dmesg`, and no resource metrics at all — it
-only shows the symptom (the registry erroring), not the cause. Confirming it would
-need the actual Quay/Postgres/Redis container logs from a real failure (`podman logs
-quay-app` etc. around the failure timestamp) or host-level evidence (`journalctl -k |
-grep -i 'killed process'`, `podman stats`) captured at the time. Don't treat "upgrade
-bastion RAM" as the confirmed fix until one of those actually points at memory
-specifically — it could just as easily be a connection-pool limit or concurrency
-setting that more RAM alone wouldn't fix.
+**Root cause confirmed**, directly on the customer's own bastion: `/var` was at 100%
+utilization, not a RAM/CPU/connection-pool constraint as first suspected. Podman's
+default storage root (`/var/lib/containers`) backs both `mirror-registry`'s own
+Quay/Postgres/Redis containers and every blob `oc-mirror`/`podman`/`skopeo` stage
+locally while copying — filling it up breaks container storage in a way that
+surfaces as a registry-side `500 Internal Server Error`, not an obvious disk-full
+error, which is what made it hard to diagnose from the customer side at first.
+`deploy_mirror_registry` now fails fast up front with a `/var` free-space check
+(`bastion_min_free_disk_gb`, default 100GB placeholder — tune once a real run's
+actual usage is known) rather than discovering this ~20+ minutes into a push — see
+that role's README.
 
-`deploy_mirror_registry`'s push task now retries automatically (already-pushed blobs
-are deduped/skipped on retry, so this is safe) — see that role's README. This is a
-reasonable mitigation for a *transient* overload regardless of root cause, but it
-will not fix a *persistent* under-provisioning problem: if the same images keep
-failing across all retries, that itself is useful signal that whatever's wrong isn't
-a brief blip, and is worth chasing with the container-log/host-evidence approach
-above rather than assuming more retries (or more RAM) will eventually clear it.
-**Open item**: re-verify whether 8GB — or the customer's planned 16 cores/16GB/2TB
-spec, pending confirmation — is actually sufficient for a full mirror push under real
-content volumes, with real evidence from a live failure if it recurs.
+`deploy_mirror_registry`'s push task also retries automatically (already-pushed
+blobs are deduped/skipped on retry, so this is safe) — see that role's README. That
+retry is still reasonable insurance for a genuinely transient overload, but it does
+not fix a persistently full `/var`, which fails identically on every attempt — the
+pre-flight check above is the actual fix for this failure mode.
+**Open item**: confirm the customer's planned 16 cores/16GB/2TB spec leaves enough
+free space under `/var` specifically (not just total disk) for a full mirror push
+under real content volumes, and tune `bastion_min_free_disk_gb` once that's known.
 
 It matters here because every content-movement mechanism in this repo (inbound
 mirroring *and* backup export, §3/§8) depends on it: nothing ever assumes the
@@ -482,15 +480,12 @@ content / the actual hardware, don't assume they're already correct:
   https://mirror.openshift.com/pub/cgw/mirror-registry/ before a production run if
   it's been a while; a stale pin still works (older `mirror-registry` versions remain
   downloadable), it just won't have newer fixes.
-- Bastion resource sizing for a full "disk to mirror" push, not just the
+- Bastion `/var` sizing for a full "disk to mirror" push, not just the
   `mirror-registry` install itself — a real customer run's 483-image push hit
   intermittent `500 Internal Server Error` from the registry's bearer-token endpoint.
-  Resource exhaustion under sustained concurrent push load (§2's documented 8GB
-  minimum was only validated against the install) is a plausible explanation, **but
-  not a confirmed one** — the diagnosis is from Ansible/oc-mirror output alone, with
-  no OOM-kill/`dmesg`/container-log evidence actually pointing at memory specifically
-  (see §2 for what would confirm it). `deploy_mirror_registry`'s push now retries
-  automatically (safe — already-pushed blobs are deduped on retry), which mitigates a
-  transient overload but won't fix a persistent one; if the same images keep failing
-  across retries on a real run, capture Quay/Postgres/Redis container logs and
-  host-level evidence at that point rather than assuming more RAM will fix it.
+  **Confirmed root cause**: `/var` (backing podman's default container storage) was
+  at 100% utilization on the customer's bastion, not a RAM/CPU constraint — see §2.
+  `deploy_mirror_registry` now fails fast up front with a `/var` free-space check
+  (`bastion_min_free_disk_gb`, default 100GB placeholder) before attempting the
+  install or push; tune that default once a real run's actual `/var` usage for this
+  customer's `oc_mirror_operator_packages` selection is known.

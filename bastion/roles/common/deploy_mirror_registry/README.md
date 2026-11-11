@@ -143,18 +143,25 @@ failed. On final failure after retries, the task greps `{{ mirror_archive_dir
 already points at, but buried at the bottom of a potentially huge stdout dump) and
 surfaces the tail directly in the failure message.
 
-**Root cause not confirmed.** Resource exhaustion (Quay/Redis/Postgres, all running
-as concurrent containers — see `docs/bare-metal-architecture.md` §2 for the known
-headroom risk) under sustained concurrent push load is a plausible explanation for
-Quay returning 500s, but the diagnosis above is from Ansible/oc-mirror output alone —
-no OOM-kill message, `dmesg`, or container logs were available to actually confirm
-it. The retry is a reasonable mitigation for a *transient* overload either way, but
-won't fix a *persistent* one: if the same images fail across all 3 retries on a real
-run, that's a signal to pull `podman logs quay-app`/postgres/redis and host-level
-evidence (`journalctl -k | grep -i 'killed process'`, `podman stats`) at the time of
-failure, rather than assuming more bastion RAM/CPU will resolve it — see
-`docs/bare-metal-architecture.md` §2/§13 for the open sizing question this run left
-unresolved.
+**Root cause confirmed, on the customer's own bastion: `/var` was at 100%
+utilization, not memory/CPU as first suspected.** Podman's default storage root
+(`/var/lib/containers`) backs both `mirror-registry`'s own Quay/Postgres/Redis
+containers and every blob `oc-mirror`/`podman`/`skopeo` stage locally while copying —
+filling it up breaks container storage in a way that surfaces as a registry-side
+`500 Internal Server Error`, not an obvious disk-full error, which is what made this
+one hard to diagnose from the client side alone. The retry above is still useful
+insurance for a genuinely transient blip, but **won't fix this specific failure
+mode** — a persistently full `/var` fails identically on every attempt. See the new
+disk-space check below, added directly in response to this finding.
+
+### Pre-flight disk space check
+
+Before anything else in this role runs, it checks `/var`'s free space (`df -BG
+--output=avail /var`) against `bastion_min_free_disk_gb` (default `100`, an
+unconfirmed placeholder — tune it once a real run's actual `/var` usage for this
+customer's `oc_mirror_operator_packages` selection is known) and fails immediately
+with guidance if it's short, rather than discovering it ~20+ minutes into a "disk to
+mirror" push the way the confirmed incident above did.
 
 The same `base64("user:pass")` value (already in the exact format the pull secret's
 `auth` field needs, since that's what `slurp` returns for the `.init-credentials`
