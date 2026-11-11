@@ -3,15 +3,15 @@ kind: Namespace
 metadata:
   name: openshift-storage
 ---
-apiVersion: operators.coreos.com/v1
-kind: OperatorGroup
-metadata:
-  name: odf-operator-group
-  namespace: openshift-storage
-spec:
-  targetNamespaces:
-    - openshift-storage
----
+# No OperatorGroup here — configure_lvms already creates lvms-operator-group,
+# targeting exactly this same namespace, and must run before this role (see
+# mcg_backing_storage_class's default, which falls back to configure_lvms's own
+# lvms_vg_name). OLM refuses a second OperatorGroup with overlapping
+# targetNamespaces in the same namespace: confirmed live, this previously left the
+# ClusterServiceVersion stuck forever with a "TooManyOperatorGroups" warning and the
+# odf-operator Subscription's resolver reporting an unrelated ConstraintsNotSatisfiable
+# error against the *other* subscription sharing the namespace. One OperatorGroup per
+# namespace is enough for every Subscription that targets it.
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
