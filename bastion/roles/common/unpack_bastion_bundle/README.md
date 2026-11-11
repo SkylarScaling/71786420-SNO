@@ -59,7 +59,8 @@ instead of re-verifying everything from scratch.
 | `bin_dir` | `~/.local/bin` | Same convention used by every other role in this repo that manages its own binaries. |
 | `mirror_archive_dir` | `/opt/mirror-content/archive` | Same variable name (and default) as `deploy_mirror_registry`'s — must match since that's how this role's output reaches that role's input. |
 | `mirror_installers_dir` | `/opt/mirror-installers` | Must match `deploy_mirror_registry`/`configure_bastion_services`'s own default. |
-| `oc_mirror_cache_dir` | `/opt/mirror-registry/oc-mirror-cache` | Must match `deploy_mirror_registry`'s own default — this is where the release-content cache handoff lands. |
+| `mirror_registry_install_dir` | `/opt/mirror-registry` | Same variable name (and default) as `deploy_mirror_registry`'s — only exists here to derive `oc_mirror_cache_dir` below the same way that role does. Override this (not `oc_mirror_cache_dir` directly) if you need to move the install off `/opt`, e.g. onto a bigger volume. |
+| `oc_mirror_cache_dir` | `{{ mirror_registry_install_dir }}/oc-mirror-cache` | Must match `deploy_mirror_registry`'s own resolved value — this is where the release-content cache handoff lands, and `deploy_mirror_registry`'s disk-to-mirror push reads `--cache-dir` from the same path. Derived from `mirror_registry_install_dir` specifically so a single override of that var keeps both roles pointed at the same directory — confirmed live as a real failure mode when this used to be an independent literal: overriding only `mirror_registry_install_dir` left this role writing the handoff to the old path while the push read from the new one, reproducing the "manifest unknown" failure the handoff exists to prevent (see `deploy_mirror_registry`/`stage_mirror_content` READMEs). |
 
 ## Prerequisite
 

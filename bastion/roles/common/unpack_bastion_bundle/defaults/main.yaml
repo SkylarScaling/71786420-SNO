@@ -14,6 +14,18 @@ bin_dir: "~/.local/bin"
 mirror_archive_dir: /opt/mirror-content/archive
 mirror_installers_dir: /opt/mirror-installers
 
-# Same variable name (and default path) deploy_mirror_registry reads this back out
-# of — must match, same reasoning as mirror_archive_dir/mirror_installers_dir above.
-oc_mirror_cache_dir: /opt/mirror-registry/oc-mirror-cache
+# Derived from mirror_registry_install_dir the same way deploy_mirror_registry's own
+# oc_mirror_cache_dir default is (not a separate literal) — confirmed live as a real
+# failure mode: an earlier version of this default was a plain
+# /opt/mirror-registry/oc-mirror-cache literal, so overriding only
+# mirror_registry_install_dir (e.g. to move it onto a bigger /data volume after the
+# disk-space issue documented in deploy_mirror_registry's README) silently left this
+# role still writing the release-content cache handoff into the old /opt path while
+# deploy_mirror_registry's push read --cache-dir from the new one. That split cache
+# reproduced the exact "manifest unknown" failure the handoff exists to prevent
+# (deploy_mirror_registry/stage_mirror_content READMEs, "release-content manifests
+# never make it into the archive at all") — not a regression of that original bug,
+# just this default silently falling out of sync with it. Deriving both from the same
+# var keeps a single override in inventory.yaml correct for both roles.
+mirror_registry_install_dir: /opt/mirror-registry
+oc_mirror_cache_dir: "{{ mirror_registry_install_dir }}/oc-mirror-cache"
