@@ -60,6 +60,11 @@ bastion_packages:
   - dnsmasq
   - httpd
   - tmux
+  # Provides `dig`, used by deploy_mirror_registry's DNS pre-flight check — `getent`
+  # (NSS-based) was found live to keep reporting success off a stale /etc/hosts
+  # entry even after the customer deleted the actual DNS record; `dig` bypasses
+  # /etc/hosts/NSS entirely and queries the configured nameserver directly.
+  - bind-utils
 
 # Repo IDs `dnf download` must be able to resolve bastion_packages (and their
 # dependency closure) against — this staging host's subscription must already have

@@ -17,3 +17,6 @@ bastion_packages:
   - dnsmasq
   - httpd
   - tmux
+  # Must match stage_mirror_content's own copy — provides `dig`, used by
+  # deploy_mirror_registry's DNS pre-flight check (see that role's README).
+  - bind-utils

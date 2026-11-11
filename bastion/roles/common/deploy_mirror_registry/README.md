@@ -10,12 +10,26 @@ runs **on the bastion** (the disconnected target), installs a standalone Quay vi
 `roles/common/generate_install_config`.
 
 Before any of that, fails fast with guidance if `mirror_registry_quay_hostname`
-doesn't resolve (checked via `getent hosts`) — that hostname is a customer DNS
-record (`docs/bare-metal-architecture.md` §9), not something this automation
-provisions, and without this check a missing record wasn't discovered until well
-into the run: `mirror-registry install` (several minutes), `podman login`, and
-`oc-mirror`'s push all independently fail on it with a generic "Temporary failure in
-name resolution"/"Name or service not found" that gives no hint it's a DNS gap.
+doesn't resolve — that hostname is a customer DNS record
+(`docs/bare-metal-architecture.md` §9), not something this automation provisions,
+and without this check a missing record wasn't discovered until well into the run:
+`mirror-registry install` (several minutes), `podman login`, and `oc-mirror`'s push
+all independently fail on it with a generic "Temporary failure in name
+resolution"/"Name or service not found" that gives no hint it's a DNS gap.
+
+Checked with `dig +short` (requires `bind-utils`, mirrored via `bastion_packages`),
+not `getent hosts` as originally written. Confirmed live: a customer deleted the DNS
+record specifically to test this check, but a stale `/etc/hosts` entry on the
+bastion (checked before DNS in NSS order) made `getent` keep reporting success. This
+check's entire purpose is to validate the DNS record the customer owns, so it needs
+to bypass `/etc/hosts`/NSS/any local resolver cache rather than reflect whatever
+this one host happens to have cached or hand-edited — `dig` queries the nameserver
+in `/etc/resolv.conf` directly and skips all of that. This is a deliberate exception
+to "use the same resolution path the real tools use": `podman`/`dnf`/`oc-mirror`
+still resolve through NSS (so a legitimate `/etc/hosts` entry would make them work
+even without DNS), but this pre-flight check specifically needs to catch a missing
+*DNS* record, which is the actual prerequisite documented in
+`docs/bare-metal-architecture.md` §9 — not "resolves somehow on this one host."
 
 `mirror_registry_ca_cert` is set as a fact from the registry's generated root CA, for
 `additionalTrustBundle` in the install-config. The same CA is also written to

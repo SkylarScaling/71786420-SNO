@@ -9,25 +9,42 @@
 # until well into the run: mirror-registry install (several minutes), then podman
 # login, then oc-mirror's push all fail on it independently, each with a generic
 # "Temporary failure in name resolution"/"Name or service not found" that gives no
-# hint it's a DNS gap rather than something this role actually got wrong. Checked
-# with getent (NSS-based, same resolution path dnf/podman/oc-mirror all use) rather
-# than a module that implies network reachability — DNS resolution failing is a
-# different, cheaper-to-diagnose problem than the registry being down.
-- name: Check whether the mirror registry hostname resolves
-  command: "getent hosts {{ mirror_registry_quay_hostname }}"
+# hint it's a DNS gap rather than something this role actually got wrong.
+#
+# Originally checked with `getent hosts` (NSS-based, the same resolution path
+# dnf/podman/oc-mirror all use) rather than a module that implies network
+# reachability. Switched to `dig +short` after a real customer run: the customer
+# deleted the DNS record to test this exact failure path, but a stale
+# /etc/hosts entry (NSS checks files before dns by default) made `getent` keep
+# reporting success — this check exists specifically to validate the *DNS record*
+# the customer owns, so it needs to bypass /etc/hosts and any local resolver cache
+# rather than reflect whatever this one host happens to have cached/hardcoded. `dig`
+# talks to the nameserver(s) in /etc/resolv.conf directly, skipping NSS/files
+# entirely — requires bind-utils, mirrored as part of bastion_packages since the
+# bastion has no internet route to install it directly (see
+# staging/roles/common/stage_mirror_content's defaults).
+- name: Check whether the mirror registry hostname resolves in DNS (bypasses /etc/hosts and NSS so a stale local override can't mask a real DNS gap)
+  command: "dig +short +time=5 +tries=1 {{ mirror_registry_quay_hostname }}"
   register: _mirror_registry_hostname_resolved
   changed_when: false
   failed_when: false
 
-- name: Fail fast with guidance if the mirror registry hostname doesn't resolve
+- name: Fail fast with guidance if the mirror registry hostname doesn't resolve in DNS
   fail:
     msg: >-
-      {{ mirror_registry_quay_hostname }} does not resolve on this host. This is a
+      {{ mirror_registry_quay_hostname }} does not resolve in DNS (checked directly
+      against this host's configured nameserver via `dig`, bypassing /etc/hosts and
+      any local resolver cache — see tasks/main.yaml's comment for why). This is a
       customer DNS record (mirror.<base_domain> -> the bastion's own IP), not
       something this automation creates — see docs/bare-metal-architecture.md §9 for
       the full DNS record list, and confirm the bastion is actually pointed at the
-      customer's DNS server before re-running.
-  when: _mirror_registry_hostname_resolved.rc != 0
+      customer's DNS server before re-running. If this host has a stale
+      /etc/hosts entry for this hostname, remove it too — it won't affect this
+      check, but will still affect every other tool (podman, dnf, oc-mirror) that
+      resolves through NSS.
+  when: >-
+    _mirror_registry_hostname_resolved.rc != 0 or
+    (_mirror_registry_hostname_resolved.stdout | trim | length == 0)
 
 # Confirmed root cause of a real customer failure (the "disk to mirror" push dying
 # partway through with "500 Internal Server Error" from the registry's bearer-token
