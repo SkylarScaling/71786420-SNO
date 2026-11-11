@@ -125,6 +125,27 @@
     dest: "{{ bastion_bundle_export_dir }}/{{ bastion_bundle_name }}"
     format: gz
 
+# A physical-media (or even rsync, over an imperfect link) transfer of a tens-of-GB
+# file has no inherent integrity check of its own — `tar -xzf` on a truncated or
+# bit-flipped archive can fail loudly, but can also partially succeed with silently
+# corrupted content depending on where the damage lands. Computed with `chdir` (not
+# an absolute path) so the checksum file records just the bare filename, matching
+# what `sha256sum -c` expects to find next to it on the bastion regardless of
+# whatever absolute path it lands at there. unpack_bastion_bundle verifies this
+# automatically before trusting the extracted contents — see that role's README.
+- name: Compute a sha256 checksum of the bundle for the bastion to verify after transfer
+  command: "sha256sum {{ bastion_bundle_name }}"
+  args:
+    chdir: "{{ bastion_bundle_export_dir }}"
+  register: _bastion_bundle_checksum
+  changed_when: false
+
+- name: Write the checksum file alongside the bundle
+  copy:
+    content: "{{ _bastion_bundle_checksum.stdout }}\n"
+    dest: "{{ bastion_bundle_export_dir }}/{{ bastion_bundle_name }}.sha256"
+    mode: '0644'
+
 - name: Report the media-transfer next step
   debug:
     msg:
@@ -132,9 +153,12 @@
       - "Bundle packaged"
       - "=================================================================="
       - "Location: {{ bastion_bundle_export_dir }}/{{ bastion_bundle_name }}"
+      - "Checksum: {{ bastion_bundle_export_dir }}/{{ bastion_bundle_name }}.sha256"
       - "------------------------------------------------------------------"
-      - "Next: copy it to removable media, carry it to the bastion, and"
-      - "extract it into an empty working directory there:"
+      - "Next: copy BOTH files to removable media (unpack_bastion_bundle verifies the"
+      - "tar.gz against the .sha256 file automatically, but only if it's present"
+      - "alongside the tar.gz), carry them to the bastion, and extract into an empty"
+      - "working directory there:"
       - "  mkdir -p ~/sno-deploy"
       - "  tar -xzf {{ bastion_bundle_name }} -C ~/sno-deploy"
       - "It unpacks to bastion/, mirror-content/, mirror-installers/, release-cache/, relay-key, and"
@@ -165,11 +189,12 @@
 # needed, unlike the old sync_mirror_to_bastion role: there's no single controller
 # spanning both hosts anymore for the module to get confused about which side is
 # "local".
-- name: Rsync the bundle to the bastion
+- name: Rsync the bundle (and its checksum file) to the bastion
   command: >
     rsync -a
     --rsh="ssh -i /tmp/.bastion_bundle_transfer_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
     {{ bastion_bundle_export_dir }}/{{ bastion_bundle_name }}
+    {{ bastion_bundle_export_dir }}/{{ bastion_bundle_name }}.sha256
     {{ bastion_transfer_user }}@{{ bastion_transfer_host }}:{{ bastion_transfer_dest_dir }}/
   when: bastion_transfer_method == 'rsync'
 
@@ -186,6 +211,9 @@
       - "Bundle pushed to the bastion"
       - "=================================================================="
       - "Destination: {{ bastion_transfer_user }}@{{ bastion_transfer_host }}:{{ bastion_transfer_dest_dir }}/{{ bastion_bundle_name }}"
+      - "(.sha256 checksum file pushed alongside it — unpack_bastion_bundle verifies"
+      - "the tar.gz against it automatically, but only if it's still present"
+      - "alongside the tar.gz when the playbook runs.)"
       - "------------------------------------------------------------------"
       - "Next: SSH to the bastion, extract the bundle into an empty working"
       - "directory, and run the provision playbook:"

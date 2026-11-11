@@ -57,6 +57,22 @@ playbook run. Now staging only ever acts on itself and, optionally, pushes outwa
 there's no cross-host delegation, no "which side is actually local" confusion, and
 no polling loop needed, since this host is the only one doing anything.
 
+## Checksum verification
+
+A `.sha256` file is written alongside the tar.gz (`sha256sum`, computed with `chdir`
+so it records just the bare filename, not an absolute path) and carried to the
+bastion the same way the tar.gz itself is — physically, for `media`, or pushed
+alongside it for `rsync`. This exists because a tens-of-GB transfer over physical
+media or an imperfect rsync link has no integrity check of its own: `tar -xzf` on a
+truncated or corrupted archive can fail loudly, but can also partially succeed with
+silently wrong content depending on where the damage lands.
+`unpack_bastion_bundle` verifies the tar.gz against this checksum automatically,
+before trusting anything extracted from it — see that role's README. For this to
+work, don't delete the tar.gz (or its `.sha256`) until *after* the bastion's
+`provision-sno.yaml` run completes — the report messages below already say this,
+but it matters more now that the checksum needs to still be alongside the tar.gz
+when that playbook starts, not just at copy time.
+
 ## Known gap
 
 No live two-host transfer has been tested yet (no real bastion/staging pair

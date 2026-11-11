@@ -7,6 +7,23 @@ bastion_bundle_dir: "~/sno-deploy"
 
 bin_dir: "~/.local/bin"
 
+# Same default expression as package_bastion_bundle's own bastion_bundle_name (role
+# defaults aren't shared across roles) — must match so this role can find the same
+# tar.gz by name for the checksum verification below.
+bastion_bundle_name: "sno-bastion-bundle-{{ cluster_name }}.tar.gz"
+
+# Where the operator copied the staging-produced tar.gz before extracting it —
+# default assumes the home directory, matching package_bastion_bundle's own "Next:"
+# report instructions. If present (and a matching `.sha256` file shipped alongside
+# it, per package_bastion_bundle), verified against that checksum before this role
+# trusts anything extracted from it — a tens-of-GB physical-media or rsync transfer
+# has no integrity check of its own, and `tar -xzf` can partially succeed on a
+# corrupted archive without erroring. Set to '' to skip verification (e.g. the
+# tar.gz was already deleted after a prior successful run and only the extracted
+# bastion_bundle_dir remains — see tasks/main.yaml for the stat-gating that makes
+# this safe to skip in that case rather than failing).
+bastion_bundle_tarball_path: "~/{{ bastion_bundle_name }}"
+
 # Same variable name (and default path) deploy_mirror_registry reads this back out
 # of — must match, since that's the only thing tying "where this role writes the
 # content" to "where deploy_mirror_registry reads it from" (role defaults aren't

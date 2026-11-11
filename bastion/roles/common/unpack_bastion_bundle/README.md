@@ -14,6 +14,23 @@ below).
 already extracts those itself directly from `mirror_installers_dir` (unchanged
 behavior from before the split).
 
+## Checksum verification before trusting the extracted bundle
+
+Before doing anything else, this role checks for the still-present tar.gz at
+`bastion_bundle_tarball_path` (default `~/{{ bastion_bundle_name }}`) and, if found,
+its adjacent `.sha256` file (written by `package_bastion_bundle` and carried over
+the same way the tar.gz was) — verified with `sha256sum -c`, which fails loudly on
+its own if the tar.gz doesn't match. This exists because physical-media and rsync
+transfers of a tens-of-GB file have no integrity check of their own: `tar -xzf` can
+partially succeed on a truncated or corrupted archive without erroring, so getting
+this far (`bastion-resolved-vars.yaml` readable) doesn't by itself confirm the
+content inside is intact. Both checks are stat-gated and skip cleanly — not an
+error — if the tar.gz was already deleted (e.g. a prior successful run) or no
+`.sha256` shipped alongside it; set `bastion_bundle_tarball_path: ''` to skip this
+explicitly. For this to actually catch anything, don't delete the tar.gz until
+*after* `provision-sno.yaml` completes successfully — see
+`package_bastion_bundle`'s README.
+
 ### Why the release-content cache handoff exists
 
 oc-mirror v2's exported archive doesn't carry the actual manifest/config/layer blob
@@ -60,6 +77,8 @@ instead of re-verifying everything from scratch.
 | --- | --- | --- |
 | `bastion_bundle_dir` | `~/sno-deploy` | Where the staging-produced tar.gz was extracted on this host. Must contain `bastion-resolved-vars.yaml`, `mirror-content/`, and `mirror-installers/` at its root. `release-cache/`/`relay-key` are also expected but not fatal if missing. |
 | `bin_dir` | `~/.local/bin` | Same convention used by every other role in this repo that manages its own binaries. |
+| `bastion_bundle_name` | `sno-bastion-bundle-{{ cluster_name }}.tar.gz` | Same variable name (and default) as `package_bastion_bundle`'s own — must match so this role finds the right `.sha256` file. |
+| `bastion_bundle_tarball_path` | `~/{{ bastion_bundle_name }}` | Where the operator copied the staging-produced tar.gz before extracting it. Verified against its adjacent `.sha256` file if both are present — see "Checksum verification" above. Set to `''` to skip. |
 | `mirror_archive_dir` | `/opt/mirror-content/archive` | Same variable name (and default) as `deploy_mirror_registry`'s — must match since that's how this role's output reaches that role's input. |
 | `mirror_installers_dir` | `/opt/mirror-installers` | Must match `deploy_mirror_registry`/`configure_bastion_services`'s own default. |
 | `mirror_registry_install_dir` | `/opt/mirror-registry` | Same variable name (and default) as `deploy_mirror_registry`'s — only exists here to derive `oc_mirror_cache_dir` below the same way that role does. Override this (not `oc_mirror_cache_dir` directly) if you need to move the install off `/opt`, e.g. onto a bigger volume. |
