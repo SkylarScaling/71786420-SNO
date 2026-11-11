@@ -184,7 +184,7 @@
   command: >
     {{ mirror_registry_install_dir }}/mirror-registry install
     --quayHostname {{ mirror_registry_quay_hostname }}:{{ mirror_registry_quay_port }}
-    --sshKey {{ mirror_registry_ssh_key }}
+    --ssh-key {{ mirror_registry_ssh_key }}
     {{ ('--sslCert ' + mirror_registry_install_dir + '/.ssl.cert --sslKey ' + mirror_registry_install_dir + '/.ssl.key') if mirror_registry_saved_cert.stat.exists else '' }}
   register: mirror_registry_install
 

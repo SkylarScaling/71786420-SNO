@@ -91,8 +91,14 @@ risk of an idle SSH connection getting dropped mid-run.
   `mirror_registry_ssh_key` (default `~/.ssh/quay_installer`, matching
   `mirror-registry`'s own default) if one doesn't already exist, adds it to this
   same user's own `authorized_keys` (mirror-registry connects back to itself as the
-  user running the install), and passes it explicitly via `--sshKey` so the install
-  doesn't depend on whatever mirror-registry's own default resolves to.
+  user running the install), and passes it explicitly via `--ssh-key` (`-k`) so the
+  install doesn't depend on whatever mirror-registry's own default resolves to. Note
+  the inconsistent casing versus this same command's other flags: `--ssh-key` is
+  kebab-case while `--quayHostname`/`--sslCert`/`--sslKey` are camelCase — confirmed
+  directly off the binary's own `--help` output (an earlier version of this task used
+  `--sshKey`, which hit "silently no-ops on bad arguments" below and was caught by
+  the "Fail clearly if mirror-registry install silently did nothing" check rather
+  than failing with a clear "unknown flag" error at the time).
 
 ## Registry auth for the "disk to mirror" push
 
