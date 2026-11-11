@@ -1,5 +1,14 @@
 ---
-lvms_channel: stable
+# "stable" (no major.minor suffix) doesn't exist as a channel on this package at all
+# — confirmed live against the mirrored redhat-operator-index for openshift_version
+# 4.22 (`oc get packagemanifest lvms-operator -o jsonpath='{.status.channels[*].name}'`
+# -> stable-4.21 stable-4.22), which left the Subscription permanently
+# ConstraintsNotSatisfiable. Tied to openshift_version like
+# stage_mirror_content's oc_mirror_operator_packages pin for loki-operator —
+# re-verify with the same packagemanifest lookup (or
+# `oc-mirror list operators --v1 --catalog <index>[:vX.Y] --package lvms-operator`
+# against the mirror staging host) when openshift_version changes.
+lvms_channel: stable-4.22
 lvms_device_paths: []
 lvms_vg_name: vg1
 lvms_thin_pool_name: thin-pool-1

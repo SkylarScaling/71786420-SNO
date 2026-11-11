@@ -1,0 +1,129 @@
+---
+# install-config.yaml's imageContentSources (generate_install_config) only redirects
+# the release image pulls the installer/kubelet/crio need to bootstrap and run the
+# cluster itself — it says nothing to OLM. Left alone, every OLM Subscription in this
+# repo (configure_lvms, configure_mcg, configure_oadp_backup, configure_lokistack,
+# etc. — see each role's `source: redhat-operators|community-operators|
+# certified-operators` template) resolves against the cluster's three default
+# CatalogSources, which still point at registry.redhat.io/
+# registry.connect.redhat.com — unreachable on this fully disconnected cluster.
+# Confirmed live: those CatalogSource pods sit in Init:ImagePullBackOff forever, so
+# every Subscription's "Wait for ... deployment to be ready" task in every
+# roles/ocp/* role times out with resources: [] — no CSV, no Deployment, ever gets
+# created, no matter how long you wait.
+#
+# oc-mirror v2 already generates the fix as plain manifests under
+# {{ mirror_archive_dir }}/working-dir/cluster-resources/ (created by
+# deploy_mirror_registry's "disk to mirror" push, which must run before this role):
+# one CatalogSource (cs-*.yaml) per mirrored operator index pointing at this
+# bastion's own mirror registry, plus ImageDigestMirrorSet/ImageTagMirrorSet
+# (idms-/itms-oc-mirror.yaml) covering every other image reference and a
+# release-signature ConfigMap. oc-mirror's own docs say to apply all of it as-is and
+# reference the new cs-*.yaml CatalogSources by their generated names — but every
+# Subscription template in this repo hardcodes `source: redhat-operators`/
+# `community-operators`/`certified-operators` by name (confirmed: grep every
+# roles/ocp/*/templates/*subscription*.yaml.j2), so that would mean rewriting every
+# one of those templates. Cheaper and more in line with those existing templates:
+# recreate the three *default*-named CatalogSources pointed at the mirrored index
+# image instead, so every existing `source: redhat-operators` etc. keeps working
+# unmodified. The generated cc-*.yaml ClusterCatalogs are olm.operatorframework.io/v1
+# — the newer OLM v1 ClusterExtension API, unrelated to the classic
+# Subscription/CatalogSource (OLM v0) flow every role here actually uses —
+# deliberately not applied.
+- name: Fail fast if oc-mirror's cluster-resources manifests aren't present
+  stat:
+    path: "{{ mirror_archive_dir }}/working-dir/cluster-resources"
+  register: _cluster_resources_dir
+
+- name: Fail with guidance if cluster-resources is missing
+  fail:
+    msg: >
+      {{ mirror_archive_dir }}/working-dir/cluster-resources doesn't exist — did
+      deploy_mirror_registry's oc-mirror "disk to mirror" push run (and succeed)
+      before this role? That push is what generates these manifests.
+  when: not _cluster_resources_dir.stat.exists
+
+- name: Apply the ImageDigestMirrorSet/ImageTagMirrorSet/release-signature manifests
+  command: >
+    {{ bin_dir | default('~/.local/bin') }}/oc apply
+    -f {{ item }}
+    --kubeconfig {{ sno_kubeconfig }}
+  loop:
+    - "{{ mirror_archive_dir }}/working-dir/cluster-resources/idms-oc-mirror.yaml"
+    - "{{ mirror_archive_dir }}/working-dir/cluster-resources/itms-oc-mirror.yaml"
+    - "{{ mirror_archive_dir }}/working-dir/cluster-resources/signature-configmap.yaml"
+  changed_when: true
+
+# The default CatalogSources aren't plain objects the marketplace operator leaves
+# alone once created — it continuously reconciles all three back to their
+# registry.redhat.io image. Confirmed live: a direct `spec.image` patch against
+# redhat-operators/community-operators/certified-operators gets silently reverted
+# within seconds, with no error anywhere. OperatorHub's disableAllDefaultSources is
+# the documented switch that stops the marketplace operator from managing (and
+# recreating) those three specific objects at all, which is what lets the
+# same-named replacements below actually stick.
+- name: Disable the marketplace operator's managed default CatalogSources
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: patched
+    api_version: config.openshift.io/v1
+    kind: OperatorHub
+    name: cluster
+    definition:
+      spec:
+        disableAllDefaultSources: true
+
+# Confirmed live: disabling the defaults above deletes the existing
+# redhat-operators/community-operators/certified-operators CatalogSource objects
+# outright (and their pods) rather than just freezing them in place — recreating them
+# below under the same names is what lets every existing `source: redhat-operators`
+# etc. Subscription template keep working unmodified.
+- name: Find oc-mirror's generated per-catalog CatalogSource manifests
+  find:
+    paths: "{{ mirror_archive_dir }}/working-dir/cluster-resources"
+    patterns: "cs-*-operator-index-*.yaml"
+  register: _catalog_source_manifests
+
+# "cs-redhat-operator-index-v4-22.yaml" -> "redhat-operators" etc. — derived from the
+# filename rather than hardcoded, since it already encodes oc-mirror's own generated
+# CatalogSource name; this is also exactly the cluster's default CatalogSource naming
+# scheme (<catalog>-operators), so no separate name-mapping table to keep in sync with
+# oc_mirror_operator_packages' three catalogs.
+- name: Recreate the default-named CatalogSources pointed at the mirrored index images
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    definition:
+      apiVersion: operators.coreos.com/v1alpha1
+      kind: CatalogSource
+      metadata:
+        name: "{{ item.path | basename | regex_replace('^cs-(.+)-operator-index-.*\\.yaml$', '\\1-operators') }}"
+        namespace: openshift-marketplace
+      spec:
+        sourceType: grpc
+        image: "{{ (lookup('file', item.path) | from_yaml).spec.image }}"
+  loop: "{{ _catalog_source_manifests.files }}"
+
+# IDMS/ITMS are cluster-wide config.openshift.io objects — the Machine Config
+# Operator renders them into every node's /etc/containers/registries.conf, and that
+# render has to roll out (new MachineConfig applied, kubelet/crio picks it up) before
+# it actually takes effect, not just the API object existing. Confirmed live:
+# finishes well within a couple of minutes on a real run (no node reboot observed for
+# this particular change), but the very next task (an OLM Subscription depending on
+# the recreated CatalogSources) can otherwise race the rollout and intermittently
+# still resolve against the stale, pre-mirror registries.conf. "master" is a
+# single-node cluster's only MachineConfigPool, same one every other MCO-rollout wait
+# in this repo targets.
+- name: Wait for the MachineConfigPool to finish rolling out the new registries.conf
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: machineconfiguration.openshift.io/v1
+    kind: MachineConfigPool
+    name: master
+  register: _mcp_status
+  until: >
+    _mcp_status.resources | length > 0
+    and _mcp_status.resources[0].status.updatedMachineCount | default(0) == _mcp_status.resources[0].status.machineCount | default(-1)
+    and _mcp_status.resources[0].status.readyMachineCount | default(0) == _mcp_status.resources[0].status.machineCount | default(-1)
+  retries: 60
+  delay: 30

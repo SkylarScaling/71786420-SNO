@@ -1,5 +1,12 @@
 ---
-mcg_channel: stable   # the odf-operator package's channel
+# odf-operator's channel. "stable" (no major.minor suffix) doesn't exist on this
+# package — confirmed live against the mirrored redhat-operator-index for
+# openshift_version 4.22 (`oc get packagemanifest odf-operator -o
+# jsonpath='{.status.channels[*].name}'` -> stable-4.21 stable-4.22), which left the
+# Subscription permanently ConstraintsNotSatisfiable. Tied to openshift_version, same
+# as configure_lvms's lvms_channel — re-verify with the same packagemanifest lookup
+# when openshift_version changes.
+mcg_channel: stable-4.22
 
 # Sized to fit comfortably under the hardware RAID5 array's usable capacity, with
 # headroom left for LVMS-backed PVs used by other workloads on the same volume group.

@@ -1,5 +1,13 @@
 ---
-logging_channel: stable
+# cluster-logging package's channel. "stable" (no version suffix) doesn't exist on
+# this package — confirmed live against the mirrored redhat-operator-index for
+# openshift_version 4.22 (`oc get packagemanifest cluster-logging -o
+# jsonpath='{.status.channels[*].name}'` -> stable-6.5 stable-6.6 stable-6.7), which
+# left the Subscription permanently ConstraintsNotSatisfiable. Tracks
+# stage_mirror_content's oc_mirror_operator_packages pin for loki-operator
+# (stable-6.7, same release train) — re-verify both together when openshift_version
+# changes.
+logging_channel: stable-6.7
 log_forward_type: syslog   # syslog | http | kafka — matches your SIEM's intake method
 
 # Adds a second output alongside the SIEM one above, sending the same

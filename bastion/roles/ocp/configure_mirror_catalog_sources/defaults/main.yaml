@@ -1,0 +1,5 @@
+---
+# Must match unpack_bastion_bundle/deploy_mirror_registry's own default — same
+# "each role declares the vars it needs, literals kept in sync" pattern already used
+# throughout bastion/roles/common for this value.
+mirror_archive_dir: /opt/mirror-content/archive

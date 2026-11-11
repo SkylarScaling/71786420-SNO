@@ -110,10 +110,10 @@ bastion/
                                   #   bastions are assumed to already have these pre-baked into their image
   inventory/inventory.yaml      # minimal placeholder — localhost only
   playbooks/
-    provision-sno-baremetal.yaml    # unpack bundle -> prepare bastion -> mirror registry -> install-config -> agent ISO -> BMC boot -> wait for install
+    provision-sno-baremetal.yaml    # unpack bundle -> prepare bastion -> mirror registry -> install-config -> agent ISO -> BMC boot -> wait for install -> configure mirror CatalogSources
     provision-sno-aws.yaml          # unpack bundle -> mirror registry -> install-config -> package it back to staging
     destroy-sno-baremetal.yaml
-    unpack-cluster-access.yaml      # AWS only: unpack the kubeconfig staging hands back
+    unpack-cluster-access.yaml      # AWS only: unpack the kubeconfig staging hands back -> configure mirror CatalogSources
     configure-storage.yaml / configure-metallb.yaml / configure-logging.yaml /
     configure-tracing.yaml / configure-alerting.yaml / configure-backup-dr.yaml /
     configure-middleware.yaml
@@ -127,7 +127,7 @@ bastion/
   roles/
     common/    # bundle unpack/package, mirror registry install, install-config rendering, kubeconfig wait, bastion services, backup export
     baremetal/ # bastion prep, agent ISO generation, BMC boot
-    ocp/       # Day 2 features: LVMS/MCG, OADP, logging, tracing, MetalLB, middleware, upgrades, Quay — identical across both providers
+    ocp/       # Day 2 features: mirror CatalogSources, LVMS/MCG, OADP, logging, tracing, MetalLB, middleware, upgrades, Quay — identical across both providers
 docs/          # architecture reference (bare-metal-architecture.md is provider-agnostic/customer-facing; aws-test-environment-architecture.md is AWS-only)
 ```
 

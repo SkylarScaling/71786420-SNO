@@ -1,5 +1,13 @@
 ---
-oadp_channel: stable-1.4
+# redhat-oadp-operator's channel. "stable-1.4" doesn't exist on this package —
+# confirmed live against the mirrored redhat-operator-index for openshift_version
+# 4.22 (`oc get packagemanifest redhat-oadp-operator -o
+# jsonpath='{.status.channels[*].name}'` -> stable only, no per-OADP-version
+# suffixed channels on this catalog), which left the Subscription permanently
+# ConstraintsNotSatisfiable. Re-verify with the same packagemanifest lookup when
+# openshift_version changes — this package may start publishing version-suffixed
+# channels on a future index.
+oadp_channel: stable
 
 # Targets the in-cluster NooBaa S3 endpoint provided by roles/ocp/configure_mcg —
 # the only backend this role supports. No external dependency; works unmodified on

@@ -3,7 +3,9 @@
 # bastion after staging's provision-sno-aws.yaml finishes and hands the kubeconfig
 # back (package_kubeconfig_bundle). Run this before any configure-*.yaml day-2
 # playbook — they all need sno_kubeconfig to exist here. Bare metal never needs this:
-# wait_for_sno_install already writes the kubeconfig directly on the bastion there.
+# wait_for_sno_install already writes the kubeconfig directly on the bastion there
+# and applies configure_mirror_catalog_sources itself, right there, as part of
+# provision-sno-baremetal.yaml.
 - name: Unpack the cluster kubeconfig staging handed back
   hosts: localhost
   connection: local
@@ -12,3 +14,6 @@
   tasks:
     - include_role:
         name: unpack_kubeconfig_bundle
+
+    - include_role:
+        name: configure_mirror_catalog_sources
