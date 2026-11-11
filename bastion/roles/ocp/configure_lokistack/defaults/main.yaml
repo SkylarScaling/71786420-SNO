@@ -38,7 +38,13 @@ loki_namespace: openshift-logging
 # Block storage class backing LokiStack's own WAL/index PVCs (distinct from the
 # object storage bucket below, which NooBaa provides). Falls back to configure_lvms's
 # default VG name, same pattern as configure_onprem_quay's quay_storage_class.
-loki_storage_class: "{{ lvms_vg_name | default('vg1') }}"
+# "lvms-" prefix required — LVMS's own auto-created default-deviceClass StorageClass
+# is named lvms-<vg name> (confirmed live: `oc get sc` shows lvms-vg1, not vg1, for
+# lvms_vg_name: vg1), not the bare VG name. Only configure_lvms's own explicitly
+# role-created vg1-retain StorageClass uses the bare name directly — that one's a
+# plain StorageClass object this repo creates itself with that literal name, not
+# LVMS's auto-named one.
+loki_storage_class: "lvms-{{ lvms_vg_name | default('vg1') }}"
 
 # Standard LokiStack-generated Service name convention: `<LokiStack name>-<component>-http`.
 # This role, configure_grafana's Loki datasource, and configure_log_forwarding's

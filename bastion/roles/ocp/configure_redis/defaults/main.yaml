@@ -2,7 +2,10 @@
 redis_namespace: redis
 redis_replicas: 1
 redis_storage_size: 5Gi
-redis_storage_class: "{{ lvms_vg_name | default('vg1') }}"
+# "lvms-" prefix required — LVMS's own auto-created default-deviceClass StorageClass
+# is named lvms-<vg name> (confirmed live: `oc get sc` shows lvms-vg1, not vg1), not
+# the bare VG name.
+redis_storage_class: "lvms-{{ lvms_vg_name | default('vg1') }}"
 
 # No Redis Operator in use here (Redis Enterprise requires separate
 # licensing beyond the OperatorHub subscription model this repo otherwise

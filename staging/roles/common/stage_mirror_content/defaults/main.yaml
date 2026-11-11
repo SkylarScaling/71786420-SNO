@@ -108,7 +108,32 @@ oc_mirror_operator_packages:
   - lvms-operator
   - redhat-oadp-operator
   - cluster-logging
+  # odf-operator (used by configure_mcg) is a thin "operator of operators" as of the
+  # ODF 4.19+ architecture, not a self-contained package — confirmed live, its
+  # controller-manager dynamically creates Subscriptions for every package below the
+  # moment it starts, and fails forever (InstallPlan not found, ConstraintsNotSatisfiable)
+  # if even one of them isn't present in the mirrored catalog, regardless of whether
+  # configure_mcg's standalone-NooBaa approach ever actually needs a CephCluster.
+  # List pulled directly from the odf-operator-controller-manager pod's own logs
+  # ("subscriptions records") against openshift_version 4.22 — IBM Storage Scale
+  # entries (ibm-block-csi-operator, ibm-spectrum-scale-operator,
+  # ibm-storage-odf-operator, cnsa-dependencies) omitted, not used by this repo. All
+  # pinned to channel stable-4.22, same as odf-operator itself — re-verify this whole
+  # set (`oc logs deploy/odf-operator-controller-manager -n openshift-storage` after
+  # installing odf-operator fresh against a new catalog) when openshift_version
+  # changes, not just odf-operator's own channel.
   - odf-operator                                                              # configure_mcg
+  - { name: odf-dependencies, channel: stable-4.22 }                          # configure_mcg — odf-operator dependency
+  - { name: mcg-operator, channel: stable-4.22 }                              # configure_mcg — odf-operator dependency
+  - { name: ocs-operator, channel: stable-4.22 }                              # configure_mcg — odf-operator dependency
+  - { name: rook-ceph-operator, channel: stable-4.22 }                        # configure_mcg — odf-operator dependency
+  - { name: cephcsi-operator, channel: stable-4.22 }                          # configure_mcg — odf-operator dependency
+  - { name: ocs-client-operator, channel: stable-4.22 }                       # configure_mcg — odf-operator dependency
+  - { name: ocs-tls-profiles, channel: stable-4.22 }                          # configure_mcg — odf-operator dependency
+  - { name: odf-csi-addons-operator, channel: stable-4.22 }                   # configure_mcg — odf-operator dependency
+  - { name: odf-external-snapshotter-operator, channel: stable-4.22 }         # configure_mcg — odf-operator dependency
+  - { name: odf-prometheus-operator, channel: stable-4.22 }                   # configure_mcg — odf-operator dependency
+  - { name: recipe, channel: stable-4.22 }                                    # configure_mcg — odf-operator dependency
   - { name: loki-operator, channel: stable-6.7 }                              # configure_lokistack — pinned for openshift_version 4.22, re-verify on upgrade
   - { name: grafana-operator, catalog: community, channel: v5 }               # configure_grafana — not in redhat-operator-index
   - opentelemetry-product                                                     # configure_opentelemetry

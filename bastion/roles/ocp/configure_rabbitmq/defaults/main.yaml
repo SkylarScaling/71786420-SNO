@@ -14,8 +14,10 @@ rabbitmq_replicas: 1
 rabbitmq_storage_size: 10Gi
 # Cross-role default: reuses the LVMS volume group name from configure_lvms
 # when that role has already set lvms_vg_name as a fact/var; falls back to
-# the same literal default LVMS itself uses otherwise.
-rabbitmq_storage_class: "{{ lvms_vg_name | default('vg1') }}"
+# the same literal default LVMS itself uses otherwise. "lvms-" prefix required —
+# LVMS's own auto-created default-deviceClass StorageClass is named lvms-<vg name>
+# (confirmed live: `oc get sc` shows lvms-vg1, not vg1), not the bare VG name.
+rabbitmq_storage_class: "lvms-{{ lvms_vg_name | default('vg1') }}"
 
 # Keep cheap/simple: no LoadBalancer Service unless explicitly requested, and
 # only useful once roles/ocp/configure_metallb has provisioned an

@@ -16,8 +16,10 @@ tempo_size: 1x.extra-small
 tempo_stack_name: "{{ cluster_name }}-tempo"
 
 # Block storage for TempoStack's own local/WAL storage, same cross-role fallback
-# pattern as configure_lokistack's loki_storage_class.
-tempo_storage_class: "{{ lvms_vg_name | default('vg1') }}"
+# pattern as configure_lokistack's loki_storage_class. "lvms-" prefix required —
+# LVMS's own auto-created default-deviceClass StorageClass is named lvms-<vg name>
+# (confirmed live: `oc get sc` shows lvms-vg1, not vg1), not the bare VG name.
+tempo_storage_class: "lvms-{{ lvms_vg_name | default('vg1') }}"
 
 # Master switch consumed by configure_grafana to gate its Tempo datasource — keep
 # this name identical in both roles.

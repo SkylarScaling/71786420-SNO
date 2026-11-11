@@ -17,4 +17,7 @@ mcg_backing_pvc_size: 500Gi
 # Cross-role default reference, same pattern as configure_onprem_quay's
 # quay_storage_class: fall back to configure_lvms's default VG name so this role
 # "just works" against the default LVMS setup, but still override-able per-environment.
-mcg_backing_storage_class: "{{ lvms_vg_name | default('vg1') }}"
+# "lvms-" prefix required — LVMS's own auto-created default-deviceClass StorageClass
+# is named lvms-<vg name> (confirmed live: PVC stuck Pending with "storageclass
+# \"vg1\" not found" until this was corrected to lvms-vg1), not the bare VG name.
+mcg_backing_storage_class: "lvms-{{ lvms_vg_name | default('vg1') }}"

@@ -1,6 +1,9 @@
 ---
 quay_channel: stable-3.13
-quay_storage_class: "{{ lvms_vg_name | default('vg1') }}"
+# "lvms-" prefix required — LVMS's own auto-created default-deviceClass StorageClass
+# is named lvms-<vg name> (confirmed live: `oc get sc` shows lvms-vg1, not vg1), not
+# the bare VG name.
+quay_storage_class: "lvms-{{ lvms_vg_name | default('vg1') }}"
 quay_storage_size: 200Gi
 # Single replica by default — no HA requirement at this scale, and keeping Quay
 # lightweight matters more than registry availability on a true SNO. Bump this (and
