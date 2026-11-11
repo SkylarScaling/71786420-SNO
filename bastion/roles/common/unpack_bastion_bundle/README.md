@@ -62,6 +62,21 @@ instead of re-verifying everything from scratch.
 | `mirror_registry_install_dir` | `/opt/mirror-registry` | Same variable name (and default) as `deploy_mirror_registry`'s — only exists here to derive `oc_mirror_cache_dir` below the same way that role does. Override this (not `oc_mirror_cache_dir` directly) if you need to move the install off `/opt`, e.g. onto a bigger volume. |
 | `oc_mirror_cache_dir` | `{{ mirror_registry_install_dir }}/oc-mirror-cache` | Must match `deploy_mirror_registry`'s own resolved value — this is where the release-content cache handoff lands, and `deploy_mirror_registry`'s disk-to-mirror push reads `--cache-dir` from the same path. Derived from `mirror_registry_install_dir` specifically so a single override of that var keeps both roles pointed at the same directory — confirmed live as a real failure mode when this used to be an independent literal: overriding only `mirror_registry_install_dir` left this role writing the handoff to the old path while the push read from the new one, reproducing the "manifest unknown" failure the handoff exists to prevent (see `deploy_mirror_registry`/`stage_mirror_content` READMEs). |
 
+**If you're changing `mirror_registry_install_dir`/`oc_mirror_cache_dir` on a bastion
+that's already run this role once**, do it *before* that first run, or be aware the
+fix alone isn't enough afterward: this role unconditionally deletes
+`bastion_bundle_dir/release-cache` (and `mirror-content`/`mirror-installers`) once
+it's copied into place (see "Remove the now-redundant..." in `tasks/main.yaml`), on
+the assumption the copy landed somewhere this role will keep reading from. If an
+earlier run already merged the handoff into a now-stale path and deleted the source,
+simply re-running with the corrected var does nothing — the stat guarding the copy
+finds no source left in `bastion_bundle_dir` and skips it, leaving the new path
+empty. Confirmed live exactly this way during the `mirror_registry_install_dir`
+move to a bigger volume: the content wasn't lost, just stranded at the old resolved
+`oc_mirror_cache_dir` path from the first run — `rsync -a <old
+oc_mirror_cache_dir>/ <new oc_mirror_cache_dir>/` recovers it without re-extracting
+the bundle from scratch.
+
 ## Prerequisite
 
 Extract the tar.gz `package_bastion_bundle` produced on staging into
