@@ -183,6 +183,27 @@ the role's `defaults/main.yaml` for the confirmed values used by the roles below
 Every feature role below that installs an operator needs its package present in this
 list with a matching channel/catalog.
 
+Mirroring the operator content to the bastion's registry is necessary but not
+sufficient — OLM still resolves every `Subscription` in this repo against the
+cluster's three *default* CatalogSources (`redhat-operators`/`community-operators`/
+`certified-operators`), which point at `registry.redhat.io`/
+`registry.connect.redhat.com` out of the box and are unreachable here. Confirmed
+live: left alone, those CatalogSource pods sit in `Init:ImagePullBackOff` forever and
+every Subscription just never resolves. `bastion/roles/ocp/
+configure_mirror_catalog_sources` (called once, right after the kubeconfig first
+exists — the last step of `provision-sno.yaml`) fixes this: it applies the
+`ImageDigestMirrorSet`/`ImageTagMirrorSet`/release-signature manifests oc-mirror v2
+already generates under `{{ mirror_archive_dir }}/working-dir/cluster-resources/`,
+disables OperatorHub's managed default sources (`disableAllDefaultSources: true` —
+confirmed live, a plain `spec.image` patch against a default CatalogSource gets
+silently reverted within seconds otherwise), and recreates all three *under the same
+names* pointed at the mirrored index images, so every existing `source:
+redhat-operators` etc. in this repo's Subscription templates keeps working
+unmodified. It also waits for the resulting MachineConfigPool rollout (the IDMS/ITMS
+content only takes effect once `/etc/containers/registries.conf` is re-rendered on
+the node) before returning, so the Subscription tasks that immediately follow don't
+race it.
+
 `package_bastion_bundle` and (for backup export, §8) `package_staging_bundle`
 default to physical media precisely because no live network path between staging and
 the bastion is assumed. Where one genuinely exists (e.g. during initial bring-up

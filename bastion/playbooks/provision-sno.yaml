@@ -38,3 +38,6 @@
 
     - include_role:
         name: wait_for_sno_install
+
+    - include_role:
+        name: configure_mirror_catalog_sources
