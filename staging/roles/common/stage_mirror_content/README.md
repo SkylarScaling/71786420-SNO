@@ -90,6 +90,19 @@ of needing to reconstruct it from the archive. Confirmed ~20GiB for this subset 
 handoff's output, with no other prior state, mirrored all 306 images successfully
 end to end, including every previously-failing release-component image.
 
+**A second, separate repo has the identical defect: `openshift/release-images`.**
+Confirmed live on a real customer run, after the `openshift/release` fix above was
+already in place: 188/192 release-component images mirrored successfully, but the
+release *payload* image itself (`openshift/release-images:4.22.20-x86_64`, what
+`ocp-release` actually resolves to) still failed with the same `manifest unknown` —
+the handoff task only ever scanned `openshift/release`. `release_cache_repo_names`
+in the "Build the release-content cache handoff" task is now a list (currently
+`[release, release-images]`), looped over for both digest discovery and the
+repo-metadata copy, rather than a single hardcoded path. If a third
+`manifest unknown` ever surfaces against another `openshift/*` synthetic repo, add
+its name to that list — nothing here enumerates oc-mirror's own synthetic repos up
+front, so this list is "confirmed gaps found so far," not a closed set.
+
 ## Platform release pinning
 
 `imageset-config.yaml.j2`'s `mirror.platform.channels` entry pins both `minVersion`

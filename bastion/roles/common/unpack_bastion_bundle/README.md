@@ -17,14 +17,17 @@ behavior from before the split).
 ### Why the release-content cache handoff exists
 
 oc-mirror v2's exported archive doesn't carry the actual manifest/config/layer blob
-content for the `openshift/release` repo's per-component synthetic tags (e.g.
-`openshift/release:4.22.17-x86_64-cluster-kube-apiserver-operator`) — only the
-lightweight tag/revision pointer files. Confirmed live: without this content already
-present in `deploy_mirror_registry`'s `--cache-dir`, its disk-to-mirror step fails
-immediately with `manifest unknown` on the first release-component image, since a
-fresh cache-dir (all a separate bastion machine can ever have) can't reconstruct that
-content from the archive alone. `stage_mirror_content`'s "Build the release-content
-cache handoff" task computes the minimal blob subset needed (confirmed ~20GiB vs the
+content for two synthetic `openshift/*` repos — `openshift/release` (per-component
+tags, e.g. `openshift/release:4.22.17-x86_64-cluster-kube-apiserver-operator`) and
+`openshift/release-images` (the top-level release payload tag itself, e.g.
+`openshift/release-images:4.22.20-x86_64`, confirmed live as a second, separate
+instance of the same gap) — only the lightweight tag/revision pointer files.
+Confirmed live: without this content already present in `deploy_mirror_registry`'s
+`--cache-dir`, its disk-to-mirror step fails immediately with `manifest unknown` on
+whichever of these is encountered first, since a fresh cache-dir (all a separate
+bastion machine can ever have) can't reconstruct that content from the archive
+alone. `stage_mirror_content`'s "Build the release-content cache handoff" task
+computes the minimal blob subset needed across both repos (confirmed ~20GiB vs the
 full ~60GiB cache in a real run) and `package_bastion_bundle` carries it here as
 `release-cache/`, laid out identically to oc-mirror's own
 `.oc-mirror/.cache/docker/registry/v2/...` cache structure so it drops straight into

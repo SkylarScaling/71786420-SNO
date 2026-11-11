@@ -285,35 +285,51 @@
   when: _stage_mirror_status.rc | default(0) != 0
 
 # oc-mirror v2's exported mirror_NNNNNN.tar archive never includes the actual
-# manifest/config/layer blob content for the openshift/release repo's per-component
-# synthetic tags (e.g. openshift/release:4.22.17-x86_64-cluster-kube-apiserver-operator)
-# — only lightweight tag/revision "link" pointer files. Confirmed live (real bastion,
-# same-host no-transfer reproduction, and direct `tar tvf` inspection of the
-# archive): deploy_mirror_registry's disk-to-mirror step fails immediately with
-# "manifest unknown" on the first release-component image, since a fresh --cache-dir
-# on a separate bastion machine has no other way to reconstruct that content from the
-# archive alone. Operator bundle content IS fully archived — this gap is specific to
-# openshift/release's component tags. The fix: compute the minimal blob subset this
-# cache's own openshift/release repo metadata actually references (digests reachable
-# from each tag's manifest: config + layers + any nested manifests for multi-arch),
-# hardlink just those into a handoff directory laid out exactly like oc-mirror's own
-# --cache-dir structure, and ship that alongside the bundle (package_bastion_bundle)
-# for unpack_bastion_bundle to merge into the bastion's own --cache-dir before
+# manifest/config/layer blob content for two synthetic openshift/ repos — only
+# lightweight tag/revision "link" pointer files:
+#   - openshift/release: the per-component tags (e.g.
+#     openshift/release:4.22.17-x86_64-cluster-kube-apiserver-operator)
+#   - openshift/release-images: the top-level release payload tag itself (e.g.
+#     openshift/release-images:4.22.20-x86_64, what `ocp-release` actually resolves
+#     to) — confirmed live as a SEPARATE gap from the one above: fixing
+#     openshift/release alone got 188/192 release images mirroring successfully, but
+#     the release payload image itself still failed with "manifest unknown" against
+#     openshift/release-images, since the handoff only ever scanned openshift/release.
+# Confirmed live (real bastion, same-host no-transfer reproduction, and direct
+# `tar tvf` inspection of the archive): deploy_mirror_registry's disk-to-mirror step
+# fails with "manifest unknown" on these, since a fresh --cache-dir on a separate
+# bastion machine has no other way to reconstruct that content from the archive
+# alone. Operator bundle content IS fully archived — this gap is specific to these
+# two synthetic repos. The fix: for each, compute the minimal blob subset this
+# cache's own repo metadata actually references (digests reachable from each tag's
+# manifest: config + layers + any nested manifests for multi-arch), hardlink just
+# those into a handoff directory laid out exactly like oc-mirror's own --cache-dir
+# structure, and ship that alongside the bundle (package_bastion_bundle) for
+# unpack_bastion_bundle to merge into the bastion's own --cache-dir before
 # deploy_mirror_registry runs. Confirmed ~20GiB for this subset vs ~60GiB for the
-# full cache in a real run — see this role's README for the full investigation.
+# full cache in a real run — see this role's README for the full investigation. If a
+# third "manifest unknown" surfaces against yet another openshift/* synthetic repo,
+# add it to release_cache_repo_names below rather than assuming these two are the
+# complete set — nothing here enumerates oc-mirror's own synthetic repos up front.
 - name: Build the release-content cache handoff for the bastion's disk-to-mirror step
   vars:
     release_registry_v2_dir: "{{ oc_mirror_workspace }}/cache/.oc-mirror/.cache/docker/registry/v2"
-    release_repo_dir: "{{ oc_mirror_workspace }}/cache/.oc-mirror/.cache/docker/registry/v2/repositories/openshift/release"
+    release_cache_repo_names:
+      - release
+      - release-images
   shell: |
-    python3 - "{{ release_registry_v2_dir }}" "{{ release_repo_dir }}" "{{ release_cache_handoff_dir }}/.oc-mirror/.cache/docker/registry/v2" << 'PYEOF'
+    python3 - "{{ release_registry_v2_dir }}" "{{ release_cache_handoff_dir }}/.oc-mirror/.cache/docker/registry/v2" {{ release_cache_repo_names | join(' ') }} << 'PYEOF'
     import json, os, shutil, sys
 
-    registry_v2_dir, repo_src, handoff_v2_dir = sys.argv[1:4]
-    revisions_dir = os.path.join(repo_src, "_manifests/revisions/sha256")
+    registry_v2_dir, handoff_v2_dir = sys.argv[1:3]
+    repo_names = sys.argv[3:]
 
     digests = set()
-    if os.path.isdir(revisions_dir):
+    for repo_name in repo_names:
+        repo_src = os.path.join(registry_v2_dir, "repositories/openshift", repo_name)
+        revisions_dir = os.path.join(repo_src, "_manifests/revisions/sha256")
+        if not os.path.isdir(revisions_dir):
+            continue
         for rev in os.listdir(revisions_dir):
             digests.add(rev)
             blob_path = os.path.join(registry_v2_dir, "blobs/sha256", rev[:2], rev, "data")
@@ -347,13 +363,16 @@
             shutil.copy2(src, dst)
         linked += 1
 
-    if os.path.isdir(repo_src):
-        repo_dst = os.path.join(handoff_v2_dir, "repositories/openshift/release")
+    for repo_name in repo_names:
+        repo_src = os.path.join(registry_v2_dir, "repositories/openshift", repo_name)
+        if not os.path.isdir(repo_src):
+            continue
+        repo_dst = os.path.join(handoff_v2_dir, "repositories/openshift", repo_name)
         if os.path.exists(repo_dst):
             shutil.rmtree(repo_dst)
         shutil.copytree(repo_src, repo_dst)
 
-    print(f"release-cache-handoff: {len(digests)} referenced digests, {linked} blobs linked")
+    print(f"release-cache-handoff: {len(digests)} referenced digests, {linked} blobs linked, repos: {', '.join(repo_names)}")
     PYEOF
   args:
     executable: /bin/bash
