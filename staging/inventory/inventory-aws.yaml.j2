@@ -30,6 +30,16 @@ all:
     aws_secret_access_key: "{{ aws_creds.aws_secret_access_key }}"
     aws_region: "{{ aws_creds.aws_region }}"
 {% endraw %}
+    # mirror-staging's public IP/user — needed on the bastion (not just here) so
+    # print_cluster_connection_info can print the SOCKS tunnel command for reaching
+    # the console: the default Ingress's ELB is VPC-internal (aws_configure_manual_dns
+    # sets scope: Internal, since the SNO node has no internet route), so a browser
+    # can't resolve/route to it directly the way it can the public api ELB
+    # (publish: External). mirror-staging sits in the public subnet with a route to
+    # that internal ELB, making it the tunnel endpoint. See bastion-resolved-vars.yaml.j2
+    # for how this reaches the bastion.
+    mirror_staging_public_ip: {{ mirror_staging_public_ip }}
+    mirror_staging_ssh_user: {{ mirror_staging_ssh_user }}
     sno_vpc_id: {{ sno_vpc_id }}
     sno_vpc_cidr: {{ sno_vpc_cidr }}
     sno_private_subnet_id: {{ sno_private_subnet_id }}

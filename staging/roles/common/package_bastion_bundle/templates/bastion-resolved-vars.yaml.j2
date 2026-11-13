@@ -47,6 +47,11 @@ service_network_cidr: "{{ service_network_cidr }}"
 # connection-info message), consumed here by bastion/roles/common/
 # generate_install_config's AWS branch.
 aws_region: "{{ aws_region }}"
+# Needed by print_cluster_connection_info to print the SOCKS tunnel command for
+# reaching the console (VPC-internal Ingress ELB) from outside the VPC — see
+# inventory-aws.yaml.j2's comment on these same two vars for the full reasoning.
+mirror_staging_public_ip: "{{ mirror_staging_public_ip }}"
+mirror_staging_ssh_user: "{{ mirror_staging_ssh_user }}"
 sno_vpc_id: "{{ sno_vpc_id }}"
 sno_vpc_cidr: "{{ sno_vpc_cidr }}"
 sno_private_subnet_id: "{{ sno_private_subnet_id }}"

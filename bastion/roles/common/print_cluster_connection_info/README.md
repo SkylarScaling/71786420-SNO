@@ -27,8 +27,23 @@ cluster, same as every other `roles/ocp/*`/`roles/common/*` role.
   - **AWS**: that's `staging` (`aws_provision_sno_ipi`), never copied to the bastion.
     This role prints a note pointing at staging's `install_dir` instead of a path
     that doesn't exist here.
+- `SOCKS tunnel command` — **AWS only** (`infra_provider == 'aws'`). `generate_install_config`
+  sets `publish: External`, so the API load balancer is internet-reachable directly —
+  but `aws_configure_manual_dns` deliberately sets the default Ingress's ELB to
+  `scope: Internal` (the SNO node has no internet route, so an internet-facing apps
+  ELB would be unreachable from inside the cluster's own machine network). Confirmed
+  live: the console hostname resolves publicly but only to an
+  `internal-*.elb.amazonaws.com` with private IPs — a laptop outside the VPC can't
+  route to it directly. This prints the `ssh -D ... -N` command through
+  `mirror-staging` (public subnet, same VPC, has a route to that private ELB) needed
+  to reach the console from a local browser via a SOCKS5 proxy. Bare metal has no
+  such split (the console is directly reachable on the customer's own LAN), so this
+  block doesn't print there.
 
 ## Variables
 
 Uses only variables already set elsewhere in this repo — no new defaults file:
-`sno_kubeconfig`, `install_dir`.
+`sno_kubeconfig`, `install_dir`, `infra_provider`, and (AWS only)
+`mirror_staging_public_ip`/`mirror_staging_ssh_user` (added to
+`staging/inventory/inventory-aws.yaml.j2` and carried to the bastion via
+`bastion-resolved-vars.yaml.j2` — see those files' comments).

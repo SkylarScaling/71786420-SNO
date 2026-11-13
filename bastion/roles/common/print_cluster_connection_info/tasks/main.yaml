@@ -85,3 +85,27 @@
       {{ install_dir }}/auth/kubeadmin-password if you need password (vs.
       token/cert) auth.
   when: not _print_connection_kubeadmin_stat.stat.exists
+
+# AWS only: publish: External (see generate_install_config) makes the api load
+# balancer internet-reachable directly, but aws_configure_manual_dns deliberately
+# sets the default Ingress's ELB to scope: Internal (the SNO node itself has no
+# internet route, so an internet-facing apps ELB would be unreachable from inside the
+# cluster's own machine network) — confirmed live, the console hostname resolves
+# publicly but only to an internal-*.elb.amazonaws.com with private IPs, so a laptop
+# outside the VPC can't route to it directly the way it can the API. mirror-staging
+# sits in the public subnet with a real route to that private ELB (same VPC), making
+# it the natural SOCKS tunnel endpoint. Bare metal has no such split — the console is
+# directly reachable on the customer's own LAN — so this block is AWS-only.
+- name: Report the SOCKS tunnel command for reaching the console (AWS only)
+  debug:
+    msg:
+      - "------------------------------------------------------------------"
+      - "AWS only: the web console above is on a VPC-internal load balancer and"
+      - "isn't reachable directly from outside the VPC. To reach it from your"
+      - "local browser, open a SOCKS tunnel through mirror-staging (public subnet,"
+      - "same VPC):"
+      - "  ssh -D 8080 -N {{ mirror_staging_ssh_user }}@{{ mirror_staging_public_ip }}"
+      - "Then point your browser at a SOCKS5 proxy on 127.0.0.1:8080 with 'Proxy DNS"
+      - "when using SOCKS' enabled (the console hostname only resolves to something"
+      - "routable from inside the VPC) and browse to the console URL above."
+  when: infra_provider == 'aws'

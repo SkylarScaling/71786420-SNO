@@ -284,6 +284,18 @@ where `create cluster` actually runs — see §3) instead of from inside the clu
 See `staging/roles/aws/aws_configure_manual_credentials/README.md` and `staging/
 roles/aws/aws_configure_manual_dns/README.md` for the full mechanism.
 
+**Reaching the cluster from outside AWS**: `aws_configure_manual_dns`'s ingress
+manifest also sets `scope: Internal` on the default `IngressController` (the SNO node
+has no internet route, so an internet-facing apps ELB would be unreachable from
+inside the cluster's own machine network — see that role's README). Confirmed live,
+this means `api.<cluster>.<base_domain>` (the `publish: External` API load balancer)
+is reachable directly from a laptop's browser/`oc` CLI, but
+`console-openshift-console.apps.<cluster>.<base_domain>` resolves publicly only to an
+`internal-*.elb.amazonaws.com` hostname with private IPs — not routable from outside
+the VPC. `bastion/roles/common/print_cluster_connection_info` prints a SOCKS tunnel
+command through mirror-staging (public subnet, same VPC, has a route to that private
+ELB) as the way to reach the console from a local browser; see that role's README.
+
 Neither the ccoctl-created OIDC bucket/IAM roles nor the public-zone apps CNAME are
 tracked by `openshift-install destroy cluster`'s own bookkeeping — `staging/roles/
 aws/aws_destroy_cluster` cleans up both explicitly (§7).
