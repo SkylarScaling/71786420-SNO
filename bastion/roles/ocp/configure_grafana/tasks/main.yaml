@@ -5,13 +5,19 @@
     state: present
     template: grafana-subscription.yaml.j2
 
+# Matched by label, not a fixed name — confirmed live, the grafana-operator v5
+# channel's CSV names this Deployment grafana-operator-controller-manager-v5 (a
+# channel-version suffix), not the unsuffixed name used by older channels/other
+# operators' convention. app.kubernetes.io/name=grafana-operator is stable across
+# that naming drift.
 - name: Wait for Grafana operator deployment to be ready
   kubernetes.core.k8s_info:
     kubeconfig: "{{ sno_kubeconfig }}"
     api_version: apps/v1
     kind: Deployment
     namespace: "{{ grafana_namespace }}"
-    name: grafana-operator-controller-manager
+    label_selectors:
+      - "app.kubernetes.io/name=grafana-operator"
   register: grafana_operator_deploy
   until: >
     grafana_operator_deploy.resources | length > 0

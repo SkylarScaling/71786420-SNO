@@ -3,14 +3,20 @@ kind: Namespace
 metadata:
   name: {{ loki_namespace }}
 ---
+# Cluster-wide (empty targetNamespaces), not scoped to loki_namespace — confirmed
+# live, loki-operator's CSV only supports the AllNamespaces install mode (OLM:
+# "OwnNamespace InstallModeType not supported, cannot configure to watch own
+# namespace" / UnsupportedOperatorGroup when scoped to a single namespace). This
+# OperatorGroup is also the one configure_grafana's Subscription reuses when
+# grafana_namespace == loki_namespace (the default) — don't add a second
+# OperatorGroup there; OLM refuses more than one per namespace regardless of scope,
+# the same TooManyOperatorGroups failure confirmed live in configure_mcg.
 apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
 metadata:
   name: loki-operator-group
   namespace: {{ loki_namespace }}
-spec:
-  targetNamespaces:
-    - {{ loki_namespace }}
+spec: {}
 ---
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription

@@ -7,10 +7,15 @@ spec:
   serviceAccount:
     name: log-collector
   outputs:
+{% if log_forward_endpoint | default('') %}
     - name: siem-output
       type: {{ log_forward_type }}
       {{ log_forward_type }}:
         url: "{{ log_forward_endpoint }}"
+{% if log_forward_type == 'syslog' %}
+        rfc: {{ log_forward_syslog_rfc }}
+{% endif %}
+{% endif %}
 {% if loki_output_enabled | default(true) %}
     - name: lokistack-output
       type: lokiStack
@@ -23,6 +28,7 @@ spec:
             from: serviceAccount
 {% endif %}
   pipelines:
+{% if log_forward_endpoint | default('') %}
     - name: forward-to-siem
       inputRefs:
         - application
@@ -30,6 +36,7 @@ spec:
         - audit
       outputRefs:
         - siem-output
+{% endif %}
 {% if loki_output_enabled | default(true) %}
     - name: forward-to-lokistack
       inputRefs:

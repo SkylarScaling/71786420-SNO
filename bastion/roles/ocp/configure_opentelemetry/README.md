@@ -59,6 +59,17 @@ false` in both roles together to skip tracing entirely for an environment.
 - `templates/tempo-storage-secret.yaml.j2` field names (`access_key_id`,
   `access_key_secret`, `bucket`, `endpoint`) — verify against
   `oc explain tempostack.spec.storage.secret` on a live cluster.
+- **Likely missing TLS CA config for the NooBaa S3 endpoint.** `templates/
+  tempostack.yaml.j2`'s `spec.storage` has no `tls.caName`. Confirmed live in the
+  sibling `configure_lokistack` role: NooBaa's S3 endpoint is signed by the cluster's
+  service-serving CA, and any object-storage-backed component without a matching
+  `tls.caName` ConfigMap (annotated `service.beta.openshift.io/inject-cabundle:
+  "true"`) CrashLoopBackOffs with "certificate signed by unknown authority" the
+  moment it touches storage. `configure_lokistack`'s `tasks/main.yaml`/
+  `templates/lokistack.yaml.j2` has the fixed pattern to copy — not applied here yet
+  since the Tempo Operator CRD isn't installed in this repo's AWS test loop
+  (`configure-tracing.yaml` is bare-metal-only) to confirm the exact field name
+  against `oc explain tempostack.spec.storage.tls`.
 - No readiness wait on the TempoStack's own component Deployments or the Collector
   Deployment — only the two operator Deployments are polled.
 - The `tempo-operator-controller-manager` vs `tempo-operator-controller` Deployment

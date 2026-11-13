@@ -28,7 +28,25 @@ forward (e.g. an environment that doesn't deploy `configure_lokistack` at all).
 requires `roles/ocp/configure_lokistack` to have already created the LokiStack CR
 named `loki_lokistack_name` (default `{{ cluster_name }}-loki`) in `loki_namespace`
 (default `openshift-logging`) — both values must match `configure_lokistack`'s
-defaults of the same name.
+defaults of the same name. This role also deliberately creates no
+`Namespace`/`OperatorGroup` of its own for that same reason: `configure_lokistack`
+already creates both (and its OperatorGroup is cluster-wide, since `loki-operator`
+only supports the `AllNamespaces` install mode) — OLM refuses a second
+OperatorGroup per namespace, confirmed live when this role's own
+`cluster-logging-operator-group` left every Subscription in `openshift-logging`
+(including `loki-operator`'s and `grafana-operator`'s) permanently `Failed` with
+`TooManyOperatorGroups`.
+
+## Confirmed live (2026-11-13)
+
+- The `siem-output`/`forward-to-siem` output and pipeline are now actually gated on
+  `log_forward_endpoint` being set, matching the description above — previously the
+  template created them unconditionally, which failed CRD validation with an empty
+  `url` on any environment (like the AWS test loop) that leaves `log_forward_endpoint`
+  unset.
+- `type: syslog` outputs require `rfc` (`RFC3164`/`RFC5424`) on this CRD version —
+  there's no default on the CRD side. New `log_forward_syslog_rfc` var (default
+  `RFC5424`) supplies it.
 
 ## Not yet included
 

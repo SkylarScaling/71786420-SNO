@@ -63,6 +63,41 @@
     state: present
     template: loki-storage-secret.yaml.j2
 
+# NooBaa's S3 endpoint (the BUCKET_HOST above) is reached over its in-cluster Service
+# DNS name, which is covered by OpenShift's own service-serving CA, not a public CA.
+# Confirmed live: without this, the compactor (and any other component touching
+# object storage) CrashLoopBackOffs on startup with "tls: failed to verify
+# certificate: x509: certificate signed by unknown authority". The
+# inject-cabundle annotation gets the service CA's current cert written into
+# data["service-ca.crt"] by the service-ca-operator — no cert material handled here
+# directly.
+- name: Create a ConfigMap to receive the cluster's service-serving CA bundle
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: "{{ loki_bucket_name }}-service-ca"
+        namespace: "{{ loki_namespace }}"
+        annotations:
+          service.beta.openshift.io/inject-cabundle: "true"
+
+- name: Wait for the service-ca-operator to inject the CA bundle
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: v1
+    kind: ConfigMap
+    namespace: "{{ loki_namespace }}"
+    name: "{{ loki_bucket_name }}-service-ca"
+  register: loki_service_ca_configmap
+  until: >
+    loki_service_ca_configmap.resources | length > 0
+    and loki_service_ca_configmap.resources[0].data['service-ca.crt'] is defined
+  retries: 10
+  delay: 5
+
 - name: Create LokiStack
   kubernetes.core.k8s:
     kubeconfig: "{{ sno_kubeconfig }}"

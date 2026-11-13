@@ -26,9 +26,20 @@ this SNO test harness.
 | `tempo_query_service` / `tempo_query_port` | `{{ tempo_stack_name }}-query-frontend` / `3200` | Derived TempoStack Service name/port — verify against a live cluster. |
 | `opentelemetry_tempo_enabled` | `true` | Gates the Tempo datasource creation. |
 
-## Known gaps / needs live-cluster verification
+## Confirmed live (2026-11-13)
 
-- `grafana_channel` placeholder — confirm exact channel/catalog source.
+- `grafana_channel: v5` resolves and installs cleanly.
+- `grafana-operator`'s v5-channel CSV names its Deployment
+  `grafana-operator-controller-manager-v5` (a channel-version suffix), not the
+  unsuffixed name other operators in this repo use — the readiness wait now matches
+  on `app.kubernetes.io/name=grafana-operator` instead of a fixed name.
+- This role deliberately creates no `Namespace`/`OperatorGroup` of its own —
+  `configure_lokistack` already creates both (namespace shared via
+  `grafana_namespace == loki_namespace`) and OLM refuses a second OperatorGroup per
+  namespace. Confirmed live: adding one here left `grafana-operator.v5.25.0`
+  permanently `Failed` with `TooManyOperatorGroups`.
+
+## Known gaps / needs live-cluster verification
 - The Loki datasource points at the LokiStack's query-frontend Service directly,
   bypassing the tenant gateway that `configure_lokistack`'s
   `spec.tenants.mode: openshift-logging` sets up. This is simplest for a one-off test

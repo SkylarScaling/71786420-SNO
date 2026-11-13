@@ -10,6 +10,14 @@ spec:
     secret:
       name: {{ loki_bucket_name }}-s3
       type: s3
+    # NooBaa's S3 endpoint is signed by the cluster's service-serving CA, not a
+    # public one — confirmed live, every storage-touching component
+    # (compactor first, since it's the first to call object storage) otherwise
+    # CrashLoopBackOffs with "certificate signed by unknown authority". The
+    # referenced ConfigMap is created by this role (see tasks/main.yaml) via the
+    # service.beta.openshift.io/inject-cabundle annotation.
+    tls:
+      caName: {{ loki_bucket_name }}-service-ca
     schemas:
       - version: v13
         effectiveDate: "2024-01-01"

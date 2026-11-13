@@ -10,6 +10,19 @@
 logging_channel: stable-6.7
 log_forward_type: syslog   # syslog | http | kafka — matches your SIEM's intake method
 
+# Required by the ClusterLogForwarder CRD whenever log_forward_type is syslog (no
+# default on the CRD side) — confirmed live, omitting it is a validation error:
+# "spec.outputs[0].syslog.rfc: Required value". RFC5424 is the more modern/structured
+# syslog format; override to RFC3164 if the target SIEM expects the older format.
+log_forward_syslog_rfc: RFC5424
+
+# Empty by default — this is the AWS test loop's state (no real SIEM target to point
+# at). The siem-output/forward-to-siem output+pipeline are only created when this is
+# set to a real endpoint (see templates/clusterlogforwarder.yaml.j2); confirmed live,
+# a blank url otherwise fails CRD validation
+# ("spec.outputs[0].syslog.url ... should match ^(tcp|tls|udp)://...").
+log_forward_endpoint: ""
+
 # Adds a second output alongside the SIEM one above, sending the same
 # application/infrastructure/audit logs to the in-cluster LokiStack created by
 # roles/ocp/configure_lokistack. Set false to keep only the SIEM forward (e.g. an
