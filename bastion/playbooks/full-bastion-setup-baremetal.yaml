@@ -14,3 +14,11 @@
 - import_playbook: ./configure-alerting.yaml
 - import_playbook: ./configure-backup-dr.yaml
 - import_playbook: ./configure-middleware.yaml
+
+- name: Print cluster connection info
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - include_role:
+        name: print_cluster_connection_info

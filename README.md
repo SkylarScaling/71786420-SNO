@@ -120,12 +120,12 @@ bastion/
     mirror-refresh.yaml         # standalone content refresh + on-cluster app Quay
     export-backup.yaml          # periodic/on-demand app-S3-data egress out of the bastion
     upgrade-sno.yaml / simulate-node-failure.yaml
-    full-bastion-setup-baremetal.yaml    # provision + storage + MetalLB + logging + tracing + alerting + backup + Day 2 middleware
+    full-bastion-setup-baremetal.yaml    # provision + storage + MetalLB + logging + tracing + alerting + backup + Day 2 middleware -> print connection info
     full-bastion-provision-aws.yaml      # imports provision-sno-aws.yaml
-    full-bastion-configure-aws.yaml      # unpack-cluster-access + storage + logging + backup-dr (see AWS test loop doc §8)
+    full-bastion-configure-aws.yaml      # unpack-cluster-access + storage + logging + backup-dr -> print connection info (see AWS test loop doc §8)
     group_vars/all.yaml         # placeholder — overwritten by unpack_bastion_bundle from staging's resolved config
   roles/
-    common/    # bundle unpack/package, mirror registry install, install-config rendering, kubeconfig wait, bastion services, backup export
+    common/    # bundle unpack/package, mirror registry install, install-config rendering, kubeconfig wait, bastion services, backup export, print connection info
     baremetal/ # bastion prep, agent ISO generation, BMC boot
     ocp/       # Day 2 features: mirror CatalogSources, LVMS/MCG, OADP, logging, tracing, MetalLB, middleware, upgrades, Quay — identical across both providers
 docs/          # architecture reference (bare-metal-architecture.md is provider-agnostic/customer-facing; aws-test-environment-architecture.md is AWS-only)
