@@ -39,6 +39,53 @@
   retries: 30
   delay: 20
 
+# The NooBaa CR sets manualDefaultBackingStore: true (see noobaa.yaml.j2), so the
+# operator deliberately will NOT create a default BackingStore/BucketClass itself —
+# confirmed live, without this the bucket class sits permanently Rejected with
+# "NooBaa BackingStore \"noobaa-default-backing-store\" not found or deleted". These
+# two names are fixed (not templated) because NooBaa's own default
+# OBC/account tooling expects exactly "noobaa-default-backing-store" /
+# "noobaa-default-bucket-class".
+- name: Create the default pv-pool BackingStore (manualDefaultBackingStore workaround)
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: noobaa-backingstore.yaml.j2
+
+- name: Wait for the default BackingStore to report Ready
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: noobaa.io/v1alpha1
+    kind: BackingStore
+    namespace: openshift-storage
+    name: noobaa-default-backing-store
+  register: mcg_backingstore_status
+  until: >
+    mcg_backingstore_status.resources | length > 0
+    and mcg_backingstore_status.resources[0].status.phase | default('') == 'Ready'
+  retries: 30
+  delay: 20
+
+- name: Create the default BucketClass pointing at the pv-pool BackingStore
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: noobaa-bucketclass.yaml.j2
+
+- name: Wait for the default BucketClass to report Ready
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: noobaa.io/v1alpha1
+    kind: BucketClass
+    namespace: openshift-storage
+    name: noobaa-default-bucket-class
+  register: mcg_bucketclass_status
+  until: >
+    mcg_bucketclass_status.resources | length > 0
+    and mcg_bucketclass_status.resources[0].status.phase | default('') == 'Ready'
+  retries: 30
+  delay: 20
+
 - name: Read the auto-generated NooBaa admin credentials
   kubernetes.core.k8s_info:
     kubeconfig: "{{ sno_kubeconfig }}"

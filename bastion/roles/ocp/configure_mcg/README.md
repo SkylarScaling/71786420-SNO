@@ -28,37 +28,54 @@ SNO.
 1. Installs the ODF operator (the `odf-operator` package also provides full
    ODF/Ceph's `StorageCluster` mode, not used by this role — MCG is just one mode it
    supports) and waits for `odf-operator-controller-manager` to be ready.
-2. Applies a `NooBaa` CR in standalone mode.
+2. Applies a `NooBaa` CR in standalone mode, with `manualDefaultBackingStore: true`
+   (see "Why manualDefaultBackingStore" below).
 3. Waits for `NooBaa.status.phase == Ready`.
-4. Reads the operator-generated `noobaa-admin` Secret and the NooBaa S3 `Route`, then
+4. Explicitly creates the default `BackingStore` (type `pv-pool`, sized from
+   `mcg_backing_pvc_size`) and default `BucketClass`, then waits for each to report
+   `Ready` — the operator won't create these itself once
+   `manualDefaultBackingStore: true` is set.
+5. Reads the operator-generated `noobaa-admin` Secret and the NooBaa S3 `Route`, then
    exposes `mcg_s3_endpoint`, `mcg_s3_access_key`, `mcg_s3_secret_key` as facts on
    `localhost` (same `delegate_to: localhost` / `delegate_facts: true` pattern
    `deploy_mirror_registry` uses for `mirror_registry_ca_cert`), for downstream roles
    such as `configure_mcg_backup_export` and any application that needs S3 storage.
 
+## Why `manualDefaultBackingStore`
+
+Confirmed live on AWS: NooBaa auto-detects the underlying cloud platform and, by
+default, tries to provision its default backing store as a cloud-native one (AWS S3
+here) via a `CredentialsRequest`. On a cluster using `credentialsMode: Manual`
+(required in this repo — no internet route to IAM), CCO marks that
+`CredentialsRequest` `provisioned: true` without ever writing the secret NooBaa is
+waiting on, so the system sits in `Configuring` forever. Setting
+`manualDefaultBackingStore: true` on the `NooBaa` CR stops the operator from
+attempting that reconciliation at all — but per `oc explain
+noobaa.spec.manualDefaultBackingStore`, this also means the operator will not create
+*any* default backing store, cloud or otherwise, so this role creates the
+`BackingStore`/`BucketClass` pair itself (`templates/noobaa-backingstore.yaml.j2`/
+`noobaa-bucketclass.yaml.j2`) instead of relying on the CR's implicit default.
+
 ## Variables
 
 | Variable | Default | Notes |
 |---|---|---|
-| `mcg_channel` | `stable` | The `odf-operator` package's channel. |
-| `mcg_backing_pvc_size` | `500Gi` | Size the default backing store's PV-pool volume. Must fit under the RAID5 array's usable capacity alongside other LVMS-backed PVs — override per-environment. |
-| `mcg_backing_storage_class` | `"{{ lvms_vg_name \| default('vg1') }}"` | Cross-role default, same pattern as `configure_onprem_quay`'s `quay_storage_class`. |
+| `mcg_channel` | `stable-4.22` | The `odf-operator` package's channel. |
+| `mcg_backing_pvc_size` | `500Gi` | Size of the explicit `BackingStore`'s pv-pool volume (`spec.pvPool.resources.requests.storage`) — confirmed live this is honored, unlike the NooBaa CR's own implicit default backing store (which is fixed at 50Gi regardless of this var). Must fit under the RAID5 array's usable capacity alongside other LVMS-backed PVs — override per-environment. |
+| `mcg_backing_storage_class` | `"lvms-{{ lvms_vg_name \| default('vg1') }}"` | Cross-role default, same pattern as `configure_onprem_quay`'s `quay_storage_class`. "lvms-" prefix required — LVMS's own auto-created default-deviceClass StorageClass is named `lvms-<vg name>`, not the bare VG name. |
 
-## Known gaps / verify against a live cluster
+## Confirmed live
 
-No live cluster exists yet to test this role against, so the following need
-confirmation once hardware/a real ODF install is available:
+All of the following were previously flagged here as unverified; confirmed live
+2026-11-13 against a real mirrored 4.22 cluster:
 
-- **NooBaa CR field names** (`templates/noobaa.yaml.j2`): `dbStorageClass` and
-  `pvPoolDefaultStorageClass` are the standard NooBaa CRD fields for pointing the
-  default PV-pool backing store at a StorageClass, but these have shifted across ODF
-  releases — confirm with `oc explain noobaa.spec` against the actual installed
-  operator version.
-- **Backing-store sizing**: the NooBaa CR's auto-created default backing store has
-  historically defaulted to a fixed per-volume size (around 50Gi) rather than reading
-  an arbitrary size field. `mcg_backing_pvc_size` is defined here as the intended size,
-  but wiring it in may require creating an explicit `BackingStore` CR (type
-  `pv-pool`) instead of relying on the NooBaa CR's implicit default — see the inline
-  comment in `templates/noobaa.yaml.j2`.
-- **S3 Route name**: assumed to be `s3` in `openshift-storage` (NooBaa's standard
-  generated route) — confirm once the operator is actually installed.
+- `dbStorageClass` on the `NooBaa` CR is the correct field and is honored.
+  `pvPoolDefaultStorageClass` is no longer set here — it only controls the operator's
+  own implicit default backing store, which `manualDefaultBackingStore: true` disables
+  entirely.
+- The S3 `Route` name is `s3` in `openshift-storage`, as assumed.
+- `odf-operator` is a thin "operator of operators" as of ODF 4.19+ — it dynamically
+  subscribes to ~11 further packages at runtime. See
+  `staging/roles/common/stage_mirror_content/defaults/main.yaml`'s
+  `oc_mirror_operator_packages` for the full pinned list; none of this role's
+  Subscriptions resolve without them mirrored.
