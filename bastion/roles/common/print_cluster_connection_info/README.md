@@ -1,10 +1,11 @@
 # print_cluster_connection_info
 
 Prints a short "how do I connect to this cluster" summary — API server URL, web
-console URL, the kubeconfig path, and (when present on this host) the kubeadmin
-password file path. Runs as the final task of each provider's full day-2-configure
-playbook (`full-bastion-configure-aws.yaml`, `full-bastion-setup-baremetal.yaml`) so a
-completed run ends with something actionable instead of just a PLAY RECAP.
+console URL, the kubeconfig path, and (when present on this host) the actual
+kubeadmin credentials. Runs as the final task of each provider's full
+day-2-configure playbook (`full-bastion-configure-aws.yaml`,
+`full-bastion-setup-baremetal.yaml`) so a completed run ends with something
+actionable instead of just a PLAY RECAP.
 
 Provider-agnostic — reads everything it needs from `sno_kubeconfig` and the live
 cluster, same as every other `roles/ocp/*`/`roles/common/*` role.
@@ -17,16 +18,21 @@ cluster, same as every other `roles/ocp/*`/`roles/common/*` role.
   (`ignore_errors: true` — a missing Route degrades to a note, not a task failure).
 - `kubeconfig` — `sno_kubeconfig`'s path, plus the `export KUBECONFIG=...` command to
   use it.
-- `kubeadmin password file` — **conditional on actually existing on this host.**
-  `kubeadmin-password` is never bundled alongside `sno_kubeconfig` by either
-  provider's handback path (`package_bastion_bundle`, `unpack_kubeconfig_bundle`) —
-  it's gitignored repo-wide (`**/auth/kubeadmin-password`) and only ever exists on
+- `kubeadmin` **username/password** — printed directly (not `no_log`'d — hiding it
+  from Ansible's own output would defeat the point), **conditional on the password
+  file actually existing on this host.** `kubeadmin-password` only ever exists on
   whichever host actually ran `openshift-install create cluster`:
-  - **Bare metal**: that's this bastion (`wait_for_sno_install` runs here), so the
-    file is present and its path is printed directly.
-  - **AWS**: that's `staging` (`aws_provision_sno_ipi`), never copied to the bastion.
-    This role prints a note pointing at staging's `install_dir` instead of a path
-    that doesn't exist here.
+  - **Bare metal**: that's this bastion (`wait_for_sno_install` runs here), so it's
+    already present.
+  - **AWS**: that's `staging` (`aws_provision_sno_ipi`) — `package_kubeconfig_bundle`/
+    `unpack_kubeconfig_bundle` deliberately bundle this file alongside
+    `sno_kubeconfig` on the handback trip specifically so this role can print it here
+    too. This is the one place in the repo this gitignored
+    (`**/auth/kubeadmin-password`), normally host-local-only file is shipped off of
+    the host that generated it — an acceptable tradeoff for a disposable test
+    cluster, **not a pattern to reuse for a production credential path.** If the
+    file's missing anyway (e.g. a bundle from before this existed), this role falls
+    back to a note pointing at staging's `install_dir` instead.
 - `SOCKS tunnel command` — **AWS only** (`infra_provider == 'aws'`). `generate_install_config`
   sets `publish: External`, so the API load balancer is internet-reachable directly —
   but `aws_configure_manual_dns` deliberately sets the default Ingress's ELB to

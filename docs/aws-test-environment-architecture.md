@@ -152,8 +152,11 @@ bastion: unpack_kubeconfig_bundle → (now day-2 roles run normally)
    the one `bastion/playbooks/provision-sno-baremetal.yaml` uses, duplicated here
    since each tree's `roles_path` only reaches its own `roles/*` — see CLAUDE.md)
    then confirms the cluster API is actually reachable before
-   `package_kubeconfig_bundle` archives the resulting kubeconfig and transfers it
-   back to the bastion the same way.
+   `package_kubeconfig_bundle` archives the resulting kubeconfig **and**
+   `kubeadmin-password` and transfers both back to the bastion the same way —
+   deliberately, so `print_cluster_connection_info` can print the actual kubeadmin
+   credentials on the bastion for this disposable test loop (see that role's README
+   for the "don't reuse this for production" caveat).
 3. **`bastion/playbooks/unpack-cluster-access.yaml`** runs
    `unpack_kubeconfig_bundle` on the bastion, after which `sno_kubeconfig` points at
    a real, reachable cluster and every `bastion/roles/ocp/*` day-2 role runs exactly

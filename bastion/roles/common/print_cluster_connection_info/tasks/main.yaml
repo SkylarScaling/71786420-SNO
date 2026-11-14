@@ -46,17 +46,25 @@
         else '(console Route not found — check `oc get route console -n openshift-console`)'
       }}
 
-# kubeadmin-password is deliberately NOT bundled alongside sno_kubeconfig by either
-# provider's handback path (package_bastion_bundle, unpack_kubeconfig_bundle) — it's
-# gitignored repo-wide (**/auth/kubeadmin-password) and treated as sensitive, so it
-# only ever exists on whichever host actually ran `openshift-install create cluster`.
-# On bare metal that's this bastion (wait_for_sno_install runs here); on AWS it's
-# staging (aws_provision_sno_ipi), never copied over. Check locally rather than just
-# assuming the bare-metal case.
+# kubeadmin-password only ever exists on whichever host actually ran
+# `openshift-install create cluster`. On bare metal that's this bastion
+# (wait_for_sno_install runs here). On AWS that's staging (aws_provision_sno_ipi) —
+# package_kubeconfig_bundle/unpack_kubeconfig_bundle deliberately bundle this file
+# alongside sno_kubeconfig on the handback trip specifically so this role can print
+# it here too (see that role's README: this is the one place in the repo this
+# gitignored, normally host-local-only file is shipped off of the host that
+# generated it — an acceptable tradeoff for a disposable test cluster, not a pattern
+# to reuse for a production credential path). Check locally rather than assuming
+# either provider's case, in case an older bundle predates this.
 - name: Check whether kubeadmin-password exists on this host
   stat:
     path: "{{ install_dir }}/auth/kubeadmin-password"
   register: _print_connection_kubeadmin_stat
+
+- name: Read kubeadmin's password
+  set_fact:
+    _print_connection_kubeadmin_password: "{{ lookup('file', install_dir ~ '/auth/kubeadmin-password') }}"
+  when: _print_connection_kubeadmin_stat.stat.exists
 
 - name: Report how to connect to the cluster
   debug:
@@ -71,17 +79,25 @@
       - "export KUBECONFIG={{ sno_kubeconfig }}"
       - "oc whoami --show-console"
 
-- name: Report the kubeadmin password file location (when present on this host)
+# Prints the actual password, not just its file path — a deliberate choice for this
+# repo's disposable test clusters (requested explicitly; see
+# package_kubeconfig_bundle's README for the "don't reuse this for production"
+# caveat). no_log is NOT set here: hiding it from Ansible's own output would defeat
+# the point of printing it.
+- name: Report kubeadmin's credentials (when present on this host)
   debug:
-    msg: "kubeadmin password file: {{ install_dir }}/auth/kubeadmin-password"
+    msg:
+      - "kubeadmin username: kubeadmin"
+      - "kubeadmin password: {{ _print_connection_kubeadmin_password }}"
   when: _print_connection_kubeadmin_stat.stat.exists
 
 - name: Note where to find kubeadmin's password when it isn't on this host
   debug:
     msg: >-
       kubeadmin password: not on this host — `openshift-install create cluster` ran
-      on staging for this environment, and that file is deliberately not bundled
-      alongside the kubeconfig. Retrieve it from staging's
+      on staging for this environment, and that file isn't in the bundle that landed
+      here (an older bundle from before package_kubeconfig_bundle started including
+      it, most likely). Retrieve it from staging's
       {{ install_dir }}/auth/kubeadmin-password if you need password (vs.
       token/cert) auth.
   when: not _print_connection_kubeadmin_stat.stat.exists

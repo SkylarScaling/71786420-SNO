@@ -11,16 +11,38 @@
     state: directory
     mode: '0755'
 
+# kubeadmin-password is bundled alongside sno_kubeconfig so print_cluster_connection_info
+# can print it directly on the bastion for test environments — this is the one place
+# in the repo that deliberately ships this file off of staging (everywhere else it's
+# treated as staging/bastion(bare-metal)-local-only and gitignored
+# (**/auth/kubeadmin-password); fine for a disposable test loop, not something to
+# reuse for a production credential path.
+- name: Fail fast if kubeadmin-password doesn't exist yet
+  stat:
+    path: "{{ install_dir }}/auth/kubeadmin-password"
+  register: _package_kubeconfig_kubeadmin_stat
+
+- name: Fail with guidance if kubeadmin-password is missing
+  fail:
+    msg: >
+      {{ install_dir }}/auth/kubeadmin-password not found — this role expects to run
+      after `openshift-install create cluster` has finished writing it (same
+      directory `wait_for_sno_install` already waits on for sno_kubeconfig).
+  when: not _package_kubeconfig_kubeadmin_stat.stat.exists
+
 # force_archive: true matters here — the archive module's default behavior for a
 # single-file path is to gzip-compress it in place (no tar wrapper at all), which
-# `unarchive` can't extract. Forcing a real (one-entry) tar is what makes this
-# extractable. common_path() of a single path is its own dirname, so the one archive
-# member is named just "kubeconfig" (not the full absolute path) —
-# unpack_kubeconfig_bundle relies on that to land the file directly in its own
-# sno_kubeconfig's parent directory.
-- name: Archive sno_kubeconfig into one tar.gz
+# `unarchive` can't extract. Forcing a real tar is what makes this extractable.
+# sno_kubeconfig and kubeadmin-password share the same parent directory
+# ({{ install_dir }}/auth/), so archive's common_path() of the two is that directory,
+# and the two archive members are named just "kubeconfig"/"kubeadmin-password" (not
+# their full absolute paths) — unpack_kubeconfig_bundle relies on that to land both
+# files directly in sno_kubeconfig's own parent directory.
+- name: Archive sno_kubeconfig and kubeadmin-password into one tar.gz
   archive:
-    path: "{{ sno_kubeconfig }}"
+    path:
+      - "{{ sno_kubeconfig }}"
+      - "{{ install_dir }}/auth/kubeadmin-password"
     dest: "{{ kubeconfig_bundle_export_dir }}/{{ kubeconfig_bundle_name }}"
     format: gz
     force_archive: true

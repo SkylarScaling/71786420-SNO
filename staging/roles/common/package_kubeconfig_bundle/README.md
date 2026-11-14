@@ -1,8 +1,16 @@
 # package_kubeconfig_bundle
 
-AWS-only. Packages `{{ sno_kubeconfig }}` for the trip from `staging` back to the
-bastion, after `aws_provision_sno_ipi`/`wait_for_sno_install` succeed. Called from
+AWS-only. Packages `{{ sno_kubeconfig }}` **and** `{{ install_dir }}/auth/kubeadmin-password`
+for the trip from `staging` back to the bastion, after
+`aws_provision_sno_ipi`/`wait_for_sno_install` succeed. Called from
 `staging/playbooks/provision-sno-aws.yaml`, last step.
+
+Bundling `kubeadmin-password` (not just the kubeconfig) is deliberate: it lets
+`bastion/roles/common/print_cluster_connection_info` print the actual password in its
+final summary, for test environments where that's an acceptable tradeoff. This is the
+one place in the repo that ships this file off of the host that generated it — it's
+`**/auth/kubeadmin-password`-gitignored everywhere else and treated as
+host-local-only.
 
 ## Why this exists
 
