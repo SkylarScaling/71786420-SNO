@@ -1,0 +1,10 @@
+apiVersion: objectbucket.io/v1alpha1
+kind: ObjectBucketClaim
+metadata:
+  name: {{ backup_s3_bucket }}
+  namespace: openshift-adp
+spec:
+  generateBucketName: {{ backup_s3_bucket }}
+  # Same standalone-NooBaa StorageClass name every other OBC in this repo uses —
+  # provisioned by configure_mcg, not a full ODF StorageCluster.
+  storageClassName: openshift-storage.noobaa.io

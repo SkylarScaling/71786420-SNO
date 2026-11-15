@@ -19,6 +19,47 @@
   retries: 30
   delay: 20
 
+# Confirmed live: nothing else in this role ever created backup_s3_bucket as an
+# actual NooBaa bucket — the DataProtectionApplication just referenced the name
+# directly, leaving Velero's BackupStorageLocation permanently Unavailable
+# ("NoSuchBucket") and every scheduled backup silently never actually running (the
+# Schedule's own status.lastBackup timestamp updates regardless of whether the
+# underlying Backup object was ever created). Same ObjectBucketClaim pattern every
+# other NooBaa-backed role in this repo uses (configure_lokistack,
+# configure_opentelemetry, configure_onprem_quay).
+- name: Create an ObjectBucketClaim backed by NooBaa for Velero's backup bucket
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    state: present
+    template: oadp-obc.yaml.j2
+
+- name: Wait for the ObjectBucketClaim to be bound
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: objectbucket.io/v1alpha1
+    kind: ObjectBucketClaim
+    namespace: openshift-adp
+    name: "{{ backup_s3_bucket }}"
+  register: oadp_obc_status
+  until: >
+    oadp_obc_status.resources | length > 0
+    and oadp_obc_status.resources[0].status.phase | default('') == 'Bound'
+  retries: 30
+  delay: 15
+
+- name: Read the actual generated bucket name
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: v1
+    kind: ConfigMap
+    namespace: openshift-adp
+    name: "{{ backup_s3_bucket }}"
+  register: oadp_obc_configmap
+
+- name: Record the actual bucket name for the DataProtectionApplication template
+  set_fact:
+    oadp_backup_bucket_name: "{{ oadp_obc_configmap.resources[0].data.BUCKET_NAME }}"
+
 - name: Look up the in-cluster NooBaa admin credentials
   kubernetes.core.k8s_info:
     kubeconfig: "{{ sno_kubeconfig }}"

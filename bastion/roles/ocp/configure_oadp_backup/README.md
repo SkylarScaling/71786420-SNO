@@ -15,9 +15,20 @@ Targets the in-cluster NooBaa S3 endpoint provided by `roles/ocp/configure_mcg` 
 external S3 account, credentials, or network route needed, which also means it works
 unmodified on bare metal's fully disconnected network.
 Credentials are read directly from the `noobaa-admin` Secret; nothing to supply
-locally. Requires `roles/ocp/configure_mcg` to already be installed, and a NooBaa
-bucket named `backup_s3_bucket` to exist (bucket creation isn't handled by this
-role).
+locally. Requires `roles/ocp/configure_mcg` to already be installed. This role
+provisions the backup bucket itself via an `ObjectBucketClaim` (`backup_s3_bucket`
+is the OBC name/`generateBucketName` prefix, not a bucket that must already exist),
+same pattern as `configure_lokistack`/`configure_opentelemetry`/`configure_onprem_quay`.
+
+**Confirmed live (2026-11-13)**: this role originally referenced `backup_s3_bucket`
+directly in the `DataProtectionApplication`'s `objectStorage.bucket` without ever
+creating that bucket anywhere, leaving the `BackupStorageLocation` permanently
+`Unavailable` (`NoSuchBucket`) and every scheduled backup silently never actually
+running — `Schedule.status.lastBackup` updates regardless of whether the underlying
+`Backup` object was ever created. Fixed by adding an `ObjectBucketClaim`
+(`templates/oadp-obc.yaml.j2`), waiting for it to bind, and reading back the real
+generated bucket name from its auto-created ConfigMap (`oadp_backup_bucket_name`)
+for the DPA template to reference.
 
 An external AWS S3 bucket was considered as an alternative backend early on, but
 dropped: once `configure_mcg` was adopted on both providers (not just bare metal),

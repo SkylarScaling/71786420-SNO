@@ -21,7 +21,12 @@ spec:
         provider: aws
         default: true
         objectStorage:
-          bucket: {{ backup_s3_bucket }}
+          # The OBC-generated name (oadp-obc.yaml.j2's generateBucketName appends a
+          # random suffix to backup_s3_bucket), not the bare backup_s3_bucket var
+          # itself — confirmed live, using the bare var here left Velero's
+          # BackupStorageLocation permanently Unavailable since that literal name was
+          # never actually created as a bucket anywhere.
+          bucket: {{ oadp_backup_bucket_name }}
           prefix: velero
         config:
           # Velero's aws plugin requires a non-empty region for SDK request signing
