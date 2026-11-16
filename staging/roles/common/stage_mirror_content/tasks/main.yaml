@@ -133,6 +133,23 @@
   become: true
   tags: [bastion_prereqs]
 
+# dnf (via become: true above) writes these RPMs as root, while every other file
+# under mirror_installers_dir is downloaded as the connecting user — confirmed live:
+# that ownership mismatch made package_bastion_bundle's hardlink-based bundling
+# (cp -al) fail with "Operation not permitted" on every RPM (the kernel's
+# protected_hardlinks protection blocks a non-root user from hard-linking to a file
+# it doesn't own), every single run. Fix the ownership here rather than teaching
+# package_bastion_bundle to `become` just for this one subdirectory.
+- name: Fix ownership of the downloaded RPMs to match the rest of mirror_installers_dir
+  file:
+    path: "{{ mirror_installers_dir }}/bastion-rpms"
+    state: directory
+    recurse: true
+    owner: "{{ ansible_user_id }}"
+    group: "{{ ansible_user_id }}"
+  become: true
+  tags: [bastion_prereqs]
+
 # ansible-core's RPM above gets Ansible itself running, but roles/ocp/*'s
 # kubernetes.core.k8s* modules also need the kubernetes/openshift Python packages
 # importable — these aren't RPM-packaged, so pip (not dnf) is how they'd normally

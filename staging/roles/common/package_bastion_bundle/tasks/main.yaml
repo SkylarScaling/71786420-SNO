@@ -55,27 +55,27 @@
 # content alone was ~100GiB — a second physical copy of that into bundle-root, on top
 # of the oc-mirror workspace it was copied from, was what actually exhausted a 250GB
 # volume before the final tar.gz was even written). `cp -al` costs ~0 extra disk since
-# the content is read-only mirror/installer output that's never modified in place;
-# falls back to a real copy (`cp -a`) if ever run across a mount boundary (e.g.
+# the content is read-only mirror/installer output that's never modified in place.
+#
+# Falls back to a real copy (`cp -an`, not `cp -a`) for whatever `cp -al` couldn't
+# hardlink — either because it's run across a mount boundary (e.g.
 # bastion_bundle_export_dir or oc_mirror_workspace overridden onto a different
-# filesystem), same fallback idiom stage_mirror_content's own release-cache-handoff
-# hardlink task uses.
-# Hardlinked, not copied: bastion_tree_dir/mirror_sync_source_dir/mirror_installers_dir/
-# release_cache_handoff_dir and bastion_bundle_export_dir are all on the same root
-# filesystem on every environment seen so far (confirmed live: a real run's mirrored
-# content alone was ~100GiB — a second physical copy of that into bundle-root, on top
-# of the oc-mirror workspace it was copied from, was what actually exhausted a 250GB
-# volume before the final tar.gz was even written). `cp -al` costs ~0 extra disk since
-# the content is read-only mirror/installer output that's never modified in place;
-# falls back to a real copy (`cp -a`) if ever run across a mount boundary (e.g.
-# bastion_bundle_export_dir or oc_mirror_workspace overridden onto a different
-# filesystem), same fallback idiom stage_mirror_content's own release-cache-handoff
-# hardlink task uses.
+# filesystem), or because the source has mixed ownership (confirmed live:
+# bastion-rpms/*.rpm end up root-owned since stage_mirror_content downloads them with
+# `become: true`, and the kernel's protected_hardlinks protection blocks hard-linking
+# to a file you don't own even on the same filesystem — see that role's "Fix
+# ownership of the downloaded RPMs" task for the actual fix, this fallback is just
+# defense in depth). `-n`/--no-clobber, not plain `-a`, matters here: `cp -al`
+# processes every file before reporting one combined failure, so by the time the
+# fallback runs, some files are often already correctly hardlinked — plain `cp -a`
+# then refuses with "are the same file" (source and destination are the same inode)
+# and fails the whole fallback too; `-n` skips those silently and only actually
+# copies what's still missing.
 - name: Copy the bastion/ automation tree into the bundle root
   shell: >
     mkdir -p "{{ bastion_bundle_export_dir }}/bundle-root/bastion" &&
     (cp -al "{{ bastion_tree_dir }}/." "{{ bastion_bundle_export_dir }}/bundle-root/bastion/"
-    || cp -a "{{ bastion_tree_dir }}/." "{{ bastion_bundle_export_dir }}/bundle-root/bastion/")
+    || cp -an "{{ bastion_tree_dir }}/." "{{ bastion_bundle_export_dir }}/bundle-root/bastion/")
   changed_when: true
 
 # Same exclusion sync_mirror_to_bastion used to apply: stage_mirror_content's own
@@ -87,7 +87,7 @@
   shell: >
     mkdir -p "{{ bastion_bundle_export_dir }}/bundle-root/mirror-content" &&
     (cp -al "{{ mirror_sync_source_dir }}/." "{{ bastion_bundle_export_dir }}/bundle-root/mirror-content/"
-    || cp -a "{{ mirror_sync_source_dir }}/." "{{ bastion_bundle_export_dir }}/bundle-root/mirror-content/")
+    || cp -an "{{ mirror_sync_source_dir }}/." "{{ bastion_bundle_export_dir }}/bundle-root/mirror-content/")
   changed_when: true
 
 - name: Remove the oc-mirror working-dir scratch output from the bundled copy (not needed on the bastion)
@@ -100,7 +100,7 @@
   shell: >
     mkdir -p "{{ bastion_bundle_export_dir }}/bundle-root/mirror-installers" &&
     (cp -al "{{ mirror_installers_dir }}/." "{{ bastion_bundle_export_dir }}/bundle-root/mirror-installers/"
-    || cp -a "{{ mirror_installers_dir }}/." "{{ bastion_bundle_export_dir }}/bundle-root/mirror-installers/")
+    || cp -an "{{ mirror_installers_dir }}/." "{{ bastion_bundle_export_dir }}/bundle-root/mirror-installers/")
   changed_when: true
 
 # stage_mirror_content's "Build the release-content cache handoff" task populates
@@ -116,7 +116,7 @@
   shell: >
     mkdir -p "{{ bastion_bundle_export_dir }}/bundle-root/release-cache" &&
     (cp -al "{{ release_cache_handoff_dir }}/." "{{ bastion_bundle_export_dir }}/bundle-root/release-cache/"
-    || cp -a "{{ release_cache_handoff_dir }}/." "{{ bastion_bundle_export_dir }}/bundle-root/release-cache/")
+    || cp -an "{{ release_cache_handoff_dir }}/." "{{ bastion_bundle_export_dir }}/bundle-root/release-cache/")
   changed_when: true
 
 - name: Copy the flattened resolved-vars file into the bundle root
