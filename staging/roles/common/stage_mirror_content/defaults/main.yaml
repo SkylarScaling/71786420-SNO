@@ -23,6 +23,15 @@ mirror_installers_dir: /opt/mirror-installers
 # (role defaults aren't shared across roles).
 release_cache_handoff_dir: "{{ oc_mirror_workspace }}/release-cache-handoff"
 
+# See the "Free the oc-mirror cache" task below: deleting oc_mirror_workspace/cache
+# right after the release-cache-handoff subset is pulled out of it keeps disk usage
+# well under mirror_staging_root_volume_size_gb's headroom (confirmed live: a real
+# run left 146GiB on disk here alone, before package_bastion_bundle's own tar.gz
+# needed another ~100GiB on top). Set false only if you specifically want to keep
+# the cache around for a faster incremental re-run of stage_mirror_content on this
+# same host and have the extra disk headroom to spare.
+oc_mirror_cleanup_cache_after_stage: true
+
 # mirror.openshift.com/pub/cgw/mirror-registry/latest/mirror-registry.tar.gz (the
 # previous URL here) 404s — Red Hat moved this distribution behind
 # developers.redhat.com/content-gateway and the filename is now

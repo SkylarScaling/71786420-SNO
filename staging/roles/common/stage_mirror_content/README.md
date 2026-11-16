@@ -115,6 +115,22 @@ into `deploy_mirror_registry`'s `--cache-dir` before the disk-to-mirror push run
 image after this, check that this task actually ran and produced a non-trivial
 `release_cache_handoff_dir` before suspecting anything else.
 
+## Disk usage: the full oc-mirror cache is deleted once the handoff exists
+
+After the release-content cache handoff task above runs, this role deletes
+`oc_mirror_workspace/cache` entirely (`oc_mirror_cleanup_cache_after_stage`, default
+`true`) — confirmed live: a real run left 146GiB on disk here (81GiB archive +
+65GiB cache) on a 250GB root volume, and `package_bastion_bundle`'s own bundling/
+final-tar.gz step still needed roughly another 100GiB on top of that, exhausting the
+volume ("No space left on device") before the bundle was even finished. Nothing
+downstream of this role reads `cache/` directly — the one subset of it that matters
+(`openshift/release`'s blob set) is already hardlinked out into
+`release_cache_handoff_dir` by the handoff task. The only cost of deleting it is a
+slower *re-mirror* on a future run against this same host (oc-mirror has to
+re-populate its digest cache from registry.redhat.io/quay.io instead of deduping
+against what's already on disk) — set `oc_mirror_cleanup_cache_after_stage: false`
+if you'd rather keep that speed-up and have the disk headroom to spare.
+
 ## Platform release pinning
 
 `imageset-config.yaml.j2`'s `mirror.platform.channels` entry pins both `minVersion`

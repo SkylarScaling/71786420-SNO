@@ -357,3 +357,21 @@
   args:
     executable: /bin/bash
   changed_when: true
+
+# Confirmed live: a real run left a 146GiB oc_mirror_workspace (81GiB archive +
+# 65GiB cache) on a 250GB root volume, and package_bastion_bundle's own hardlinked
+# bundle-root/final tar.gz (see that role) still needed ~100GiB more on top of
+# that, blowing past the volume entirely ("No space left on device" mid-archive).
+# cache/ is oc-mirror's own content-addressed working set — nothing downstream
+# reads it directly; the release-cache-handoff task above already hardlinked out
+# the one subset of it (openshift/release's blob set) that deploy_mirror_registry
+# actually needs. Safe to delete once that handoff exists (already true by this
+# point in the task list) — the cost of deleting it is a slower *re-mirror* on a
+# future run (oc-mirror --v2 has to re-populate its digest cache from
+# registry.redhat.io/quay.io instead of deduping against what's on disk), not any
+# loss of correctness, since those registries remain the source of truth.
+- name: Free the oc-mirror cache now that the release-cache handoff has been built
+  file:
+    path: "{{ oc_mirror_workspace }}/cache"
+    state: absent
+  when: oc_mirror_cleanup_cache_after_stage | bool

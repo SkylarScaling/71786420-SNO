@@ -45,8 +45,15 @@ sudo dnf install -y --disablerepo='*' "${INSTALLERS_DIR}"/bastion-rpms/*.rpm
 # live), a different and earlier failure than a missing Python import would produce.
 # --offline forces ansible-galaxy to use only the bundled tarball(s)/manifest
 # stage_mirror_content's "ansible-galaxy collection download" step produced on
-# staging, never reaching out to galaxy.ansible.com.
-ansible-galaxy collection install -r "${INSTALLERS_DIR}/bastion-collections/requirements.yml" --offline
+# staging, never reaching out to galaxy.ansible.com. Confirmed live: that generated
+# requirements.yml references its tarball(s) by bare filename (e.g.
+# "kubernetes-core-6.6.0.tar.gz"), which ansible-galaxy resolves relative to the
+# CURRENT WORKING DIRECTORY, not relative to the requirements.yml file's own
+# location — passing it by absolute path while running from bastion/ (this script's
+# own directory) fails with "Could not find kubernetes-core-6.6.0.tar.gz" even though
+# the file is right there next to the manifest. Run from inside that directory
+# instead so the bare filename actually resolves.
+(cd "${INSTALLERS_DIR}/bastion-collections" && ansible-galaxy collection install -r requirements.yml --offline)
 
 # kubernetes.core.k8s* modules (used by every roles/ocp/* role) need these importable
 # by whatever Python interpreter Ansible uses here — not RPM-packaged, so pip (not

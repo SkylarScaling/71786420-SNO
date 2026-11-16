@@ -39,8 +39,22 @@ playbook run. Now staging only ever acts on itself and, optionally, pushes outwa
 there's no cross-host delegation, no "which side is actually local" confusion, and
 no polling loop needed, since this host is the only one doing anything.
 
+## Disk usage: bundle-root is hardlinked, not copied
+
+Every `copy` into `bundle-root` (bastion/ tree, mirror content, installer tarballs,
+release-cache handoff) uses `cp -al` (falling back to a real `cp -a` if ever run
+across a mount boundary), not the `copy` module — confirmed live: a real run's
+mirrored content was ~100GiB, and a second *physical* copy of that into
+`bundle-root` on top of `stage_mirror_content`'s own `oc_mirror_workspace` exhausted
+a 250GB root volume before the final tar.gz was even written ("No space left on
+device" mid-archive). Hardlinking costs ~0 extra disk for this read-only,
+never-modified-in-place content, leaving the final tar.gz as the only genuinely new
+data written during packaging. See `stage_mirror_content`'s
+`oc_mirror_cleanup_cache_after_stage` for the other half of this fix (freeing the
+oc-mirror cache, which this role never reads).
+
 ## Known gap
 
-No live two-host transfer has been tested yet (no real bastion/staging pair
-available during this restructuring) — the `rsync` path in particular is unverified
-against a real run.
+The `rsync` transfer path (`bastion_transfer_method: rsync`) is unverified against
+a real run — the `media` path (confirmed live 2026-11-15/16) is the one exercised
+so far.

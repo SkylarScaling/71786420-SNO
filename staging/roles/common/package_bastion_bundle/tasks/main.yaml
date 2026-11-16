@@ -49,35 +49,59 @@
     mode: '0755'
   loop: [absent, directory]
 
+# Hardlinked, not copied: bastion_tree_dir/mirror_sync_source_dir/mirror_installers_dir/
+# release_cache_handoff_dir and bastion_bundle_export_dir are all on the same root
+# filesystem on every environment seen so far (confirmed live: a real run's mirrored
+# content alone was ~100GiB — a second physical copy of that into bundle-root, on top
+# of the oc-mirror workspace it was copied from, was what actually exhausted a 250GB
+# volume before the final tar.gz was even written). `cp -al` costs ~0 extra disk since
+# the content is read-only mirror/installer output that's never modified in place;
+# falls back to a real copy (`cp -a`) if ever run across a mount boundary (e.g.
+# bastion_bundle_export_dir or oc_mirror_workspace overridden onto a different
+# filesystem), same fallback idiom stage_mirror_content's own release-cache-handoff
+# hardlink task uses.
+# Hardlinked, not copied: bastion_tree_dir/mirror_sync_source_dir/mirror_installers_dir/
+# release_cache_handoff_dir and bastion_bundle_export_dir are all on the same root
+# filesystem on every environment seen so far (confirmed live: a real run's mirrored
+# content alone was ~100GiB — a second physical copy of that into bundle-root, on top
+# of the oc-mirror workspace it was copied from, was what actually exhausted a 250GB
+# volume before the final tar.gz was even written). `cp -al` costs ~0 extra disk since
+# the content is read-only mirror/installer output that's never modified in place;
+# falls back to a real copy (`cp -a`) if ever run across a mount boundary (e.g.
+# bastion_bundle_export_dir or oc_mirror_workspace overridden onto a different
+# filesystem), same fallback idiom stage_mirror_content's own release-cache-handoff
+# hardlink task uses.
 - name: Copy the bastion/ automation tree into the bundle root
-  copy:
-    src: "{{ bastion_tree_dir }}/"
-    dest: "{{ bastion_bundle_export_dir }}/bundle-root/bastion/"
-    mode: preserve
-    remote_src: true
+  shell: >
+    mkdir -p "{{ bastion_bundle_export_dir }}/bundle-root/bastion" &&
+    (cp -al "{{ bastion_tree_dir }}/." "{{ bastion_bundle_export_dir }}/bundle-root/bastion/"
+    || cp -a "{{ bastion_tree_dir }}/." "{{ bastion_bundle_export_dir }}/bundle-root/bastion/")
+  changed_when: true
 
+# Same exclusion sync_mirror_to_bastion used to apply: stage_mirror_content's own
+# "mirror to disk" scratch output, which deploy_mirror_registry's "disk to mirror"
+# push never reads (it regenerates its own working-dir from the tar chunks) — `cp`
+# has no --exclude either, so this dir is removed right after. Hardlinked, not
+# copied — see the comment above the bastion/ tree copy for why.
 - name: Copy the mirrored content archive into the bundle root
-  copy:
-    src: "{{ mirror_sync_source_dir }}/"
-    dest: "{{ bastion_bundle_export_dir }}/bundle-root/mirror-content/"
-    mode: preserve
-    remote_src: true
-  # Same exclusion sync_mirror_to_bastion used to apply: stage_mirror_content's own
-  # "mirror to disk" scratch output, which deploy_mirror_registry's "disk to mirror"
-  # push never reads (it regenerates its own working-dir from the tar chunks).
-  # ansible.builtin.copy has no --exclude, so this dir is removed right after.
+  shell: >
+    mkdir -p "{{ bastion_bundle_export_dir }}/bundle-root/mirror-content" &&
+    (cp -al "{{ mirror_sync_source_dir }}/." "{{ bastion_bundle_export_dir }}/bundle-root/mirror-content/"
+    || cp -a "{{ mirror_sync_source_dir }}/." "{{ bastion_bundle_export_dir }}/bundle-root/mirror-content/")
+  changed_when: true
 
 - name: Remove the oc-mirror working-dir scratch output from the bundled copy (not needed on the bastion)
   file:
     path: "{{ bastion_bundle_export_dir }}/bundle-root/mirror-content/working-dir"
     state: absent
 
+# Hardlinked, not copied — see the comment above the bastion/ tree copy for why.
 - name: Copy the installer tarballs (oc-mirror, mirror-registry, openshift-install, oc) into the bundle root
-  copy:
-    src: "{{ mirror_installers_dir }}/"
-    dest: "{{ bastion_bundle_export_dir }}/bundle-root/mirror-installers/"
-    mode: preserve
-    remote_src: true
+  shell: >
+    mkdir -p "{{ bastion_bundle_export_dir }}/bundle-root/mirror-installers" &&
+    (cp -al "{{ mirror_installers_dir }}/." "{{ bastion_bundle_export_dir }}/bundle-root/mirror-installers/"
+    || cp -a "{{ mirror_installers_dir }}/." "{{ bastion_bundle_export_dir }}/bundle-root/mirror-installers/")
+  changed_when: true
 
 # stage_mirror_content's "Build the release-content cache handoff" task populates
 # this — the minimal oc-mirror cache subset (manifest/config/layer blobs referenced
@@ -86,13 +110,14 @@
 # its own (see that task's comment for the full "manifest unknown" story, confirmed
 # live). Not stat-gated like mirror-content/mirror-installers above: unlike those,
 # nothing ever deletes this directory out of bastion_bundle_dir, so it's always
-# present to re-copy on every run.
+# present to re-copy on every run. Hardlinked, not copied — see the comment above
+# the bastion/ tree copy for why.
 - name: Copy the release-content cache handoff into the bundle root
-  copy:
-    src: "{{ release_cache_handoff_dir }}/"
-    dest: "{{ bastion_bundle_export_dir }}/bundle-root/release-cache/"
-    mode: preserve
-    remote_src: true
+  shell: >
+    mkdir -p "{{ bastion_bundle_export_dir }}/bundle-root/release-cache" &&
+    (cp -al "{{ release_cache_handoff_dir }}/." "{{ bastion_bundle_export_dir }}/bundle-root/release-cache/"
+    || cp -a "{{ release_cache_handoff_dir }}/." "{{ bastion_bundle_export_dir }}/bundle-root/release-cache/")
+  changed_when: true
 
 - name: Copy the flattened resolved-vars file into the bundle root
   copy:

@@ -18,6 +18,15 @@ mirror_staging_security_groups: []
 # disk fills again, the workspace is disposable staging (registry.redhat.io/quay.io is
 # the source of truth) — safe to clear oc_mirror_workspace/archive and
 # oc_mirror_workspace/cache and re-run from scratch.
+#
+# Confirmed live (2026-11-15/16): a real run with this default hit "No space left on
+# device" anyway (146GiB oc_mirror_workspace + package_bastion_bundle's own
+# bundle-root/tar.gz needing ~100GiB more on top of that) — not because 250GB is too
+# small for one copy of the content, but because the pipeline used to keep two full
+# physical copies (workspace + bundle-root) plus the final tar.gz on disk at once.
+# Fixed at the source (stage_mirror_content's oc_mirror_cleanup_cache_after_stage,
+# package_bastion_bundle's hardlinked bundle-root), so 250GB is no longer expected to
+# run this tight — kept as-is rather than bumped further.
 mirror_staging_root_volume_size_gb: 250
 mirror_staging_ssh_user: ec2-user
 
