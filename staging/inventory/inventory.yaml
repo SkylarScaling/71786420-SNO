@@ -6,6 +6,22 @@
 # tar.gz; unpack_bastion_bundle writes it verbatim to bastion/group_vars/all.yaml on
 # the bastion. Don't maintain a second, independent copy of these vars under
 # bastion/ — edit them here only.
+#
+# CAUTION if you override any *_dir path here (oc_mirror_workspace,
+# mirror_installers_dir, mirror_archive_dir, bastion_bundle_export_dir,
+# bastion_bundle_dir, mirror_registry_install_dir, oc_mirror_cache_dir, etc.):
+# staging and the bastion are genuinely separate physical machines (see the
+# top-level CLAUDE.md), each evaluating this SAME single value independently against
+# its OWN storage layout — there's no per-host override mechanism in this design, by
+# design (bastion/playbooks/group_vars/all.yaml is overwritten verbatim from this
+# file). A path that's valid on one host's disks can be wrong, or point at a
+# different (or nonexistent) volume, on the other's. Confirmed as a real
+# misconfiguration source: a customer environment where staging's large storage
+# volume is mounted at /mnt and the bastion's is at /data — any single shared
+# *_dir value here is correct for at most one of those hosts. Mount your large
+# storage volume at the SAME path on both hosts (e.g. /data on both) before
+# overriding any of these, rather than assuming one value here safely covers both
+# sides.
 all:
   vars:
     # --- Identity ---

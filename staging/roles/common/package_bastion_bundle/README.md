@@ -30,23 +30,33 @@ is no separate "first get the code onto the bastion" step.
 | `release_cache_handoff_dir` | `{{ oc_mirror_workspace }}/release-cache-handoff` | Same variable name (and default) as `stage_mirror_content`'s — must match since that's how this role's input reaches that role's output. |
 | `bastion_transfer_host`/`bastion_transfer_user`/`bastion_transfer_ssh_key`/`bastion_transfer_dest_dir` | unset / `root` / `{{ ssh_private_key }}` / `/root` | Only used when `bastion_transfer_method: rsync`. |
 
-## Assembling bundle-root is idempotent across re-runs
+## Disk usage: bundle-root is hardlinked, not copied
 
-`bundle-root` (the staging area under `bastion_bundle_export_dir` the tar.gz gets
-built from) is no longer wiped before each run — an earlier version of this role did,
-which meant the mirror-content/mirror-installers copies below it could never benefit
-from any idempotency at all: every run recopied the entire multi-GB archive from
-scratch regardless of which copy module was used, since the destination never had
-anything to diff against (confirmed worse than the equivalent gap already fixed in
-`unpack_bastion_bundle` — that one was merely slow to re-verify unchanged files; this
-one guaranteed a full re-copy by construction). The `bastion/` tree,
-mirror-content, and mirror-installers copies now use `ansible.posix.synchronize`
-(rsync) against a persistent `bundle-root`, with `delete: true` to prune anything
-stale (e.g. content removed from a refreshed mirror) — a re-run only transfers what's
-actually missing or changed. The mirror-content sync also excludes
-`working-dir` (stage_mirror_content's own oc-mirror scratch output, never read by
-`deploy_mirror_registry`'s "disk to mirror" push) via `rsync_opts`, rather than
-copying it and deleting it from the copy afterward.
+Every copy into `bundle-root` (`bastion/` tree, mirror content, installer tarballs,
+release-cache handoff) uses `cp -al` (falling back to a real `cp -an` if ever run
+across a mount boundary or against root-owned files — see the comment above the
+`bastion/` tree copy task), not `ansible.posix.synchronize`/rsync. Confirmed live: a
+real run's mirrored content was ~100GiB, and a second *physical* rsync copy of that
+into `bundle-root`, on top of `stage_mirror_content`'s own `oc_mirror_workspace`,
+exhausted a 250GB root volume before the final tar.gz was even written ("No space
+left on device" mid-archive). Hardlinking costs ~0 extra disk for this read-only,
+never-modified-in-place content, leaving the final tar.gz as the only genuinely new
+data written during packaging — see `stage_mirror_content`'s
+`oc_mirror_cleanup_cache_after_stage` (where it exists) for the other half of this
+fix, freeing the oc-mirror cache this role never reads.
+
+`bundle-root` is wiped and rebuilt on every run (`state: [absent, directory]`) rather
+than reused incrementally the way the previous rsync-based copy had to be — an
+earlier version of this role tried reusing it with `ansible.builtin.copy`, which had
+no way to skip unchanged files without first wiping the destination, guaranteeing a
+full multi-GB re-copy on every run. Rsync fixed that by diffing instead of wiping, but
+once the copy is hardlinks instead of real data, wiping and relinking from scratch
+every time is close to free regardless of content size, so there's no longer a reason
+to carry rsync's incremental complexity (or its `--delete`/`--exclude` handling) just
+to avoid a "full copy." `cp` has no `--exclude`, so the mirror-content copy removes
+`working-dir` (`stage_mirror_content`'s own oc-mirror scratch output, never read by
+`deploy_mirror_registry`'s "disk to mirror" push) as a separate task right after,
+instead.
 
 ## Why this is simpler than the old `sync_mirror_to_bastion` role
 

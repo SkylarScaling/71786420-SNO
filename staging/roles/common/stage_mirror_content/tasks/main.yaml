@@ -151,6 +151,7 @@
     --download-path={{ mirror_installers_dir }}/bastion-rpms
     --download-metadata
     --delete
+    --setopt=max_parallel_downloads={{ bastion_rpm_reposync_max_parallel_downloads }}
     -y
   become: true
   when: bastion_rpm_sync_method == 'reposync'
@@ -191,6 +192,25 @@
   command: createrepo_c {{ mirror_installers_dir }}/bastion-rpms
   become: true
   when: bastion_rpm_sync_method == 'resolve'
+  tags: [bastion_prereqs]
+
+# Both methods above run with become: true, so every RPM (and, for reposync, each
+# repo's repodata) lands owned by root — while everything else under
+# mirror_installers_dir is downloaded as the connecting user. Confirmed live: that
+# ownership mismatch made package_bastion_bundle's hardlink-based bundling (cp -al)
+# fail with "Operation not permitted" on every RPM (the kernel's protected_hardlinks
+# protection blocks a non-root user from hard-linking to a file it doesn't own), every
+# single run — it still falls back to a real copy there, but fixing ownership here
+# keeps the hardlink fast-path working for this subset too, instead of always paying
+# for a full RPM re-copy on every bundle.
+- name: Fix ownership of the downloaded RPMs to match the rest of mirror_installers_dir
+  file:
+    path: "{{ mirror_installers_dir }}/bastion-rpms"
+    state: directory
+    recurse: true
+    owner: "{{ ansible_user_id }}"
+    group: "{{ ansible_user_id }}"
+  become: true
   tags: [bastion_prereqs]
 
 - name: Extract the oc-mirror binary from the downloaded tarball
@@ -312,96 +332,112 @@
       needs to land together.
   when: _stage_mirror_status.rc | default(0) != 0
 
-# oc-mirror v2's exported mirror_NNNNNN.tar archive never includes the actual
-# manifest/config/layer blob content for two synthetic openshift/ repos — only
-# lightweight tag/revision "link" pointer files:
-#   - openshift/release: the per-component tags (e.g.
-#     openshift/release:4.22.17-x86_64-cluster-kube-apiserver-operator)
-#   - openshift/release-images: the top-level release payload tag itself (e.g.
-#     openshift/release-images:4.22.20-x86_64, what `ocp-release` actually resolves
-#     to) — confirmed live as a SEPARATE gap from the one above: fixing
-#     openshift/release alone got 188/192 release images mirroring successfully, but
-#     the release payload image itself still failed with "manifest unknown" against
-#     openshift/release-images, since the handoff only ever scanned openshift/release.
-# Confirmed live (real bastion, same-host no-transfer reproduction, and direct
-# `tar tvf` inspection of the archive): deploy_mirror_registry's disk-to-mirror step
-# fails with "manifest unknown" on these, since a fresh --cache-dir on a separate
-# bastion machine has no other way to reconstruct that content from the archive
-# alone. Operator bundle content IS fully archived — this gap is specific to these
-# two synthetic repos. The fix: for each, compute the minimal blob subset this
-# cache's own repo metadata actually references (digests reachable from each tag's
-# manifest: config + layers + any nested manifests for multi-arch), hardlink just
-# those into a handoff directory laid out exactly like oc-mirror's own --cache-dir
-# structure, and ship that alongside the bundle (package_bastion_bundle) for
-# unpack_bastion_bundle to merge into the bastion's own --cache-dir before
-# deploy_mirror_registry runs. Confirmed ~20GiB for this subset vs ~60GiB for the
-# full cache in a real run — see this role's README for the full investigation. If a
-# third "manifest unknown" surfaces against yet another openshift/* synthetic repo,
-# add it to release_cache_repo_names below rather than assuming these two are the
-# complete set — nothing here enumerates oc-mirror's own synthetic repos up front.
-- name: Build the release-content cache handoff for the bastion's disk-to-mirror step
+# oc-mirror v2's exported mirror_NNNNNN.tar archive can leave manifest/config/layer
+# blob content out of the archive for a repo while still writing that repo's
+# lightweight tag/revision "link" pointer files — deploy_mirror_registry's
+# disk-to-mirror step then fails with "manifest unknown" on that repo's images,
+# since a fresh --cache-dir on a separate bastion machine has no way to reconstruct
+# missing blob content from the archive alone. First confirmed narrowly against two
+# synthetic openshift/* repos (release, release-images) — see this role's README's
+# "Known oc-mirror --v2 defect" sections for that investigation. Confirmed again
+# 2026-11-16 against a real run where a much larger custom oc_mirror_operator_packages
+# list (several extra catalogs, many package/version pins) hit the same defect far
+# more broadly — dozens of unrelated operator repos (odf4/*, quay/*,
+# cluster-observability-operator/*, etc.), not just the two known synthetic repos.
+# Larger/more complex operator catalogs appear to increase how often this surfaces,
+# not just which repos it hits.
+#
+# scan_archive_gaps.py walks EVERY repo in this cache (not a fixed list) and reports
+# any whose manifests reference blobs the exported archive doesn't actually carry.
+# If it finds any, the known recovery (re-running oc-mirror against this same,
+# already-populated cache lets it dedupe and commit correctly) is attempted once
+# automatically before this role gives up and surfaces the failure to the operator.
+- name: Scan the mirrored archive for any repository with missing blobs
   vars:
-    release_registry_v2_dir: "{{ oc_mirror_workspace }}/cache/.oc-mirror/.cache/docker/registry/v2"
-    release_cache_repo_names:
-      - release
-      - release-images
-  shell: |
-    python3 - "{{ release_registry_v2_dir }}" "{{ release_cache_handoff_dir }}/.oc-mirror/.cache/docker/registry/v2" {{ release_cache_repo_names | join(' ') }} << 'PYEOF'
-    import json, os, shutil, sys
+    _registry_v2_dir: "{{ oc_mirror_workspace }}/cache/.oc-mirror/.cache/docker/registry/v2"
+    _archive_dir: "{{ oc_mirror_workspace }}/archive"
+  command: "python3 {{ role_path }}/files/scan_archive_gaps.py {{ _registry_v2_dir }} {{ _archive_dir }}"
+  register: _archive_gap_scan_1
+  changed_when: false
 
-    registry_v2_dir, handoff_v2_dir = sys.argv[1:3]
-    repo_names = sys.argv[3:]
+- name: Report archive gaps found on the first scan
+  debug:
+    msg: >-
+      Archive gap scan found {{ (_archive_gap_scan_1.stdout | from_json).gap_repos | length }}
+      repo(s) with missing blobs: {{ (_archive_gap_scan_1.stdout | from_json).gap_repos | join(', ') }}.
+      Re-running oc-mirror once against the existing cache to self-heal (known
+      oc-mirror --v2 defect — see this role's README).
+  when: (_archive_gap_scan_1.stdout | from_json).gap_repos | length > 0
 
-    digests = set()
-    for repo_name in repo_names:
-        repo_src = os.path.join(registry_v2_dir, "repositories/openshift", repo_name)
-        revisions_dir = os.path.join(repo_src, "_manifests/revisions/sha256")
-        if not os.path.isdir(revisions_dir):
-            continue
-        for rev in os.listdir(revisions_dir):
-            digests.add(rev)
-            blob_path = os.path.join(registry_v2_dir, "blobs/sha256", rev[:2], rev, "data")
-            if not os.path.exists(blob_path):
-                continue
-            with open(blob_path) as f:
-                try:
-                    manifest = json.load(f)
-                except ValueError:
-                    continue
-            if "config" in manifest:
-                digests.add(manifest["config"]["digest"].split(":")[1])
-            for layer in manifest.get("layers", []):
-                digests.add(layer["digest"].split(":")[1])
-            for sub in manifest.get("manifests", []):
-                digests.add(sub["digest"].split(":")[1])
-
-    linked = 0
-    for digest in digests:
-        src = os.path.join(registry_v2_dir, "blobs/sha256", digest[:2], digest, "data")
-        if not os.path.exists(src):
-            continue
-        dst_dir = os.path.join(handoff_v2_dir, "blobs/sha256", digest[:2], digest)
-        os.makedirs(dst_dir, exist_ok=True)
-        dst = os.path.join(dst_dir, "data")
-        if os.path.exists(dst):
-            continue
-        try:
-            os.link(src, dst)
-        except OSError:
-            shutil.copy2(src, dst)
-        linked += 1
-
-    for repo_name in repo_names:
-        repo_src = os.path.join(registry_v2_dir, "repositories/openshift", repo_name)
-        if not os.path.isdir(repo_src):
-            continue
-        repo_dst = os.path.join(handoff_v2_dir, "repositories/openshift", repo_name)
-        if os.path.exists(repo_dst):
-            shutil.rmtree(repo_dst)
-        shutil.copytree(repo_src, repo_dst)
-
-    print(f"release-cache-handoff: {len(digests)} referenced digests, {linked} blobs linked, repos: {', '.join(repo_names)}")
-    PYEOF
+# Not wrapped in the async/poll progress-reporting dance the primary mirror task
+# above uses — this is a rare, best-effort self-heal path, not the main run, so a
+# silent (but bounded) wait here is an acceptable trade-off against the complexity
+# of duplicating that polling loop for a secondary invocation.
+- name: Re-run oc-mirror once in place to self-heal archive gaps
+  command: >
+    {{ bin_dir }}/oc-mirror --v2 --config {{ oc_mirror_workspace }}/archive/imageset-config.yaml
+    --cache-dir {{ oc_mirror_workspace }}/cache
+    file://{{ oc_mirror_workspace }}/archive
   args:
-    executable: /bin/bash
+    chdir: "{{ oc_mirror_workspace }}"
+  async: "{{ oc_mirror_job_timeout }}"
+  poll: "{{ oc_mirror_poll_interval }}"
+  when: (_archive_gap_scan_1.stdout | from_json).gap_repos | length > 0
   changed_when: true
+
+- name: Re-scan the archive after the self-heal retry
+  vars:
+    _registry_v2_dir: "{{ oc_mirror_workspace }}/cache/.oc-mirror/.cache/docker/registry/v2"
+    _archive_dir: "{{ oc_mirror_workspace }}/archive"
+  command: "python3 {{ role_path }}/files/scan_archive_gaps.py {{ _registry_v2_dir }} {{ _archive_dir }}"
+  register: _archive_gap_scan_2
+  changed_when: false
+  when: (_archive_gap_scan_1.stdout | from_json).gap_repos | length > 0
+
+- name: Determine the final set of repos needing the cache handoff
+  set_fact:
+    _cache_handoff_repo_names: >-
+      {{
+        (release_cache_repo_names | map('regex_replace', '^', 'openshift/') | list)
+        | union((_archive_gap_scan_2.stdout | default(_archive_gap_scan_1.stdout) | from_json).gap_repos)
+      }}
+
+# Always includes release_cache_repo_names regardless of what either scan found —
+# that gap is 100% reproducible on every run (see the README), unlike the broader
+# defect this scan/retry pair targets, so it's never left to chance. Hardlinked, not
+# copied — source and destination are both under oc_mirror_workspace on the same
+# filesystem; build_cache_handoff.py falls back to a real copy if that ever isn't
+# true. package_bastion_bundle/unpack_bastion_bundle carry this to the bastion
+# alongside mirror-content/mirror-installers, merged into deploy_mirror_registry's
+# own --cache-dir before the disk-to-mirror push.
+- name: Build the cache handoff for the bastion's disk-to-mirror step
+  vars:
+    _registry_v2_dir: "{{ oc_mirror_workspace }}/cache/.oc-mirror/.cache/docker/registry/v2"
+    _handoff_v2_dir: "{{ release_cache_handoff_dir }}/.oc-mirror/.cache/docker/registry/v2"
+  command: >-
+    python3 {{ role_path }}/files/build_cache_handoff.py
+    {{ _registry_v2_dir }} {{ _handoff_v2_dir }} {{ _cache_handoff_repo_names | join(' ') }}
+  register: _cache_handoff_result
+  changed_when: true
+
+# If the retry above didn't fully self-heal, build_cache_handoff.py still reports
+# exactly which repo(s)/digest(s) it couldn't recover — these were never written to
+# THIS host's cache either, so no amount of re-bundling or re-running can patch them;
+# only a fresh oc-mirror run (ideally after confirming upstream registry.redhat.io/
+# quay.io availability for the specific repos listed) can recover them. Failing here,
+# on staging, surfaces this in minutes instead of hours later on the bastion.
+- name: Fail clearly if any repo's blobs are still unrecoverable after the self-heal retry and handoff
+  vars:
+    _handoff_result: "{{ _cache_handoff_result.stdout | from_json }}"
+  fail:
+    msg: |-
+      The cache handoff still can't recover blobs for {{ _handoff_result.unrecoverable | length }}
+      repo(s) even after a self-heal retry — these were never written to this host's
+      own oc-mirror cache, so re-bundling or re-running stage_mirror_content again
+      won't help on their own:
+      {{ _handoff_result.unrecoverable | to_nice_json }}
+      This usually means registry.redhat.io/quay.io didn't have (or temporarily
+      couldn't serve) one of these images during the mirror run. Re-run
+      stage_mirror_content once connectivity/availability is confirmed for the
+      repos listed above.
+  when: (_cache_handoff_result.stdout | from_json).unrecoverable | length > 0

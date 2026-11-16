@@ -1,4 +1,10 @@
 ---
+# CAUTION: every *_dir path in this file is overridden (if at all) from
+# staging/inventory/inventory.yaml's single shared vars: block, evaluated on THIS
+# host (staging) — a physically separate machine from the bastion, which may have a
+# different storage layout entirely. See the caution comment at the top of
+# inventory.yaml before overriding any of these.
+
 # Runs on the internet-connected staging host (hosts: localhost in staging/'s own
 # playbooks). Produces an oc-mirror archive ("mirror to disk"); no registry needs to
 # run on this host.
@@ -6,10 +12,21 @@ oc_mirror_workspace: /opt/oc-mirror-workspace
 
 # Where this role assembles the minimal oc-mirror cache subset deploy_mirror_registry
 # needs on the bastion for its disk-to-mirror step to resolve release-component
-# images — see the "Build the release-content cache handoff" task below for why this
+# images — see the "Build the cache handoff" task below for why this
 # exists at all. Same default path duplicated in package_bastion_bundle's defaults
 # (role defaults aren't shared across roles).
 release_cache_handoff_dir: "{{ oc_mirror_workspace }}/release-cache-handoff"
+
+# openshift/<name> repos always included in the cache handoff, regardless of what
+# the archive-gap scan finds — these two are 100% reproducible on every run (not the
+# intermittent multi-catalog defect the scan/retry exists to catch), so they're never
+# left to chance. See tasks/main.yaml's "Build the cache handoff" task and this
+# role's README ("Known oc-mirror --v2 defect" sections) for the full story. If a
+# third synthetic openshift/* repo surfaces the same 100%-reproducible gap, add it
+# here rather than relying on the scan to catch it every time.
+release_cache_repo_names:
+  - release
+  - release-images
 
 bin_dir: "~/.local/bin"
 ocp_mirror_url: "https://mirror.openshift.com/pub/openshift-v4/clients/ocp/{{ openshift_version }}"
@@ -91,6 +108,15 @@ bastion_rpm_sync_method: reposync
 bastion_required_repos:
   - rhel-10-for-x86_64-baseos-rpms
   - rhel-10-for-x86_64-appstream-rpms
+
+# dnf's own default (max 3 fetched at once, even when multiple repos are passed via
+# --repoid, per dnf.conf(5)) leaves most of a typical staging host's bandwidth idle
+# during the wholesale `reposync` download — confirmed live: a full
+# BaseOS+AppStream reposync (tens of GB, mostly AppStream's many module streams) ran
+# 5+ hours projected 10+ at the dnf default. Raising this doesn't change what gets
+# downloaded, only how many RPMs fetch concurrently — tune down if staging's own
+# network/disk turns out to be the actual bottleneck instead.
+bastion_rpm_reposync_max_parallel_downloads: 10
 
 # The standard set this repo's feature roles install: LVM Storage (configure_lvms —
 # true-SNO storage), OADP (configure_oadp_backup), cluster logging

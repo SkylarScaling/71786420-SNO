@@ -58,6 +58,34 @@ or pipeline. If this recurs: re-run this role (`stage_mirror_content`) rather th
 suspecting `package_bastion_bundle/unpack_bastion_bundle` or `deploy_mirror_registry` — both were verified
 innocent by testing against a fully-cleared, freshly-synced bastion first.
 
+**Confirmed again 2026-11-16, far more broadly**, against a real customer run with a
+much larger custom `oc_mirror_operator_packages` override (several extra catalogs,
+many extra package/version pins, including nine separately-pinned `quay-operator`
+versions) — dozens of unrelated operator repos (`odf4/*`, `quay/*`,
+`cluster-observability-operator/*`, etc.) hit the same "manifest unknown" pattern in
+one run, not just one tag in one catalog. A larger/more complex operator catalog list
+appears to increase how *often* this defect surfaces, not just which repo(s) it
+picks — this is the same defect as above, at scale, not a new one.
+
+Rather than leaving this as a manual "if this recurs, re-run the role" instruction,
+`tasks/main.yaml` now automates the detection and the known recovery:
+`files/scan_archive_gaps.py` walks every repo in the cache (not a fixed list) right
+after the mirror-to-disk run and reports any whose manifests reference blobs the
+exported archive doesn't actually carry; if it finds any, this role re-runs
+`oc-mirror` once in place against the same, already-populated cache (the same
+self-heal that worked manually above) and re-scans. Whatever's still missing after
+that — expected to be rare — is still worth capturing automatically even though the
+retry mostly subsumes the original workaround below: `files/build_cache_handoff.py`
+takes whatever repo list the final scan reports (unioned with `release_cache_repo_names`,
+see below) and hardlinks each one's minimal referenced blob subset into
+`release_cache_handoff_dir`, the same mechanism `package_bastion_bundle`/
+`unpack_bastion_bundle` already carry to the bastion. If a repo's blob was never
+written to this host's cache at all (truly unrecoverable — upstream
+`registry.redhat.io`/`quay.io` unavailability during the mirror, not a commit race),
+`build_cache_handoff.py` reports that explicitly and `tasks/main.yaml` fails the
+staging run with the specific repo/digest list, rather than letting the gap surface
+hours later as an opaque `manifest unknown` on the bastion.
+
 ## Known `oc-mirror --v2` defect: release-content manifests never make it into the archive at all
 
 Confirmed against a real run, and reproduced two more ways to rule out transfer
@@ -76,32 +104,24 @@ written into the exported `mirror_NNNNNN.tar` in the first place — a different
 fully archived; this gap is specific to `openshift/release`'s synthetic
 per-component tags.
 
-The fix: this role's "Build the release-content cache handoff" task computes the
-minimal blob subset actually referenced by `stage_mirror_content`'s own
-`openshift/release` cache metadata (every digest reachable from each tag's manifest —
-config, layers, and any nested manifests for multi-arch), hardlinks just those into
-`release_cache_handoff_dir`, laid out identically to oc-mirror's own
-`.oc-mirror/.cache/docker/registry/v2/...` structure. `package_bastion_bundle` ships
-that alongside the bundle as `release-cache/`, and `unpack_bastion_bundle` merges it
-into the bastion's own `--cache-dir` (`oc_mirror_cache_dir`) before
-`deploy_mirror_registry` ever runs, so disk-to-mirror has the content locally instead
-of needing to reconstruct it from the archive. Confirmed ~20GiB for this subset vs.
-~60GiB for the full cache in a real run — a fresh `--cache-dir` containing only this
-handoff's output, with no other prior state, mirrored all 306 images successfully
-end to end, including every previously-failing release-component image.
+Unlike the intermittent multi-catalog defect above, this one is 100% reproducible
+every run (not just occasionally) — `release_cache_repo_names` (role default:
+`[release, release-images]`) is always included in the cache handoff `tasks/main.yaml`
+builds (see the "Known oc-mirror --v2 defect: multi-catalog..." section above for the
+scan/retry/handoff mechanism this now shares), regardless of what the archive-gap
+scan itself finds on any given run — this gap is never left to the scan's
+discretion. If a third `manifest unknown` ever surfaces against another synthetic
+`openshift/*` repo on every run (not just occasionally, the way the multi-catalog
+defect is), add its name to `release_cache_repo_names` in `defaults/main.yaml` too —
+nothing here enumerates oc-mirror's own synthetic repos up front, so this list is
+"confirmed 100%-reproducible gaps found so far," not a closed set.
 
 **A second, separate repo has the identical defect: `openshift/release-images`.**
 Confirmed live on a real customer run, after the `openshift/release` fix above was
 already in place: 188/192 release-component images mirrored successfully, but the
 release *payload* image itself (`openshift/release-images:4.22.20-x86_64`, what
 `ocp-release` actually resolves to) still failed with the same `manifest unknown` —
-the handoff task only ever scanned `openshift/release`. `release_cache_repo_names`
-in the "Build the release-content cache handoff" task is now a list (currently
-`[release, release-images]`), looped over for both digest discovery and the
-repo-metadata copy, rather than a single hardcoded path. If a third
-`manifest unknown` ever surfaces against another `openshift/*` synthetic repo, add
-its name to that list — nothing here enumerates oc-mirror's own synthetic repos up
-front, so this list is "confirmed gaps found so far," not a closed set.
+the handoff only ever scanned `openshift/release` at the time.
 
 ## Platform release pinning
 
@@ -237,6 +257,15 @@ can be re-run on its own (e.g. after adding a package to `bastion_packages` — 
 without redoing the hour-plus `oc-mirror` run — `--tags bastion_prereqs`, then
 `--tags package` on `package_bastion_bundle` to re-bundle with the new RPMs/metadata
 included.
+
+**`bastion_rpm_reposync_max_parallel_downloads`** (default `10`) sets
+`reposync`'s `--setopt=max_parallel_downloads`. dnf's own default (3, even with
+multiple `--repoid`s passed) leaves most of a typical staging host's bandwidth idle
+during the full BaseOS+AppStream mirror — confirmed live: a real run projected
+10+ hours at the dnf default given the tens-of-GB transfer size (AppStream's many
+module streams in particular). This only changes download concurrency, not what gets
+mirrored; tune it down if staging's own network or disk I/O turns out to be the
+actual bottleneck instead of request concurrency.
 
 ## Progress reporting
 

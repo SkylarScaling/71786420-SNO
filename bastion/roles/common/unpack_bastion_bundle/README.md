@@ -43,7 +43,7 @@ Confirmed live: without this content already present in `deploy_mirror_registry`
 `--cache-dir`, its disk-to-mirror step fails immediately with `manifest unknown` on
 whichever of these is encountered first, since a fresh cache-dir (all a separate
 bastion machine can ever have) can't reconstruct that content from the archive
-alone. `stage_mirror_content`'s "Build the release-content cache handoff" task
+alone. `stage_mirror_content`'s "Build the cache handoff" task
 computes the minimal blob subset needed across both repos (confirmed ~20GiB vs the
 full ~60GiB cache in a real run) and `package_bastion_bundle` carries it here as
 `release-cache/`, laid out identically to oc-mirror's own
