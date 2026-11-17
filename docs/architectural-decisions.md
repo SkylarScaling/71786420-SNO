@@ -39,7 +39,38 @@ install path.
    (`roles/ocp/configure_onprem_quay`) to serve application images going forward —
    the bastion's mirror registry is for install-time content only.
 
-## 2. Data protection & storage isolation
+## 2. Per-environment vars propagate from staging to the bastion through one explicit, maintained list
+
+`staging/inventory/inventory.yaml` is the single source of per-environment config for
+*both* staging and the bastion (see point 1) — `package_bastion_bundle` flattens it
+into a resolved-vars file that `unpack_bastion_bundle` writes verbatim to
+`bastion/group_vars/all.yaml`. That flattening (`templates/bastion-resolved-vars.yaml.j2`)
+hand-lists each var explicitly rather than dumping every role's defaults wholesale —
+deliberately, since most staging-side role defaults are staging-local storage
+paths/URLs (`oc_mirror_workspace`, `mirror_installers_dir`, `ocp_mirror_url`, etc.)
+that must stay independent per host, matching separately-defined defaults on the
+bastion side. Dumping them wholesale would silently push one host's absolute paths
+onto the other.
+
+**The hand-listed set (plus `package_bastion_bundle`'s small per-role allowlists, e.g.
+`stage_mirror_content`'s `_stage_mirror_bastion_facing_vars`) is meant to be kept
+current as the complete, reviewable record of what crosses over** — not something to
+route around. Confirmed live as a real gap from letting that upkeep lag: a customer's
+`bastion_rpm_sync_method: resolve` override had no effect on the bastion at all,
+because that var had never been added to the hand-listed set, so the override never
+reached `bastion/group_vars/all.yaml`.
+
+A separate, narrower mechanism exists purely for one-off/iterative testing: any var
+added directly to `inventory.yaml`'s own `vars:` block — with no role default and not
+yet on any explicit list — still reaches the bastion automatically, so testing isn't
+blocked on a code change first. That's a convenience for testing, not a substitute
+for the explicit lists above — once an ad-hoc var turns out to be a permanent
+fixture rather than a one-off, it should be migrated into the hand-listed set (or the
+relevant role's allowlist) like any other permanent var, not left to ride along on
+the fallback indefinitely. See `staging/roles/common/package_bastion_bundle`'s README
+for the mechanics.
+
+## 3. Data protection & storage isolation
 
 OADP backups (`roles/ocp/configure_oadp_backup`) target the in-cluster NooBaa S3
 endpoint provided by `roles/ocp/configure_mcg` — keeping backup traffic entirely

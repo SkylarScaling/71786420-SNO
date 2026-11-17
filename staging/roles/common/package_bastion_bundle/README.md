@@ -30,6 +30,44 @@ is no separate "first get the code onto the bastion" step.
 | `release_cache_handoff_dir` | `{{ oc_mirror_workspace }}/release-cache-handoff` | Same variable name (and default) as `stage_mirror_content`'s — must match since that's how this role's input reaches that role's output. |
 | `bastion_transfer_host`/`bastion_transfer_user`/`bastion_transfer_ssh_key`/`bastion_transfer_dest_dir` | unset / `root` / `{{ ssh_private_key }}` / `/root` | Only used when `bastion_transfer_method: rsync`. |
 
+## How vars reach `bastion-resolved-vars.yaml`
+
+The intent is still that `templates/bastion-resolved-vars.yaml.j2`'s hand-listed vars
+are kept up to date as the actual, complete, reviewable record of what reaches the
+bastion — that's deliberate (simple and readable), not something this section
+replaces. Confirmed live as a real gap in keeping that upkeep current: a customer's
+`bastion_rpm_sync_method: resolve` override had no effect on the bastion at all,
+because that var hadn't been added to the hand-listed names, so it never made it into
+the file `unpack_bastion_bundle` writes to `bastion/group_vars/all.yaml`.
+
+`tasks/main.yaml`'s "Determine which extra vars need to reach the bastion" task
+exists for two narrower purposes, not as a general substitute for that upkeep —
+unioned and resolved via `lookup('vars', ...)` (which honors normal Ansible
+precedence — an inventory override still wins over a role default):
+
+- **`_stage_mirror_bastion_facing_vars`**: an explicit, permanent allowlist of
+  `stage_mirror_content` vars that are a bastion-agreed *choice*
+  (`bastion_rpm_sync_method`, `bastion_packages`, `bastion_required_repos`) —
+  **not** that role's entire `defaults/main.yaml`. Most of that file is
+  staging-local storage paths/URLs (`oc_mirror_workspace`, `mirror_installers_dir`,
+  `ocp_mirror_url`, etc.) that are deliberately independent per host (see the
+  CAUTION comment at the top of `inventory.yaml`) — auto-including those would
+  silently push staging's absolute paths onto the bastion. Treat this list the same
+  as the template's own hand-listed vars: add a new `stage_mirror_content` var here
+  deliberately when it becomes a permanent part of the bastion contract.
+- **Inventory-only vars**: every key actually present in `inventory.yaml`'s own
+  `vars:` block, so an operator can add a brand-new ad-hoc var there for
+  one-off/iterative testing (no role default needed anywhere) and have it reach the
+  bastion immediately, without a code change. This is a testing convenience, not a
+  place to leave a var permanently — once it's no longer a one-off, move it into the
+  template's hand-listed set (or `_stage_mirror_bastion_facing_vars`, if it came from
+  `stage_mirror_content`) like any other permanent var.
+
+Any name already on the explicit hand-list above is excluded from this
+auto-inclusion, so nothing is emitted twice. If you need another role's var to reach
+the bastion the same way, add its name to the allowlist in that task — don't widen
+it to a whole-file scan.
+
 ## Disk usage: bundle-root is hardlinked, not copied
 
 Every copy into `bundle-root` (`bastion/` tree, mirror content, installer tarballs,

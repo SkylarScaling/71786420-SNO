@@ -18,6 +18,100 @@
     state: directory
     mode: '0755'
 
+# The intent is still that bastion-resolved-vars.yaml.j2's hand-listed vars (plus
+# _stage_mirror_bastion_facing_vars below) are kept up to date as the actual,
+# reviewable, complete list of what's supposed to reach the bastion — this task isn't
+# a substitute for that upkeep. _stage_mirror_bastion_facing_vars IS that permanent
+# list for stage_mirror_content specifically: when a new stage_mirror_content var
+# becomes a real, permanent part of the bastion contract (not a staging-local path —
+# see below), add its name there deliberately, the same way you'd add a new var to
+# the hand-listed set above.
+#
+# What this task actually solves is the *testing* gap confirmed live: a customer's
+# bastion_rpm_sync_method override had no effect on the bastion at all, because
+# nobody had yet added it to that permanent list — exactly the lag this is meant to
+# cover for, not replace. Separately, _inventory_only_vars exists purely so an
+# operator can add a brand-new ad-hoc var directly to inventory.yaml for
+# one-off/iterative testing (no role default anywhere yet) and have it reach the
+# bastion immediately, without a code change — if that var turns out to be a
+# permanent fixture rather than a one-off test, it should still be migrated into the
+# explicit list (template or _stage_mirror_bastion_facing_vars) afterward rather than
+# left to ride along on this fallback indefinitely.
+#
+# Deliberately NOT a whole-file dump of stage_mirror_content's defaults: most of that
+# file is staging-local storage paths/URLs that must stay independent per host (see
+# the CAUTION comment at the top of inventory.yaml) — stage_mirror_content's own
+# oc_mirror_workspace/mirror_installers_dir/etc. have their own independent defaults
+# on the bastion side by design, and auto-including those would silently push
+# staging's absolute paths onto the bastion. _explicit_template_vars excludes
+# anything bastion-resolved-vars.yaml.j2 already hand-lists below, so nothing gets
+# emitted twice.
+- name: Determine which extra vars need to reach the bastion beyond the hand-listed ones
+  vars:
+    _stage_mirror_bastion_facing_vars:
+      - bastion_rpm_sync_method
+      - bastion_packages
+      - bastion_required_repos
+    _explicit_template_vars:
+      - cluster_name
+      - openshift_version
+      - infra_provider
+      - base_domain
+      - ssh_key
+      - ssh_private_key
+      - pull_secret
+      - tmp_dir
+      - install_dir
+      - sno_kubeconfig
+      - machine_network_cidr
+      - cluster_network_cidr
+      - service_network_cidr
+      - bmc_address
+      - bmc_username
+      - bmc_password
+      - iso_http_url
+      - rendezvous_ip
+      - sno_mac_address
+      - default_gateway
+      - dns_server
+      - ntp_server
+      - sno_network_topology
+      - sno_interface_name_secondary
+      - sno_mac_address_secondary
+      - lvms_device_paths
+      - metallb_address_pool
+      - alert_smtp_host
+      - alert_email_to
+      - mirror_registry_quay_hostname
+      - mirror_registry_quay_port
+      - backup_s3_bucket
+      - backup_egress_mode
+      - backup_external_s3_endpoint
+      - backup_external_s3_bucket
+      - backup_external_s3_access_key
+      - backup_external_s3_secret_key
+      - log_forward_endpoint
+    _inventory_only_vars: "{{ (lookup('file', inventory_file) | from_yaml).all.vars.keys() | list }}"
+  set_fact:
+    _bastion_extra_var_names: >-
+      {{
+        (_stage_mirror_bastion_facing_vars + _inventory_only_vars)
+        | difference(_explicit_template_vars)
+        | unique
+      }}
+
+# lookup('vars', ...), not the vars[item] dict-subscript form — the latter is
+# deprecated as of ansible-core 2.21 (confirmed live, "The internal 'vars' dictionary
+# is deprecated... Use the `vars` and `varnames` lookups instead") and removed
+# entirely in 2.24.
+- name: Resolve the actual (precedence-correct) value for each extra var
+  set_fact:
+    _bastion_extra_vars: "{{ _bastion_extra_vars | default({}) | combine({item: lookup('vars', item)}) }}"
+  loop: "{{ _bastion_extra_var_names }}"
+  loop_control:
+    label: "{{ item }}"
+  when: lookup('vars', item, default=None) is not none
+
 - name: Render the flattened per-environment vars file for the bastion
   template:
     src: bastion-resolved-vars.yaml.j2
