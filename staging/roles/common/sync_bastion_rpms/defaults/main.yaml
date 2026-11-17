@@ -18,6 +18,18 @@ mirror_installers_dir: /opt/mirror-installers
 # guidance rather than silently installing nothing.
 bastion_rpm_sync_method: reposync
 
+# resolve method only: dnf download --resolve resolves dependencies against the
+# rpmdb of whatever root it runs against — pointed at this host's own real root by
+# default, which lets an already-installed dependency silently skip the download
+# (confirmed live twice: git-core, then the full apr-util/libapr-1/libaprutil-1
+# chain httpd-core needs — both satisfied on staging itself but absent on the
+# bastion, which starts fresh). Resolving against a brand-new, empty rpmdb here
+# instead of staging's real one closes that class of gap for good while keeping
+# resolve's smaller-than-reposync transfer size — see tasks/main.yaml. Not shipped
+# anywhere; wiped and recreated on every resolve run, so safe to leave at this
+# scratch-space default.
+bastion_rpm_resolve_installroot: /tmp/bastion-rpm-resolve-root
+
 # RPM packages configure_bastion_services needs installed on the bastion, which has
 # no internet route to reach RHUI/dnf repos itself — downloaded here (with their full
 # dependency closure, not just these names) and synced over the same way as the tool

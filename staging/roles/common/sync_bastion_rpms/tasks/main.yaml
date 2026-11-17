@@ -77,15 +77,50 @@
 
 # resolve (opt-in): the original, narrower approach — downloads only
 # bastion_packages' own dependency closure instead of each full repo. Smaller
-# transfer, but see the reposync comment above for the gap this can hit: a
-# dependency already satisfied on staging itself can be silently omitted even with
-# --resolve. `dnf download --resolve` (not `dnf install --downloadonly`, which only
-# downloads what it would actually *install* and so skips already-installed
-# packages even more aggressively) fetches the named packages and their full
-# dependency closure as best it can into a single flat directory, which createrepo_c
-# then turns into one real (local-only) dnf repo — configure_bastion_services
-# expects this exact single-directory layout when bastion_rpm_sync_method is
-# resolve, as opposed to reposync's one-subdirectory-per-repoid layout.
+# transfer than reposync, but confirmed live, twice, as unreliable in its original
+# form: plain `dnf download --resolve` resolves dependencies against the rpmdb of
+# the root it runs against — by default, THIS host's real one — so any dependency
+# already satisfied on staging itself (even transitively, even by something
+# unrelated already installed) is silently dropped from the download set. First
+# confirmed with git-core; confirmed again with the full apr-util/libapr-1/
+# libaprutil-1 chain httpd-core needs (httpd-2.4.63 depsolve failed on the bastion
+# with "nothing provides apr-util-1(dbm)... / libapr-1.so.0()... /
+# libaprutil-1.so.0()..." — all three already satisfied on staging by something
+# else, so --resolve never considered them needed). The bastion starts with none of
+# staging's pre-existing packages, so a closure that "resolved cleanly" here can
+# still fail to install there.
+#
+# Fixed by resolving against a brand-new, empty installroot instead of staging's
+# real one (below) — a standard dnf technique for exactly this class of problem.
+# With no packages "already installed" in that root, nothing is ever treated as
+# pre-satisfied, so the downloaded closure is complete regardless of what staging
+# itself happens to have installed — the same correctness guarantee reposync gets
+# structurally, without reposync's full-repo transfer size. Unverified against a
+# live run yet; if a depsolve gap is ever confirmed again after this fix, suspect the
+# installroot/releasever/reposdir flags below first, not the --resolve approach
+# itself.
+#
+# `dnf download --resolve` (not `dnf install --downloadonly`, which only downloads
+# what it would actually *install* and so skips already-installed packages even
+# more aggressively) fetches the named packages and their full dependency closure
+# as best it can into a single flat directory, which createrepo_c then turns into
+# one real (local-only) dnf repo — configure_bastion_services expects this exact
+# single-directory layout when bastion_rpm_sync_method is resolve, as opposed to
+# reposync's one-subdirectory-per-repoid layout.
+- name: Wipe and recreate an empty installroot for dependency-closure resolution (resolve method only)
+  file:
+    path: "{{ bastion_rpm_resolve_installroot }}"
+    state: "{{ item }}"
+    mode: '0755'
+  loop: [absent, directory]
+  when: bastion_rpm_sync_method == 'resolve'
+  tags: [bastion_prereqs]
+
+- name: Initialize an empty rpm database in the installroot (resolve method only)
+  command: "rpm --root {{ bastion_rpm_resolve_installroot }} --initdb"
+  when: bastion_rpm_sync_method == 'resolve'
+  tags: [bastion_prereqs]
+
 - name: Ensure createrepo_c is installed on staging (resolve method only)
   dnf:
     name: createrepo_c
@@ -95,11 +130,21 @@
   when: bastion_rpm_sync_method == 'resolve'
   tags: [bastion_prereqs]
 
+# --installroot points dependency resolution at the empty rpmdb just initialized
+# above instead of staging's real one. --setopt=reposdir keeps dnf reading THIS
+# host's real repo definitions (and the entitlement certs those repo files
+# reference) — dnf's own default once --installroot is set is to look for repo
+# config *inside* the installroot instead, which doesn't exist here.
+# --releasever must be set explicitly too, since an empty installroot has no
+# /etc/os-release of its own for dnf to detect it from.
 - name: Download bastion packages (with full dependency closure) for offline install on the bastion (resolve method only)
   vars:
     _bastion_repo_flags: "{{ bastion_required_repos | map('regex_replace', '^(.*)$', '--enablerepo=\\1') | join(' ') }}"
   command: >
     dnf download --resolve --destdir={{ mirror_installers_dir }}/bastion-rpms
+    --installroot={{ bastion_rpm_resolve_installroot }}
+    --releasever={{ ansible_distribution_major_version }}
+    --setopt=reposdir=/etc/yum.repos.d
     {{ _bastion_repo_flags }}
     -y {{ bastion_packages | join(' ') }}
   become: true

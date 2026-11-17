@@ -29,12 +29,30 @@ wanted to run/re-run that independently of the separate, also-hours-long oc-mirr
   needed); `--delete` prunes RPMs dropped from the upstream repo on a re-run so this
   doesn't grow unbounded. One subdirectory per repoid lands under
   `mirror_installers_dir/bastion-rpms/`.
-- **`resolve`** (opt-in): the original, narrower `dnf download --resolve` approach —
-  confirmed unreliable in practice: it resolves dependencies against what's already
-  installed on *this* staging host, so a dependency already satisfied here (even
-  transitively) can be silently skipped from the download set even with `--resolve`,
-  producing a closure that looks complete on staging but is missing something offline
-  on the bastion (which starts with none of staging's pre-existing packages).
+- **`resolve`** (opt-in): the original, narrower `dnf download --resolve` approach.
+  In its original form this was confirmed unreliable **twice** against two unrelated
+  package families (`git-core`, then the full `apr-util`/`libapr-1`/`libaprutil-1`
+  chain `httpd-core` needs): plain `dnf download --resolve` resolves dependencies
+  against the rpmdb of whatever root it runs against — this staging host's own real
+  root, by default — so a dependency already satisfied here (even transitively, even
+  by something unrelated already installed) is silently dropped from the download
+  set. The bastion starts with none of staging's pre-existing packages, so a closure
+  that "resolved cleanly" here can still fail a depsolve there (confirmed live: the
+  second failure surfaced as `configure_bastion_services`' `dnf install` on the
+  bastion failing outright with `nothing provides apr-util-1(dbm)...` /
+  `libapr-1.so.0()...` / `libaprutil-1.so.0()...`).
+
+  **Fixed** by resolving against a brand-new, empty installroot
+  (`bastion_rpm_resolve_installroot`, wiped and reinitialized with `rpm --initdb` on
+  every run) instead of staging's real root — a standard dnf technique for exactly
+  this class of problem. With no packages "already installed" in that root, nothing
+  is ever treated as pre-satisfied, so the downloaded closure is complete regardless
+  of what staging itself happens to have installed — the same correctness guarantee
+  `reposync` gets structurally, without `reposync`'s full-repo transfer size.
+  **Unverified against a live run yet** — if a depsolve gap is ever confirmed again
+  after this fix, suspect the `--installroot`/`--releasever`/`--setopt=reposdir`
+  flags in `tasks/main.yaml` first, not the `--resolve` approach itself.
+
   Downloads into a single flat directory and needs `createrepo_c` (installed from
   `bastion_required_repos` itself) to turn it into a real repo afterward.
 
