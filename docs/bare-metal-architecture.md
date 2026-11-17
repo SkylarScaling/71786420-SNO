@@ -163,14 +163,18 @@ of the operator's own SSH private key (`relay-key`), needed for the one return-t
 push the bastion can originate (the backup-export relay, §8) since that key
 otherwise only ever lives on staging. The bastion's own OS packages (`dnsmasq`/`httpd`, installed by
 `bastion/bastion/roles/common/configure_bastion_services`) go through the identical path —
-`stage_mirror_content` resolves their full dependency closure into
-`mirror_installers_dir/bastion-rpms` via `dnf download --resolve`, then runs
-`createrepo_c` against that directory so it travels as a real local-only dnf repo
-(not just a pile of RPM files — dnf's solver needs repo metadata to resolve a
-dependency closure correctly, confirmed against a real customer environment where
-installing from a raw file list wasn't reliable), and `configure_bastion_services`
-installs by package name against that local repo's metadata (`disablerepo: '*'`),
-since a direct `dnf install` on the bastion itself fails (RHUI has no route either).
+`stage_mirror_content` mirrors each of `bastion_required_repos` wholesale via
+`reposync` (`bastion_rpm_sync_method: reposync`, the default) into
+`mirror_installers_dir/bastion-rpms` (one subdirectory per repoid, each a real repo
+on its own since `reposync --download-metadata` carries over the upstream
+`repodata/` directly) — a deliberate customer choice over a narrower, smaller `dnf
+download --resolve` approach (`bastion_rpm_sync_method: resolve`, left in place as
+an opt-in), after that approach was found to silently omit a dependency already
+satisfied on staging itself (see `stage_mirror_content`'s README for the full
+story) — and
+`configure_bastion_services` installs by package name against each local repo's own
+metadata (`disablerepo: '*'`), since a direct `dnf install` on the bastion itself
+fails (RHUI has no route either).
 
 `oc_mirror_operator_packages` (role default in `stage_mirror_content`) controls which
 operators get mirrored — entries are either a bare package name (default catalog

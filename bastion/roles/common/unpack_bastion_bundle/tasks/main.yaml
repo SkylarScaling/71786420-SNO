@@ -34,6 +34,36 @@
   include_vars:
     file: "{{ playbook_dir }}/group_vars/all.yaml"
 
+# A tens-of-GB tar.gz carried over physical media or rsync has no integrity check of
+# its own — tar -xzf can partially succeed on a corrupted archive without erroring,
+# so by the time bastion-resolved-vars.yaml is readable (confirming extraction at
+# least ran) the content inside it may still be silently wrong. Stat-gated both ways:
+# skips cleanly if the tar.gz was already deleted (e.g. a prior successful run, or
+# bastion_bundle_tarball_path set to '' deliberately) or if no .sha256 file shipped
+# alongside it, rather than treating either as an error — see defaults/main.yaml.
+- name: Check whether the staging-produced tar.gz is still present to verify
+  stat:
+    path: "{{ bastion_bundle_tarball_path }}"
+  register: _bastion_bundle_tarball_stat
+  when: bastion_bundle_tarball_path | length > 0
+
+- name: Check whether a checksum file was shipped alongside the tar.gz
+  stat:
+    path: "{{ bastion_bundle_tarball_path }}.sha256"
+  register: _bastion_bundle_checksum_stat
+  when: _bastion_bundle_tarball_stat.stat.exists | default(false)
+
+# sha256sum -c itself fails loudly (non-zero rc) on a mismatch, with the mismatched
+# filename in its own output — no separate fail task needed. chdir'd to the tar.gz's
+# own directory since the checksum file (written by package_bastion_bundle) records
+# only the bare filename, not an absolute path.
+- name: Verify the tar.gz against its shipped checksum before trusting its contents
+  command: "sha256sum -c {{ bastion_bundle_name }}.sha256"
+  args:
+    chdir: "{{ bastion_bundle_tarball_path | dirname }}"
+  changed_when: false
+  when: _bastion_bundle_checksum_stat.stat.exists | default(false)
+
 - name: Ensure ~/.ssh exists for the relay key
   file:
     path: "~/.ssh"

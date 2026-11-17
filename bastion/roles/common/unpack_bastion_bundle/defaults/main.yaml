@@ -1,4 +1,10 @@
 ---
+# CAUTION: every *_dir path in this file is overridden (if at all) from
+# staging/inventory/inventory.yaml's single shared vars: block, evaluated on THIS
+# host (the bastion) — a physically separate machine from staging, which may have a
+# different storage layout entirely. See the caution comment at the top of
+# inventory.yaml before overriding any of these.
+
 # Where the staging-produced bundle (or its individually-extracted contents) lives on
 # the bastion once physically copied (or rsynced) over. Default assumes the operator
 # extracted the tar.gz into this directory already (e.g. `tar xzf
@@ -7,6 +13,23 @@ bastion_bundle_dir: "~/sno-deploy"
 
 bin_dir: "~/.local/bin"
 
+# Same default expression as package_bastion_bundle's own bastion_bundle_name (role
+# defaults aren't shared across roles) — must match so this role can find the same
+# tar.gz by name for the checksum verification below.
+bastion_bundle_name: "sno-bastion-bundle-{{ cluster_name }}.tar.gz"
+
+# Where the operator copied the staging-produced tar.gz before extracting it —
+# default assumes the home directory, matching package_bastion_bundle's own "Next:"
+# report instructions. If present (and a matching `.sha256` file shipped alongside
+# it, per package_bastion_bundle), verified against that checksum before this role
+# trusts anything extracted from it — a tens-of-GB physical-media or rsync transfer
+# has no integrity check of its own, and `tar -xzf` can partially succeed on a
+# corrupted archive without erroring. Set to '' to skip verification (e.g. the
+# tar.gz was already deleted after a prior successful run and only the extracted
+# bastion_bundle_dir remains — see tasks/main.yaml for the stat-gating that makes
+# this safe to skip in that case rather than failing).
+bastion_bundle_tarball_path: "~/{{ bastion_bundle_name }}"
+
 # Same variable name (and default path) deploy_mirror_registry reads this back out
 # of — must match, since that's the only thing tying "where this role writes the
 # content" to "where deploy_mirror_registry reads it from" (role defaults aren't
@@ -14,6 +37,18 @@ bin_dir: "~/.local/bin"
 mirror_archive_dir: /opt/mirror-content/archive
 mirror_installers_dir: /opt/mirror-installers
 
-# Same variable name (and default path) deploy_mirror_registry reads this back out
-# of — must match, same reasoning as mirror_archive_dir/mirror_installers_dir above.
-oc_mirror_cache_dir: /opt/mirror-registry/oc-mirror-cache
+# Derived from mirror_registry_install_dir the same way deploy_mirror_registry's own
+# oc_mirror_cache_dir default is (not a separate literal) — confirmed live as a real
+# failure mode: an earlier version of this default was a plain
+# /opt/mirror-registry/oc-mirror-cache literal, so overriding only
+# mirror_registry_install_dir (e.g. to move it onto a bigger /data volume after the
+# disk-space issue documented in deploy_mirror_registry's README) silently left this
+# role still writing the release-content cache handoff into the old /opt path while
+# deploy_mirror_registry's push read --cache-dir from the new one. That split cache
+# reproduced the exact "manifest unknown" failure the handoff exists to prevent
+# (deploy_mirror_registry/stage_mirror_content READMEs, "release-content manifests
+# never make it into the archive at all") — not a regression of that original bug,
+# just this default silently falling out of sync with it. Deriving both from the same
+# var keeps a single override in inventory.yaml correct for both roles.
+mirror_registry_install_dir: /opt/mirror-registry
+oc_mirror_cache_dir: "{{ mirror_registry_install_dir }}/oc-mirror-cache"

@@ -42,63 +42,82 @@
 # resulting tar.gz extracts cleanly at the bastion checkout's root with predictable
 # top-level entries (bastion/, mirror-content/, mirror-installers/, release-cache/, relay-key,
 # bastion-resolved-vars.yaml) regardless of each source's own absolute path.
-#
-# NOT wiped (state: absent) before re-populating, unlike an earlier version of this
-# task — mirror-content alone is tens of GB, and wiping bundle-root first meant the
-# copies below could never benefit from any idempotency at all: every single run
-# recopied the entire archive from scratch, even using `copy`'s own per-file checksum
-# skip, since the destination never had anything to compare against. Worse than the
-# equivalent gap already fixed in unpack_bastion_bundle (confirmed by comparing the
-# two): that one was merely slow to re-verify unchanged files; this one guaranteed a
-# full re-copy by construction. ansible.posix.synchronize (rsync) below instead
-# diffs against whatever's already in bundle-root from a previous run and only
-# transfers what's missing/changed, with delete: true to prune anything stale (e.g.
-# content removed from a refreshed mirror).
-- name: Ensure the staging-root directory exists for assembling the bundle contents
+- name: Ensure a clean staging-root directory for assembling the bundle contents
   file:
     path: "{{ bastion_bundle_export_dir }}/bundle-root"
-    state: directory
+    state: "{{ item }}"
     mode: '0755'
+  loop: [absent, directory]
 
+# Hardlinked, not copied: bastion_tree_dir/mirror_sync_source_dir/mirror_installers_dir/
+# release_cache_handoff_dir and bastion_bundle_export_dir are all expected to be on the
+# same root filesystem (confirmed on this host — single storage device, no separate
+# mounts for these paths). Confirmed live: a real run's mirrored content alone was
+# ~100GiB — a second physical copy of that into bundle-root via rsync, on top of the
+# oc-mirror workspace it was copied from, was what actually exhausted a 250GB volume
+# before the final tar.gz was even written. `cp -al` costs ~0 extra disk since this
+# content is read-only mirror/installer output never modified in place, and is cheap
+# enough to redo from scratch every run (wiping bundle-root above first) instead of
+# needing rsync's incremental diff/--delete to stay fast — the previous approach's
+# "don't wipe, diff instead" trade-off existed specifically because a real copy of
+# tens of GB was too slow to redo every run; that constraint doesn't apply once the
+# copy is just hardlinks.
+#
+# Falls back to a real copy (`cp -an`, not `cp -a`) for whatever `cp -al` couldn't
+# hardlink — either because it's run across a mount boundary (e.g.
+# bastion_bundle_export_dir or oc_mirror_workspace overridden onto a different
+# filesystem), or because the source has mixed ownership (bastion-rpms/*.rpm can end
+# up root-owned since stage_mirror_content downloads them with `become: true`, and the
+# kernel's protected_hardlinks protection blocks hard-linking to a file you don't own
+# even on the same filesystem). `-n`/--no-clobber, not plain `-a`, matters here: `cp
+# -al` processes every file before reporting one combined failure, so by the time the
+# fallback runs, some files are often already correctly hardlinked — plain `cp -a`
+# would then refuse with "are the same file" (source and destination are the same
+# inode) and fail the whole fallback too; `-n` skips those silently and only actually
+# copies what's still missing.
 - name: Copy the bastion/ automation tree into the bundle root
-  ansible.posix.synchronize:
-    src: "{{ bastion_tree_dir }}/"
-    dest: "{{ bastion_bundle_export_dir }}/bundle-root/bastion/"
-    recursive: true
-    delete: true
+  shell: >
+    mkdir -p "{{ bastion_bundle_export_dir }}/bundle-root/bastion" &&
+    (cp -al "{{ bastion_tree_dir }}/." "{{ bastion_bundle_export_dir }}/bundle-root/bastion/"
+    || cp -an "{{ bastion_tree_dir }}/." "{{ bastion_bundle_export_dir }}/bundle-root/bastion/")
+  changed_when: true
 
-# rsync_opts excludes stage_mirror_content's own "mirror to disk" scratch output up
-# front, rather than copying it and deleting it from the copy afterward (the previous
-# approach, forced by ansible.builtin.copy having no --exclude) — deploy_mirror_registry's
-# "disk to mirror" push never reads it; it regenerates its own working-dir from the
-# tar chunks. delete: true still prunes it from bundle-root if an older bundle (from
-# before this exclusion existed) already has a copy sitting there.
+# Same exclusion the old rsync-based copy applied: stage_mirror_content's own "mirror
+# to disk" scratch output, which deploy_mirror_registry's "disk to mirror" push never
+# reads (it regenerates its own working-dir from the tar chunks) — `cp` has no
+# --exclude, so this is removed right after instead. Hardlinked, not copied — see the
+# comment above the bastion/ tree copy for why.
 - name: Copy the mirrored content archive into the bundle root
-  ansible.posix.synchronize:
-    src: "{{ mirror_sync_source_dir }}/"
-    dest: "{{ bastion_bundle_export_dir }}/bundle-root/mirror-content/"
-    recursive: true
-    delete: true
-    rsync_opts:
-      - "--exclude=working-dir"
+  shell: >
+    mkdir -p "{{ bastion_bundle_export_dir }}/bundle-root/mirror-content" &&
+    (cp -al "{{ mirror_sync_source_dir }}/." "{{ bastion_bundle_export_dir }}/bundle-root/mirror-content/"
+    || cp -an "{{ mirror_sync_source_dir }}/." "{{ bastion_bundle_export_dir }}/bundle-root/mirror-content/")
+  changed_when: true
 
+- name: Remove the oc-mirror working-dir scratch output from the bundled copy (not needed on the bastion)
+  file:
+    path: "{{ bastion_bundle_export_dir }}/bundle-root/mirror-content/working-dir"
+    state: absent
+
+# Hardlinked, not copied — see the comment above the bastion/ tree copy for why.
 - name: Copy the installer tarballs (oc-mirror, mirror-registry, openshift-install, oc) into the bundle root
-  ansible.posix.synchronize:
-    src: "{{ mirror_installers_dir }}/"
-    dest: "{{ bastion_bundle_export_dir }}/bundle-root/mirror-installers/"
-    recursive: true
-    delete: true
+  shell: >
+    mkdir -p "{{ bastion_bundle_export_dir }}/bundle-root/mirror-installers" &&
+    (cp -al "{{ mirror_installers_dir }}/." "{{ bastion_bundle_export_dir }}/bundle-root/mirror-installers/"
+    || cp -an "{{ mirror_installers_dir }}/." "{{ bastion_bundle_export_dir }}/bundle-root/mirror-installers/")
+  changed_when: true
 
-# stage_mirror_content's "Build the release-content cache handoff" task populates
+# stage_mirror_content's "Build the cache handoff" task populates
 # this — the minimal oc-mirror cache subset deploy_mirror_registry's disk-to-mirror
 # step needs, since the archive above doesn't carry this content on its own (see that
-# task's comment for the full "manifest unknown" story, confirmed live).
+# task's comment for the full "manifest unknown" story, confirmed live). Hardlinked,
+# not copied — see the comment above the bastion/ tree copy for why.
 - name: Copy the release-content cache handoff into the bundle root
-  ansible.posix.synchronize:
-    src: "{{ release_cache_handoff_dir }}/"
-    dest: "{{ bastion_bundle_export_dir }}/bundle-root/release-cache/"
-    recursive: true
-    delete: true
+  shell: >
+    mkdir -p "{{ bastion_bundle_export_dir }}/bundle-root/release-cache" &&
+    (cp -al "{{ release_cache_handoff_dir }}/." "{{ bastion_bundle_export_dir }}/bundle-root/release-cache/"
+    || cp -an "{{ release_cache_handoff_dir }}/." "{{ bastion_bundle_export_dir }}/bundle-root/release-cache/")
+  changed_when: true
 
 - name: Copy the flattened resolved-vars file into the bundle root
   copy:
@@ -125,6 +144,27 @@
     dest: "{{ bastion_bundle_export_dir }}/{{ bastion_bundle_name }}"
     format: gz
 
+# A physical-media (or even rsync, over an imperfect link) transfer of a tens-of-GB
+# file has no inherent integrity check of its own — `tar -xzf` on a truncated or
+# bit-flipped archive can fail loudly, but can also partially succeed with silently
+# corrupted content depending on where the damage lands. Computed with `chdir` (not
+# an absolute path) so the checksum file records just the bare filename, matching
+# what `sha256sum -c` expects to find next to it on the bastion regardless of
+# whatever absolute path it lands at there. unpack_bastion_bundle verifies this
+# automatically before trusting the extracted contents — see that role's README.
+- name: Compute a sha256 checksum of the bundle for the bastion to verify after transfer
+  command: "sha256sum {{ bastion_bundle_name }}"
+  args:
+    chdir: "{{ bastion_bundle_export_dir }}"
+  register: _bastion_bundle_checksum
+  changed_when: false
+
+- name: Write the checksum file alongside the bundle
+  copy:
+    content: "{{ _bastion_bundle_checksum.stdout }}\n"
+    dest: "{{ bastion_bundle_export_dir }}/{{ bastion_bundle_name }}.sha256"
+    mode: '0644'
+
 - name: Report the media-transfer next step
   debug:
     msg:
@@ -132,9 +172,12 @@
       - "Bundle packaged"
       - "=================================================================="
       - "Location: {{ bastion_bundle_export_dir }}/{{ bastion_bundle_name }}"
+      - "Checksum: {{ bastion_bundle_export_dir }}/{{ bastion_bundle_name }}.sha256"
       - "------------------------------------------------------------------"
-      - "Next: copy it to removable media, carry it to the bastion, and"
-      - "extract it into an empty working directory there:"
+      - "Next: copy BOTH files to removable media (unpack_bastion_bundle verifies the"
+      - "tar.gz against the .sha256 file automatically, but only if it's present"
+      - "alongside the tar.gz), carry them to the bastion, and extract into an empty"
+      - "working directory there:"
       - "  mkdir -p ~/sno-deploy"
       - "  tar -xzf {{ bastion_bundle_name }} -C ~/sno-deploy"
       - "It unpacks to bastion/, mirror-content/, mirror-installers/, release-cache/, relay-key, and"
@@ -165,11 +208,12 @@
 # needed, unlike the old sync_mirror_to_bastion role: there's no single controller
 # spanning both hosts anymore for the module to get confused about which side is
 # "local".
-- name: Rsync the bundle to the bastion
+- name: Rsync the bundle (and its checksum file) to the bastion
   command: >
     rsync -a
     --rsh="ssh -i /tmp/.bastion_bundle_transfer_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
     {{ bastion_bundle_export_dir }}/{{ bastion_bundle_name }}
+    {{ bastion_bundle_export_dir }}/{{ bastion_bundle_name }}.sha256
     {{ bastion_transfer_user }}@{{ bastion_transfer_host }}:{{ bastion_transfer_dest_dir }}/
   when: bastion_transfer_method == 'rsync'
 
@@ -186,6 +230,9 @@
       - "Bundle pushed to the bastion"
       - "=================================================================="
       - "Destination: {{ bastion_transfer_user }}@{{ bastion_transfer_host }}:{{ bastion_transfer_dest_dir }}/{{ bastion_bundle_name }}"
+      - "(.sha256 checksum file pushed alongside it — unpack_bastion_bundle verifies"
+      - "the tar.gz against it automatically, but only if it's still present"
+      - "alongside the tar.gz when the playbook runs.)"
       - "------------------------------------------------------------------"
       - "Next: SSH to the bastion, extract the bundle into an empty working"
       - "directory, and run the provision playbook:"

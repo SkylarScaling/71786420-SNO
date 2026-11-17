@@ -14,17 +14,37 @@ below).
 already extracts those itself directly from `mirror_installers_dir` (unchanged
 behavior from before the split).
 
+## Checksum verification before trusting the extracted bundle
+
+Before doing anything else, this role checks for the still-present tar.gz at
+`bastion_bundle_tarball_path` (default `~/{{ bastion_bundle_name }}`) and, if found,
+its adjacent `.sha256` file (written by `package_bastion_bundle` and carried over
+the same way the tar.gz was) — verified with `sha256sum -c`, which fails loudly on
+its own if the tar.gz doesn't match. This exists because physical-media and rsync
+transfers of a tens-of-GB file have no integrity check of their own: `tar -xzf` can
+partially succeed on a truncated or corrupted archive without erroring, so getting
+this far (`bastion-resolved-vars.yaml` readable) doesn't by itself confirm the
+content inside is intact. Both checks are stat-gated and skip cleanly — not an
+error — if the tar.gz was already deleted (e.g. a prior successful run) or no
+`.sha256` shipped alongside it; set `bastion_bundle_tarball_path: ''` to skip this
+explicitly. For this to actually catch anything, don't delete the tar.gz until
+*after* `provision-sno.yaml` completes successfully — see
+`package_bastion_bundle`'s README.
+
 ### Why the release-content cache handoff exists
 
 oc-mirror v2's exported archive doesn't carry the actual manifest/config/layer blob
-content for the `openshift/release` repo's per-component synthetic tags (e.g.
-`openshift/release:4.22.17-x86_64-cluster-kube-apiserver-operator`) — only the
-lightweight tag/revision pointer files. Confirmed live: without this content already
-present in `deploy_mirror_registry`'s `--cache-dir`, its disk-to-mirror step fails
-immediately with `manifest unknown` on the first release-component image, since a
-fresh cache-dir (all a separate bastion machine can ever have) can't reconstruct that
-content from the archive alone. `stage_mirror_content`'s "Build the release-content
-cache handoff" task computes the minimal blob subset needed (confirmed ~20GiB vs the
+content for two synthetic `openshift/*` repos — `openshift/release` (per-component
+tags, e.g. `openshift/release:4.22.17-x86_64-cluster-kube-apiserver-operator`) and
+`openshift/release-images` (the top-level release payload tag itself, e.g.
+`openshift/release-images:4.22.20-x86_64`, confirmed live as a second, separate
+instance of the same gap) — only the lightweight tag/revision pointer files.
+Confirmed live: without this content already present in `deploy_mirror_registry`'s
+`--cache-dir`, its disk-to-mirror step fails immediately with `manifest unknown` on
+whichever of these is encountered first, since a fresh cache-dir (all a separate
+bastion machine can ever have) can't reconstruct that content from the archive
+alone. `stage_mirror_content`'s "Build the cache handoff" task
+computes the minimal blob subset needed across both repos (confirmed ~20GiB vs the
 full ~60GiB cache in a real run) and `package_bastion_bundle` carries it here as
 `release-cache/`, laid out identically to oc-mirror's own
 `.oc-mirror/.cache/docker/registry/v2/...` cache structure so it drops straight into
@@ -57,9 +77,27 @@ instead of re-verifying everything from scratch.
 | --- | --- | --- |
 | `bastion_bundle_dir` | `~/sno-deploy` | Where the staging-produced tar.gz was extracted on this host. Must contain `bastion-resolved-vars.yaml`, `mirror-content/`, and `mirror-installers/` at its root. `release-cache/`/`relay-key` are also expected but not fatal if missing. |
 | `bin_dir` | `~/.local/bin` | Same convention used by every other role in this repo that manages its own binaries. |
+| `bastion_bundle_name` | `sno-bastion-bundle-{{ cluster_name }}.tar.gz` | Same variable name (and default) as `package_bastion_bundle`'s own — must match so this role finds the right `.sha256` file. |
+| `bastion_bundle_tarball_path` | `~/{{ bastion_bundle_name }}` | Where the operator copied the staging-produced tar.gz before extracting it. Verified against its adjacent `.sha256` file if both are present — see "Checksum verification" above. Set to `''` to skip. |
 | `mirror_archive_dir` | `/opt/mirror-content/archive` | Same variable name (and default) as `deploy_mirror_registry`'s — must match since that's how this role's output reaches that role's input. |
 | `mirror_installers_dir` | `/opt/mirror-installers` | Must match `deploy_mirror_registry`/`configure_bastion_services`'s own default. |
-| `oc_mirror_cache_dir` | `/opt/mirror-registry/oc-mirror-cache` | Must match `deploy_mirror_registry`'s own default — this is where the release-content cache handoff lands. |
+| `mirror_registry_install_dir` | `/opt/mirror-registry` | Same variable name (and default) as `deploy_mirror_registry`'s — only exists here to derive `oc_mirror_cache_dir` below the same way that role does. Override this (not `oc_mirror_cache_dir` directly) if you need to move the install off `/opt`, e.g. onto a bigger volume. |
+| `oc_mirror_cache_dir` | `{{ mirror_registry_install_dir }}/oc-mirror-cache` | Must match `deploy_mirror_registry`'s own resolved value — this is where the release-content cache handoff lands, and `deploy_mirror_registry`'s disk-to-mirror push reads `--cache-dir` from the same path. Derived from `mirror_registry_install_dir` specifically so a single override of that var keeps both roles pointed at the same directory — confirmed live as a real failure mode when this used to be an independent literal: overriding only `mirror_registry_install_dir` left this role writing the handoff to the old path while the push read from the new one, reproducing the "manifest unknown" failure the handoff exists to prevent (see `deploy_mirror_registry`/`stage_mirror_content` READMEs). |
+
+**If you're changing `mirror_registry_install_dir`/`oc_mirror_cache_dir` on a bastion
+that's already run this role once**, do it *before* that first run, or be aware the
+fix alone isn't enough afterward: this role unconditionally deletes
+`bastion_bundle_dir/release-cache` (and `mirror-content`/`mirror-installers`) once
+it's copied into place (see "Remove the now-redundant..." in `tasks/main.yaml`), on
+the assumption the copy landed somewhere this role will keep reading from. If an
+earlier run already merged the handoff into a now-stale path and deleted the source,
+simply re-running with the corrected var does nothing — the stat guarding the copy
+finds no source left in `bastion_bundle_dir` and skips it, leaving the new path
+empty. Confirmed live exactly this way during the `mirror_registry_install_dir`
+move to a bigger volume: the content wasn't lost, just stranded at the old resolved
+`oc_mirror_cache_dir` path from the first run — `rsync -a <old
+oc_mirror_cache_dir>/ <new oc_mirror_cache_dir>/` recovers it without re-extracting
+the bundle from scratch.
 
 ## Prerequisite
 
