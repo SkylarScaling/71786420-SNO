@@ -55,6 +55,18 @@ mirror_installers_dir: /opt/mirror-installers
 # not to be killed mid-run.
 oc_mirror_job_timeout: 28800
 
+# Customer-added oc-mirror --v2 flags (confirmed live as a fix for intermittent
+# "manifest unknown"/transient pull failures mid-mirror, separate from the
+# multi-catalog commit-race defect documented below — this is ordinary
+# registry-flakiness retry/timeout tuning oc-mirror exposes natively).
+# --retry-times/--retry-delay retry a failed image pull instead of failing the whole
+# run outright; --image-timeout caps how long oc-mirror waits on a single stuck pull
+# before giving up on it. Applied to both oc-mirror invocations below (the primary
+# run and the self-heal retry) since either can hit the same transient pull issue.
+oc_mirror_retry_times: 5
+oc_mirror_retry_delay: 30s
+oc_mirror_image_timeout: 30m
+
 # How often (seconds) to check the async job and report progress — see
 # tasks/main.yaml's "Poll and report oc-mirror progress" task for why this can now
 # safely be short: polling used to be self-recursive include_tasks, which hit

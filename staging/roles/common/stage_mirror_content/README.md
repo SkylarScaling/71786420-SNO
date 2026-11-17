@@ -256,6 +256,22 @@ targets just the RPM-sync tasks, the same as when they lived here directly. See
 output now ships to the bastion as its own tar.gz rather than inside
 `package_bastion_bundle`'s main bundle.
 
+## `oc_mirror_retry_times`/`oc_mirror_retry_delay`/`oc_mirror_image_timeout`
+
+Customer-added, confirmed live as a fix for a separate failure mode: `oc-mirror`
+failing outright with transient, multiple "manifest unknown"-style pull errors
+mid-mirror — ordinary registry flakiness, not the multi-catalog commit-race defect
+documented above. `oc-mirror --v2` exposes native retry/timeout flags for exactly
+this: `--retry-times` (default `5`) and `--retry-delay` (default `30s`) retry a
+failed image pull instead of failing the whole run immediately; `--image-timeout`
+(default `30m`) caps how long `oc-mirror` waits on a single stuck pull before giving
+up on it. Applied to **both** oc-mirror invocations in `tasks/main.yaml` (the primary
+mirror-to-disk run and the self-heal retry below), since either can hit the same
+transient pull issue. Unlike the multi-catalog defect, this isn't something the
+scan/retry mechanism detects or recovers from on its own — these flags let `oc-mirror`
+itself ride out a transient failure instead of needing a human to notice and re-run
+the whole role.
+
 ## `oc_mirror_job_timeout`: a hard kill ceiling, shared by the primary run and the self-heal retry
 
 `oc_mirror_job_timeout` (default `28800`, 8h — raised from `14400`/4h) isn't just a

@@ -161,9 +161,16 @@
 # total size instead of tailing a specific log file, since v2's exact log filenames
 # aren't verified against a real run yet. oc_mirror_job_timeout is a generous ceiling
 # for a full mirror of the release + operator catalogs, not an expected duration.
+#
+# --retry-times/--retry-delay/--image-timeout: customer-added, confirmed live as a
+# fix for intermittent "manifest unknown"/transient pull failures mid-mirror —
+# unrelated to the multi-catalog commit-race defect documented below, just ordinary
+# registry-flakiness tolerance oc-mirror exposes natively. See defaults/main.yaml.
 - name: Mirror release and operator content to disk (requires internet access + the real pull secret)
   command: >
     {{ bin_dir }}/oc-mirror --v2 --config {{ oc_mirror_workspace }}/archive/imageset-config.yaml
+    --retry-times={{ oc_mirror_retry_times }} --retry-delay={{ oc_mirror_retry_delay }}
+    --image-timeout={{ oc_mirror_image_timeout }}
     --cache-dir {{ oc_mirror_workspace }}/cache
     file://{{ oc_mirror_workspace }}/archive
   args:
@@ -273,9 +280,13 @@
 # above uses — this is a rare, best-effort self-heal path, not the main run, so a
 # silent (but bounded) wait here is an acceptable trade-off against the complexity
 # of duplicating that polling loop for a secondary invocation.
+# Same --retry-times/--retry-delay/--image-timeout as the primary run above — this
+# invocation can hit the same transient pull flakiness.
 - name: Re-run oc-mirror once in place to self-heal archive gaps
   command: >
     {{ bin_dir }}/oc-mirror --v2 --config {{ oc_mirror_workspace }}/archive/imageset-config.yaml
+    --retry-times={{ oc_mirror_retry_times }} --retry-delay={{ oc_mirror_retry_delay }}
+    --image-timeout={{ oc_mirror_image_timeout }}
     --cache-dir {{ oc_mirror_workspace }}/cache
     file://{{ oc_mirror_workspace }}/archive
   args:
