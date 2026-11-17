@@ -65,58 +65,10 @@ oc_mirror_poll_interval: 60
 mirror_registry_version: "2.0.12"
 mirror_registry_url: "https://developers.redhat.com/content-gateway/file/pub/cgw/mirror-registry/{{ mirror_registry_version }}/mirror-registry-amd64.tar.gz"
 
-# RPM packages configure_bastion_services needs installed on the bastion, which has
-# no internet route to reach RHUI/dnf repos itself — downloaded here (with their full
-# dependency closure, not just these names) and synced over the same way as the tool
-# tarballs above. Same default list duplicated in configure_bastion_services's
-# defaults (role defaults aren't shared across roles) purely for documentation; only
-# this role's copy is actually used to drive the download. tmux is an operator
-# convenience (long-running oc-mirror/mirror-registry sessions on the bastion), not a
-# functional dependency of any role.
-bastion_packages:
-  - dnsmasq
-  - httpd
-  - tmux
-  # Provides `dig`, used by deploy_mirror_registry's DNS pre-flight check — `getent`
-  # (NSS-based) was found live to keep reporting success off a stale /etc/hosts
-  # entry even after the customer deleted the actual DNS record; `dig` bypasses
-  # /etc/hosts/NSS entirely and queries the configured nameserver directly.
-  - bind-utils
-
-# `reposync` (default): mirrors bastion_required_repos wholesale — every RPM in each
-# repo, not just bastion_packages' own dependency closure. Larger transfer, but
-# immune to the gap `resolve` below can hit. Customer-requested default after an
-# earlier `resolve`-only approach proved unreliable in practice (see this role's
-# README). `resolve`: the original, narrower `dnf download --resolve` approach —
-# left in place as an opt-in for environments that want the smaller transfer once
-# `reposync` has been validated, or that have confirmed `resolve`'s gap doesn't
-# apply to their bastion_packages set. Must match configure_bastion_services' own
-# copy of this var (role defaults aren't shared across roles) — a mismatch between
-# what staging produced and what the bastion expects to find fails fast with
-# guidance rather than silently installing nothing.
-bastion_rpm_sync_method: reposync
-
-# Repo IDs staging mirrors from, by either method above — this staging host's
-# subscription must already have these attached, just not necessarily enabled by
-# default. Passed as --enablerepo on the reposync/download command itself rather
-# than toggled host-wide via subscription-manager, so this role doesn't leave the
-# staging host's own repo configuration changed as a side effect. Keep in sync with
-# whatever RHEL major version staging and the bastion are actually provisioned from
-# (see this role's README: both must match), and with configure_bastion_services'
-# own copy of this list on the bastion side (role defaults aren't shared across
-# roles).
-bastion_required_repos:
-  - rhel-10-for-x86_64-baseos-rpms
-  - rhel-10-for-x86_64-appstream-rpms
-
-# dnf's own default (max 3 fetched at once, even when multiple repos are passed via
-# --repoid, per dnf.conf(5)) leaves most of a typical staging host's bandwidth idle
-# during the wholesale `reposync` download — confirmed live: a full
-# BaseOS+AppStream reposync (tens of GB, mostly AppStream's many module streams) ran
-# 5+ hours projected 10+ at the dnf default. Raising this doesn't change what gets
-# downloaded, only how many RPMs fetch concurrently — tune down if staging's own
-# network/disk turns out to be the actual bottleneck instead.
-bastion_rpm_reposync_max_parallel_downloads: 10
+# bastion_rpm_sync_method/bastion_packages/bastion_required_repos/
+# bastion_rpm_reposync_max_parallel_downloads moved to sync_bastion_rpms's own
+# defaults/main.yaml when that role was split out of this one (2026-11-17) — see
+# this role's README ("Bastion RPMs") and sync_bastion_rpms's own README.
 
 # The standard set this repo's feature roles install: LVM Storage (configure_lvms —
 # true-SNO storage), OADP (configure_oadp_backup), cluster logging

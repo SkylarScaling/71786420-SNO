@@ -14,6 +14,12 @@ below).
 already extracts those itself directly from `mirror_installers_dir` (unchanged
 behavior from before the split).
 
+**`mirror_installers_dir/bastion-rpms` does not arrive via this role/bundle** (as of
+2026-11-17) — it ships as its own, separately-transferred `sno-bastion-rpms-*.tar.gz`,
+unpacked by `unpack_bastion_rpms_bundle` via `bastion/playbooks/unpack-bastion-rpms.yaml`
+instead, so it can be refreshed independently of the much larger main bundle. See
+that role's README and staging's `package_bastion_rpms_bundle`.
+
 ## Checksum verification before trusting the extracted bundle
 
 Before doing anything else, this role checks for the still-present tar.gz at

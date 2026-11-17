@@ -1,0 +1,66 @@
+---
+# Bastion-side counterpart of staging's package_bastion_rpms_bundle. Independent of
+# unpack_bastion_bundle/provision-sno.yaml — lets the operator refresh just the
+# bastion's RPM content on its own, the same way staging's
+# sync-bastion-rpms.yaml/sync_bastion_rpms can run the sync side independently. See
+# package_bastion_rpms_bundle's README for why this ships separately from the main
+# bundle.
+- name: Check whether the staging-produced RPMs tar.gz is still present to verify
+  stat:
+    path: "{{ bastion_rpms_bundle_tarball_path }}"
+  register: _bastion_rpms_bundle_tarball_stat
+  when: bastion_rpms_bundle_tarball_path | length > 0
+
+- name: Fail with guidance if the RPMs tar.gz hasn't been copied here yet
+  fail:
+    msg: >
+      {{ bastion_rpms_bundle_tarball_path }} not found. Copy the staging-produced
+      {{ bastion_rpms_bundle_name }} (and its .sha256, if shipped) here before running
+      this playbook — see package_bastion_rpms_bundle's README on the staging side.
+  when:
+    - bastion_rpms_bundle_tarball_path | length > 0
+    - not _bastion_rpms_bundle_tarball_stat.stat.exists
+
+- name: Check whether a checksum file was shipped alongside the RPMs tar.gz
+  stat:
+    path: "{{ bastion_rpms_bundle_tarball_path }}.sha256"
+  register: _bastion_rpms_bundle_checksum_stat
+  when: _bastion_rpms_bundle_tarball_stat.stat.exists | default(false)
+
+# Same reasoning as unpack_bastion_bundle's checksum verification — a physical-media
+# transfer has no integrity check of its own, and tar -xzf can partially succeed on a
+# corrupted archive without erroring.
+- name: Verify the RPMs tar.gz against its shipped checksum before trusting its contents
+  command: "sha256sum -c {{ bastion_rpms_bundle_name }}.sha256"
+  args:
+    chdir: "{{ bastion_rpms_bundle_tarball_path | dirname }}"
+  changed_when: false
+  when: _bastion_rpms_bundle_checksum_stat.stat.exists | default(false)
+
+- name: Ensure the installers destination exists, owned by the connecting user (/opt requires root to create)
+  file:
+    path: "{{ mirror_installers_dir }}"
+    state: directory
+    mode: '0755'
+    owner: "{{ lookup('env', 'USER') }}"
+    group: "{{ lookup('env', 'USER') }}"
+  become: true
+
+# Removed first (not just overwritten) so an RPM dropped from bastion_required_repos
+# since the last sync (sync_bastion_rpms's reposync --delete already prunes it on
+# staging) doesn't linger here too — unarchive only adds/overwrites, it never removes
+# files missing from the new archive.
+- name: Remove any existing bastion-rpms content before extracting the refreshed bundle
+  file:
+    path: "{{ mirror_installers_dir }}/bastion-rpms"
+    state: absent
+
+# Verified directly against the archive module: archiving
+# "{{ mirror_installers_dir }}/bastion-rpms" produces tar entries rooted at
+# "bastion-rpms/...", not the full absolute path — extracting with dest:
+# mirror_installers_dir reproduces mirror_installers_dir/bastion-rpms/... correctly.
+- name: Extract the RPMs bundle into mirror_installers_dir
+  unarchive:
+    src: "{{ bastion_rpms_bundle_tarball_path }}"
+    dest: "{{ mirror_installers_dir }}"
+    remote_src: true

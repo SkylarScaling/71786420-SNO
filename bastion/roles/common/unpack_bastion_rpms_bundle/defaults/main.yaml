@@ -1,0 +1,19 @@
+---
+# CAUTION: every *_dir path in this file is overridden (if at all) from
+# staging/inventory/inventory.yaml's single shared vars: block, evaluated on THIS
+# host (the bastion) — a physically separate machine from staging, which may have a
+# different storage layout entirely. See the caution comment at the top of
+# inventory.yaml before overriding any of these.
+
+# Where the operator copied the staging-produced RPMs tar.gz before extracting it —
+# same convention as unpack_bastion_bundle's bastion_bundle_tarball_path. If present
+# (and a matching .sha256 shipped alongside it, per package_bastion_rpms_bundle),
+# verified against that checksum before this role trusts anything extracted from it.
+# Set to '' to skip verification.
+bastion_rpms_bundle_name: "sno-bastion-rpms-{{ cluster_name }}.tar.gz"
+bastion_rpms_bundle_tarball_path: "~/{{ bastion_rpms_bundle_name }}"
+
+# Same default path sync_bastion_rpms downloads into on staging, and
+# configure_bastion_services/deploy_mirror_registry read from here on the bastion
+# (role defaults aren't shared across roles, so duplicated rather than centralized).
+mirror_installers_dir: /opt/mirror-installers

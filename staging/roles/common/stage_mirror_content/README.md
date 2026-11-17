@@ -202,70 +202,25 @@ console.redhat.com/openshift/install/pull-secret, which already bundles auths fo
 those registries alongside the cluster-facing ones. If you're using a pull secret
 that's missing those entries, merge them in before running this role.
 
-## Bastion RPMs (`bastion_packages`/`bastion_required_repos`)
+## Bastion RPMs — now `sync_bastion_rpms`
 
-Separate from the container-image mirroring above — `bastion_packages` (default:
-`dnsmasq`, `httpd`, `tmux`, `bind-utils`) are plain RPMs `configure_bastion_services`
-installs on the bastion, which has no internet route of its own to reach them.
-`bastion_required_repos` is mirrored **wholesale** via `reposync` — every RPM in
-each listed repo, not just `bastion_packages`' own dependency closure — needing
-those repo IDs already attached to *this* staging host's subscription (just not
-necessarily enabled by default) to sync against; passed as `--enablerepo` on the
-`reposync` invocation itself rather than toggled host-wide via
-`subscription-manager`, so this role doesn't leave staging's own repo configuration
-changed as a side effect. Keep both vars and the RHEL major version staging/the
-bastion are actually provisioned from in sync — see `configure_bastion_services`'s
-README for why that match matters.
+Mirroring the bastion's own OS-level RPM dependencies (`bastion_packages`/
+`bastion_required_repos`, `reposync`/`resolve` via `bastion_rpm_sync_method`) used to
+be a tagged (`bastion_prereqs`) block directly in this role's `tasks/main.yaml`. Split
+out into its own `sync_bastion_rpms` role on 2026-11-17, at customer request: a full
+`reposync` can run 8+ hours on its own, and the customer wanted to run/re-run it
+independently of this role's separate, also-hours-long oc-mirror "mirror to disk"
+step via a standalone playbook (`staging/playbooks/sync-bastion-rpms.yaml`), without
+one blocking the other.
 
-**This is a deliberate customer choice, not the smallest possible transfer.** An
-earlier version of this task used `dnf download --resolve` to pull just
-`bastion_packages`' own dependency closure (see `tasks/main.yaml` for why not `dnf
-install --downloadonly`) — a much smaller payload, but confirmed unreliable in
-practice: `dnf download --resolve` resolves dependencies in the context of what's
-already installed on *this* staging host, so a dependency already satisfied here
-(even transitively) can be silently skipped from the download set even with
-`--resolve`, producing a closure that looks complete on staging but is missing
-something offline on the bastion (which starts with none of staging's pre-existing
-packages). The customer explicitly chose full-repo `reposync` as the **default**
-after being told it would transfer substantially more data than actually gets
-installed — `reposync` mirrors each repo's real RPM set independent of what's
-locally installed, so this class of gap can't happen. `--download-metadata` has
-`reposync` carry over each repo's own published `repodata/` directly, so no
-`createrepo_c` step is needed in this path. `--delete` prunes RPMs dropped from the
-upstream repo on a re-run, so repeated `bastion_prereqs` runs don't grow this
-directory unbounded. One subdirectory per repoid lands under
-`mirror_installers_dir/bastion-rpms/` — `configure_bastion_services` enables each as
-its own local repo on the bastion.
-
-**`bastion_rpm_sync_method` controls which of the two approaches runs** — `reposync`
-(default) or `resolve` (the original, narrower `dnf download --resolve` approach,
-left in place as an opt-in for after `reposync` has been validated against a real
-run, or for anyone who's confirmed `resolve`'s gap doesn't apply to their
-`bastion_packages` set and wants the smaller transfer). `resolve` downloads into a
-single flat directory and still needs `createrepo_c` (installed from
-`bastion_required_repos` itself) to turn it into a real repo afterward — a different
-on-disk layout from `reposync`'s one-subdirectory-per-repoid, so
-**`bastion_rpm_sync_method` must match between staging and the bastion** — see
-`configure_bastion_services`'s README. If a value mismatch happens, it won't fail
-loudly on its own; `configure_bastion_services` will just look for repo metadata in
-the wrong place and fail with a `repodata not found` guidance message from whichever
-check doesn't match what's actually on disk.
-
-Tagged `bastion_prereqs` separately from the container-mirroring tasks above so it
-can be re-run on its own (e.g. after adding a package to `bastion_packages` — update
-`configure_bastion_services`'s own copy of the list too, see that role's README)
-without redoing the hour-plus `oc-mirror` run — `--tags bastion_prereqs`, then
-`--tags package` on `package_bastion_bundle` to re-bundle with the new RPMs/metadata
-included.
-
-**`bastion_rpm_reposync_max_parallel_downloads`** (default `10`) sets
-`reposync`'s `--setopt=max_parallel_downloads`. dnf's own default (3, even with
-multiple `--repoid`s passed) leaves most of a typical staging host's bandwidth idle
-during the full BaseOS+AppStream mirror — confirmed live: a real run projected
-10+ hours at the dnf default given the tens-of-GB transfer size (AppStream's many
-module streams in particular). This only changes download concurrency, not what gets
-mirrored; tune it down if staging's own network or disk I/O turns out to be the
-actual bottleneck instead of request concurrency.
+This role still imports `sync_bastion_rpms` (tagged `bastion_prereqs`, same tag as
+before) so a combined `stage-and-package.yaml` run still produces both the content
+mirror and the RPM sync in one pass — `--tags bastion_prereqs` on that playbook still
+targets just the RPM-sync tasks, the same as when they lived here directly. See
+`sync_bastion_rpms`'s own README for the `reposync`/`resolve` methods and
+`bastion_rpm_sync_method`, and `package_bastion_rpms_bundle`'s README for why the RPM
+output now ships to the bastion as its own tar.gz rather than inside
+`package_bastion_bundle`'s main bundle.
 
 ## Progress reporting
 

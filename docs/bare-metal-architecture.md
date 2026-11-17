@@ -37,7 +37,7 @@ task at a time.
 | Item | Detail |
 |---|---|
 | Physical hardware racked, cabled, powered | Dell PowerEdge R7725, single switch (dual switch opt-in) — §10 |
-| Staging host and bastion both provisioned as RHEL 10, with `rhel-10-for-x86_64-baseos-rpms`/`-appstream-rpms` attached to staging's subscription | Must match exactly — `stage_mirror_content` resolves/downloads RPMs on staging for an offline `dnf install` on the bastion (`bastion_packages`/`bastion_required_repos`); a version mismatch installs cleanly on neither host or silently resolves the wrong RPM set — §1 |
+| Staging host and bastion both provisioned as RHEL 10, with `rhel-10-for-x86_64-baseos-rpms`/`-appstream-rpms` attached to staging's subscription | Must match exactly — `sync_bastion_rpms` resolves/downloads RPMs on staging for an offline `dnf install` on the bastion (`bastion_packages`/`bastion_required_repos`); a version mismatch installs cleanly on neither host or silently resolves the wrong RPM set — §3 |
 | iDRAC9/10 reachable from the bastion's network, with BMC credentials | `bmc_address`/`bmc_username`/`bmc_password` — §10 |
 | Static IP/gateway/MAC assignments for the SNO node (and the bastion itself) | `rendezvous_ip`, `sno_mac_address`, `default_gateway`, `machine_network_cidr` — this repo consumes these, it doesn't assign them |
 | DNS records created against `base_domain` | `mirror.<base_domain>`, `api.`/`api-int.`/`*.apps.<cluster_name>.<base_domain>`, plus app-specific hostnames — full list and purpose in §9 |
@@ -161,20 +161,32 @@ local copy. The bundle also carries a minimal oc-mirror cache handoff
 includes that content on its own (see `stage_mirror_content`'s README) — and a copy
 of the operator's own SSH private key (`relay-key`), needed for the one return-trip
 push the bastion can originate (the backup-export relay, §8) since that key
-otherwise only ever lives on staging. The bastion's own OS packages (`dnsmasq`/`httpd`, installed by
-`bastion/bastion/roles/common/configure_bastion_services`) go through the identical path —
-`stage_mirror_content` mirrors each of `bastion_required_repos` wholesale via
-`reposync` (`bastion_rpm_sync_method: reposync`, the default) into
-`mirror_installers_dir/bastion-rpms` (one subdirectory per repoid, each a real repo
-on its own since `reposync --download-metadata` carries over the upstream
-`repodata/` directly) — a deliberate customer choice over a narrower, smaller `dnf
-download --resolve` approach (`bastion_rpm_sync_method: resolve`, left in place as
-an opt-in), after that approach was found to silently omit a dependency already
-satisfied on staging itself (see `stage_mirror_content`'s README for the full
-story) — and
-`configure_bastion_services` installs by package name against each local repo's own
-metadata (`disablerepo: '*'`), since a direct `dnf install` on the bastion itself
-fails (RHUI has no route either).
+otherwise only ever lives on staging.
+
+The bastion's own OS packages (`dnsmasq`/`httpd`, installed by
+`bastion/roles/common/configure_bastion_services`) go through a related but
+**separate** path: `staging/roles/common/sync_bastion_rpms` (split out of
+`stage_mirror_content` on 2026-11-17, at customer request — a full `reposync` can run
+8+ hours on its own, and the customer wanted to run/re-run it independently of the
+separate, also-hours-long oc-mirror "mirror to disk" step) mirrors each of
+`bastion_required_repos` wholesale via `reposync` (`bastion_rpm_sync_method:
+reposync`, the default) into `mirror_installers_dir/bastion-rpms` (one subdirectory
+per repoid, each a real repo on its own since `reposync --download-metadata` carries
+over the upstream `repodata/` directly) — a deliberate customer choice over a
+narrower, smaller `dnf download --resolve` approach (`bastion_rpm_sync_method:
+resolve`, left in place as an opt-in), after that approach was found to silently omit
+a dependency already satisfied on staging itself (see `sync_bastion_rpms`'s README
+for the full story). This output ships to the bastion as its **own** tar.gz
+(`staging/roles/common/package_bastion_rpms_bundle` → `sno-bastion-rpms-*.tar.gz` →
+`bastion/roles/common/unpack_bastion_rpms_bundle`), not inside the main bundle above —
+so it can be refreshed independently without re-sending the much larger mirrored
+content. Each half also has its own standalone playbook
+(`staging/playbooks/sync-bastion-rpms.yaml`, `bastion/playbooks/unpack-bastion-rpms.yaml`)
+alongside still being wired into the combined `stage-and-package.yaml`/
+`provision-sno.yaml` flows. `configure_bastion_services` installs by package name
+against each local repo's own metadata (`disablerepo: '*'`), since a direct `dnf
+install` on the bastion itself fails (RHUI has no route either) — regardless of
+which playbook most recently refreshed `bastion-rpms/`.
 
 `oc_mirror_operator_packages` (role default in `stage_mirror_content`) controls which
 operators get mirrored — entries are either a bare package name (default catalog

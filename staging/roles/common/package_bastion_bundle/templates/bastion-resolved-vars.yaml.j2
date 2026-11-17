@@ -77,7 +77,7 @@ log_forward_endpoint: "{{ log_forward_endpoint | default('') }}"
 # (precedence-correct) value for each extra var" task — see the comment on that task
 # for the full intent. Short version: this file's hand-listed vars above are still
 # meant to be the maintained, complete record of what reaches the bastion — the
-# generated block below exists to (1) carry stage_mirror_content's own small,
+# generated block below exists to (1) carry sync_bastion_rpms's own small,
 # deliberately-maintained allowlist of bastion-facing vars, and (2) let ad-hoc vars
 # added directly to inventory.yaml for one-off testing reach the bastion without a
 # code change. A var that's meant to stick around permanently should still get moved

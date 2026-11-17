@@ -12,6 +12,12 @@ automation tree (playbooks + roles), a flattened resolved-vars file generated fr
 `unpack_bastion_bundle`'s README for why that last one exists. One `tar.gz`,
 physically carried to the bastion by default.
 
+**Does not include `sync_bastion_rpms`'s output** (the bastion's own OS-level RPM
+sync) — that ships as its own, separate tar.gz via `package_bastion_rpms_bundle`
+(called by this role too, so a combined run still produces both), so it can be
+refreshed independently without re-sending this much larger bundle. See that role's
+README.
+
 ## Why bundle the `bastion/` tree itself, not just content
 
 The bastion has no internet route and no other way to get this repo's code or its
@@ -45,23 +51,25 @@ exists for two narrower purposes, not as a general substitute for that upkeep �
 unioned and resolved via `lookup('vars', ...)` (which honors normal Ansible
 precedence — an inventory override still wins over a role default):
 
-- **`_stage_mirror_bastion_facing_vars`**: an explicit, permanent allowlist of
-  `stage_mirror_content` vars that are a bastion-agreed *choice*
-  (`bastion_rpm_sync_method`, `bastion_packages`, `bastion_required_repos`) —
-  **not** that role's entire `defaults/main.yaml`. Most of that file is
-  staging-local storage paths/URLs (`oc_mirror_workspace`, `mirror_installers_dir`,
-  `ocp_mirror_url`, etc.) that are deliberately independent per host (see the
-  CAUTION comment at the top of `inventory.yaml`) — auto-including those would
-  silently push staging's absolute paths onto the bastion. Treat this list the same
-  as the template's own hand-listed vars: add a new `stage_mirror_content` var here
-  deliberately when it becomes a permanent part of the bastion contract.
+- **`_bastion_facing_role_vars`**: an explicit, permanent allowlist of
+  `sync_bastion_rpms` vars that are a bastion-agreed *choice*
+  (`bastion_rpm_sync_method`, `bastion_packages`, `bastion_required_repos` — these
+  lived in `stage_mirror_content` before that role's RPM-sync tasks were split out
+  into `sync_bastion_rpms`, see that role's README) — **not** that role's entire
+  `defaults/main.yaml`. Most staging-side roles' defaults are staging-local storage
+  paths/URLs (`oc_mirror_workspace`, `mirror_installers_dir`, `ocp_mirror_url`, etc.)
+  that are deliberately independent per host (see the CAUTION comment at the top of
+  `inventory.yaml`) — auto-including those would silently push staging's absolute
+  paths onto the bastion. Treat this list the same as the template's own hand-listed
+  vars: add a new var here deliberately when it becomes a permanent part of the
+  bastion contract.
 - **Inventory-only vars**: every key actually present in `inventory.yaml`'s own
   `vars:` block, so an operator can add a brand-new ad-hoc var there for
   one-off/iterative testing (no role default needed anywhere) and have it reach the
   bastion immediately, without a code change. This is a testing convenience, not a
   place to leave a var permanently — once it's no longer a one-off, move it into the
-  template's hand-listed set (or `_stage_mirror_bastion_facing_vars`, if it came from
-  `stage_mirror_content`) like any other permanent var.
+  template's hand-listed set (or `_bastion_facing_role_vars`) like any other
+  permanent var.
 
 Any name already on the explicit hand-list above is excluded from this
 auto-inclusion, so nothing is emitted twice. If you need another role's var to reach

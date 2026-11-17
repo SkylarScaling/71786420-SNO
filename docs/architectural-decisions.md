@@ -39,6 +39,21 @@ install path.
    (`roles/ocp/configure_onprem_quay`) to serve application images going forward —
    the bastion's mirror registry is for install-time content only.
 
+The bastion's own OS-level RPM dependencies (`dnsmasq`/`httpd`/etc., installed by
+`bastion/roles/common/configure_bastion_services`) follow the same stage → package →
+unpack shape but travel through their **own**, independently-runnable pipeline —
+`staging/roles/common/sync_bastion_rpms` → `package_bastion_rpms_bundle` →
+`bastion/roles/common/unpack_bastion_rpms_bundle` — with its own tar.gz
+(`sno-bastion-rpms-*.tar.gz`) and standalone playbooks on both ends
+(`staging/playbooks/sync-bastion-rpms.yaml`, `bastion/playbooks/unpack-bastion-rpms.yaml`),
+separate from the content-mirroring pipeline above. This was split out on 2026-11-17
+at customer request: a full `reposync` of the bastion's required repos can run 8+
+hours on its own, and tying it to the (also hours-long) oc-mirror "mirror to disk"
+step meant neither could be retried or refreshed without redoing the other. Both
+pipelines are still wired into the combined `stage-and-package.yaml`/
+`provision-sno.yaml` flows, so a normal end-to-end run is unaffected — the standalone
+path exists purely so either half can be re-run alone.
+
 ## 2. Per-environment vars propagate from staging to the bastion through one explicit, maintained list
 
 `staging/inventory/inventory.yaml` is the single source of per-environment config for
