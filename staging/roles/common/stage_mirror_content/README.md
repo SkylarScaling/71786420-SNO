@@ -86,6 +86,40 @@ written to this host's cache at all (truly unrecoverable — upstream
 staging run with the specific repo/digest list, rather than letting the gap surface
 hours later as an opaque `manifest unknown` on the bastion.
 
+### Why the self-heal retry isn't actually automation-specific
+
+A customer's manual, unscripted `oc-mirror` run against the same environment "didn't
+seem to fail" — worth being precise about what that does and doesn't rule out. The
+underlying commit/race defect this retry exists for doesn't surface as an `oc-mirror`
+error at mirror-to-disk time, from either a manual or an automated run — it's a
+silent gap in the exported archive's blob content. The *only* reason this role
+"fails" (triggers the retry) where a manual run wouldn't is that `scan_archive_gaps.py`
+is the only thing actually looking for it; a manual run has no equivalent check, so
+the same gap in a manually-produced archive would stay invisible until a much later
+`deploy_mirror_registry` disk-to-mirror push hit `manifest unknown` on it — which is
+exactly the original failure mode this whole mechanism was built to catch earlier.
+This is a detection difference, not necessarily a behavior difference: if the manual
+run used the *same* `imageset-config.yaml` (same catalogs, same package/version
+pins) against a *comparably cold* cache, there's no reason to expect oc-mirror itself
+behaves any differently when invoked by Ansible vs. by hand — the defect is in
+`oc-mirror` itself, not in how this role shells out to it.
+
+If it's worth confirming directly: run `deploy_mirror_registry`'s disk-to-mirror push
+against the customer's manually-produced archive and see whether it also hits
+`manifest unknown` on the same handful of repos. If it does, that confirms the gap
+was present in the manual run too, just never surfaced. If it doesn't, the next thing
+to compare is whether the manual test actually used the full, current
+`oc_mirror_operator_packages` list (nine pinned `quay-operator` versions across three
+catalogs) — a smaller/older manual test wouldn't be an apples-to-apples comparison.
+
+Raising `oc_mirror_job_timeout` (see below) only prevents the retry's own async job
+from being killed before it finishes — it doesn't make the retry fire less often.
+Actually reducing how often the retry is needed would mean addressing the oc-mirror
+defect's own trigger more directly (e.g. mirroring each catalog in its own `oc-mirror`
+invocation instead of one combined multi-catalog run, since the defect is specifically
+in how v2 finalizes the *last-processed* catalog's tag when several are mirrored
+together) — not yet attempted; flagged here as a possible follow-up, not implemented.
+
 ## Known `oc-mirror --v2` defect: release-content manifests never make it into the archive at all
 
 Confirmed against a real run, and reproduced two more ways to rule out transfer
@@ -221,6 +255,23 @@ targets just the RPM-sync tasks, the same as when they lived here directly. See
 `bastion_rpm_sync_method`, and `package_bastion_rpms_bundle`'s README for why the RPM
 output now ships to the bastion as its own tar.gz rather than inside
 `package_bastion_bundle`'s main bundle.
+
+## `oc_mirror_job_timeout`: a hard kill ceiling, shared by the primary run and the self-heal retry
+
+`oc_mirror_job_timeout` (default `28800`, 8h — raised from `14400`/4h) isn't just a
+polling budget: it's the `async:` value Ansible enforces as a hard kill timeout on the
+background job itself, for **both** the primary "Mirror release and operator content
+to disk" task and the "Re-run oc-mirror once in place to self-heal archive gaps" task
+above — each gets its own independent ceiling of this same value, but a run that hits
+both (see "Known oc-mirror --v2 defect" above — for a large, multi-catalog
+`oc_mirror_operator_packages` list, this is closer to deterministic than
+occasional) is really paying for two oc-mirror invocations, against a var that used
+to be sized for one. Confirmed live: a real customer run needed to double the
+previous 4h default to run reliably, almost certainly because the self-heal retry
+was firing on (effectively) every run. Raising this doesn't make the retry fire less
+often — it only gives both invocations enough headroom not to be killed mid-run; see
+"Why the self-heal retry isn't actually automation-specific" below for why the retry
+itself can't be tuned away by this var.
 
 ## Progress reporting
 
