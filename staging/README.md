@@ -30,7 +30,7 @@ default set there would silently win over the real inventory override.
 | `mirror_registry_quay_hostname`, `mirror_registry_quay_port` | bastion's `deploy_mirror_registry`/`generate_install_config` | the bastion's mirror registry, always used — no connected fallback |
 | `oc_mirror_operator_packages` | `stage_mirror_content` | list of package names, or `{name, channel}` dicts to pin a non-default channel |
 | `bastion_transfer_method`, `bastion_transfer_host`/`_user`/`_ssh_key`/`_dest_dir` | `package_bastion_bundle` | `media` (default, physical transfer) or `rsync` (opt-in network push) |
-| `bmc_address`, `bmc_username`, `bmc_password`, `iso_http_url` | bastion's `baremetal_boot_node_via_bmc`/`configure_bastion_services` | required to un-stub that role |
+| `bmc_address`, `bmc_username`, `bmc_password`, `iso_http_url` | bastion's `baremetal_boot_node_via_bmc`/`configure_bastion_services` | fails fast if unset; see that role's README |
 | `rendezvous_ip`, `sno_mac_address`, `dns_server`, `default_gateway`, `ntp_server` | bastion's `roles/baremetal/*` | set once per deployment |
 | `sno_network_topology`, `sno_interface_name_secondary`, `sno_mac_address_secondary` | bastion's `baremetal_generate_agent_iso` | `single_switch` (default) or `dual_switch` opt-in NIC bonding on the SNO node |
 | `lvms_device_paths` | bastion's `configure_lvms` | the RAID5 virtual disk's device path |

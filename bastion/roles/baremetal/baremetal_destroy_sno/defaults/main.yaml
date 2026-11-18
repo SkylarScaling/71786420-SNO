@@ -1,0 +1,4 @@
+---
+# Powers off real hardware — require an explicit opt-in, same pattern as
+# simulate_node_failure.
+baremetal_destroy_sno_confirm: false
