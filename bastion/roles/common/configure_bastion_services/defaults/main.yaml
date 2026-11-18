@@ -1,37 +1,28 @@
 ---
 iso_serve_dir: /var/www/html/sno-iso
 
-# The bastion has no internet route at all, so dnsmasq/httpd can't be `dnf
-# install`ed directly here. stage_mirror_content downloads these (with full
-# dependency closure) on the internet-connected staging host and the
-# package_bastion_bundle/unpack_bastion_bundle pair carries them here; installed
-# below from that local copy with all repos disabled. Same default path as
-# stage_mirror_content/deploy_mirror_registry's mirror_installers_dir (role defaults
-# aren't shared across roles).
+# Must match sync_bastion_rpms's mirror_installers_dir.
 mirror_installers_dir: /opt/mirror-installers
 
-# Same default list as stage_mirror_content's own (role defaults aren't shared
-# across roles) — must match, since this is what dnf installs by name against the
-# local repo stage_mirror_content built from exactly this list.
+# Must match sync_bastion_rpms's own copy — this is what dnf installs by name
+# against the local repo it built.
 bastion_packages:
   - dnsmasq
   - httpd
   - tmux
-  # Must match stage_mirror_content's own copy — provides `dig`, used by
-  # deploy_mirror_registry's DNS pre-flight check (see that role's README).
+  # Provides `dig`, used by deploy_mirror_registry's DNS pre-flight check.
   - bind-utils
+  # Provides nmstatectl, required by openshift-install agent create image.
+  - nmstate
 
-# Same default list as stage_mirror_content's own (role defaults aren't shared
-# across roles) — must match, since this is the set of repoids staging synced, one
+# Must match sync_bastion_rpms's own copy — the set of repoids staging synced, one
 # local-only dnf repo enabled here per entry when bastion_rpm_sync_method is
 # reposync (ignored for resolve, which produces a single combined repo instead).
 bastion_required_repos:
   - rhel-10-for-x86_64-baseos-rpms
   - rhel-10-for-x86_64-appstream-rpms
 
-# Must match stage_mirror_content's own copy of this var exactly — it determines
-# which on-disk layout bastion-rpms/ actually has (one subdirectory per repoid for
-# reposync, vs. a single flat repo for resolve), so a mismatch here doesn't fail
-# loudly on its own; it just looks for repo metadata in the wrong place. See
-# stage_mirror_content's defaults/main.yaml and README for what each value means.
+# Must match sync_bastion_rpms's own copy — determines bastion-rpms/'s on-disk
+# layout (one subdirectory per repoid for reposync, vs. a single flat repo for
+# resolve). See sync_bastion_rpms's README.
 bastion_rpm_sync_method: reposync

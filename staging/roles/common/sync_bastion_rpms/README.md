@@ -1,8 +1,9 @@
 # sync_bastion_rpms
 
 Mirrors the bastion's own OS-level RPM dependencies (`dnsmasq`, `httpd`, `tmux`,
-`bind-utils` by default) on the internet-connected staging host, for offline install
-on the bastion — which has no internet route to reach RHUI/dnf repos at all.
+`bind-utils`, `nmstate` by default) on the internet-connected staging host, for
+offline install on the bastion — which has no internet route to reach RHUI/dnf repos
+at all.
 
 Split out of `stage_mirror_content` on 2026-11-17 at customer request: a full
 `reposync` of `bastion_required_repos` can run 8+ hours on its own, and the customer
