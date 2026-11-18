@@ -1,9 +1,20 @@
 # baremetal_generate_agent_iso
 
 Renders the Agent-Based Installer's `agent-config.yaml` (node identity + nmstate
-networking) alongside `install-config.yaml` (via `generate_install_config`), then
-runs `openshift-install agent create image` to produce the boot ISO that
-`baremetal_boot_node_via_bmc` mounts via Redfish virtual media.
+networking, plus `additionalNTPSources` — see below) alongside `install-config.yaml`
+(via `generate_install_config`), then runs `openshift-install agent create image` to
+produce the boot ISO that `baremetal_boot_node_via_bmc` mounts via Redfish virtual
+media.
+
+## `additionalNTPSources`
+
+Set from `ntp_server` when defined (customer-provided NTP server, per
+`staging/inventory/inventory.yaml`). This lives here, not in
+`generate_install_config`'s `install-config.yaml.j2` — confirmed live as a real bug:
+it used to be rendered into `install-config.yaml` instead, which isn't where
+`openshift-install` expects it (`additionalNTPSources` is an `AgentConfig` field),
+so a configured NTP server never actually took effect even though the var appeared
+set correctly in inventory.
 
 ## ISO generation is guarded, not re-run unconditionally
 

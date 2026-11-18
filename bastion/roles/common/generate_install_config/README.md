@@ -20,5 +20,10 @@ than a clear auth error (confirmed against a real run).
 `platform: none`, consistent with the Agent-Based Installer — there's no cloud
 platform integration on bare metal.
 
-`additionalNTPSources` is set from `ntp_server` when defined (customer-provided NTP
-server, per `staging/inventory/inventory.yaml`).
+**Does not render `additionalNTPSources`** — that's an `AgentConfig` field
+(`agent-config.yaml`), not an `InstallConfig` one. Confirmed live as a real bug: this
+template used to render it here anyway, where `openshift-install` doesn't recognize
+it, so the customer-provided NTP server never actually took effect even though it
+appeared to be configured — moved to
+`bastion/roles/baremetal/baremetal_generate_agent_iso`'s `agent-config.yaml.j2`,
+still set from `ntp_server` when defined (per `staging/inventory/inventory.yaml`).

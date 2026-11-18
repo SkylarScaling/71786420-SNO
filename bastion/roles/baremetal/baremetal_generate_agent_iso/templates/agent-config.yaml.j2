@@ -3,6 +3,14 @@ kind: AgentConfig
 metadata:
   name: {{ cluster_name }}
 rendezvousIP: {{ rendezvous_ip }}
+{% if ntp_server is defined %}
+# Customer-provided NTP server. additionalNTPSources is an AgentConfig field (this
+# file), not an InstallConfig one — confirmed live as a real bug: this used to be
+# rendered into install-config.yaml.j2 instead, where openshift-install doesn't
+# recognize it, which is why it never took effect as an agent-config.yaml setting.
+additionalNTPSources:
+  - {{ ntp_server }}
+{% endif %}
 hosts:
   - hostname: {{ sno_hostname }}
     interfaces:

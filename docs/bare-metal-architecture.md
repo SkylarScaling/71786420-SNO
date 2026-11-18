@@ -391,8 +391,11 @@ is provided, e.g. a bare-metal lab run without customer DNS).
 | `mirror.<base_domain>` | bastion IP | the install-time mirror registry (`mirror_registry_quay_hostname`) |
 | Application-specific hostnames (Keycloak, RabbitMQ management UI, pgAdmin, etc.) | SNO node IP (via Route) or the MetalLB pool IP for LoadBalancer-exposed services | customer/app-team to finalize the exact list once the application's own Routes/Ingress are defined |
 
-`additionalNTPSources` in `install-config.yaml` is set from `ntp_server` when defined
-(`bastion/roles/common/generate_install_config`).
+`additionalNTPSources` in `agent-config.yaml` is set from `ntp_server` when defined
+(`bastion/roles/baremetal/baremetal_generate_agent_iso` — not
+`generate_install_config`/`install-config.yaml`, confirmed live as a real bug: it
+used to be rendered there instead, which `openshift-install` doesn't recognize as an
+`InstallConfig` field, so a configured NTP server never actually took effect).
 
 ## 10. Hardware provisioning
 
