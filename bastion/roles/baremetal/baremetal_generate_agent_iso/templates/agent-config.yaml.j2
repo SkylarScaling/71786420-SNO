@@ -13,6 +13,20 @@ additionalNTPSources:
 {% endif %}
 hosts:
   - hostname: {{ sno_hostname }}
+    # Always master: this is a true single-node deployment (controlPlane.replicas:
+    # 1, compute.replicas: 0 in install-config.yaml), so the sole host is always the
+    # control plane — no var needed, unlike a multi-node AgentConfig where this would
+    # vary per host.
+    role: master
+{% if sno_root_device %}
+    # Pins the install disk explicitly — confirmed live as a real gap: without this,
+    # the Agent-Based Installer has to pick an install disk on its own, which is
+    # non-deterministic on multi-disk hardware (the target R7725 has more than one
+    # NVMe drive) and risks installing onto the wrong device on a re-run. Leave
+    # sno_root_device unset only for genuinely single-disk hardware.
+    rootDeviceHints:
+      deviceName: {{ sno_root_device }}
+{% endif %}
     interfaces:
       - name: {{ sno_interface_name }}
         macAddress: "{{ sno_mac_address }}"

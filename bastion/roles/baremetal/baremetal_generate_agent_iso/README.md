@@ -16,6 +16,26 @@ it used to be rendered into `install-config.yaml` instead, which isn't where
 so a configured NTP server never actually took effect even though the var appeared
 set correctly in inventory.
 
+## `role: master`
+
+Rendered unconditionally on the single host entry — this is always a true
+single-node deployment (`controlPlane.replicas: 1`, `compute.replicas: 0` in
+`install-config.yaml`), so the sole host is always the control plane. No var needed,
+unlike a multi-node `AgentConfig` where this would vary per host. Confirmed live as a
+gap found against a customer's manually-fixed `agent-config.yaml`, which set this
+explicitly.
+
+## `rootDeviceHints` (`sno_root_device`)
+
+Unset (`""`) by default; rendered as `rootDeviceHints.deviceName` only when set.
+Without this, the Agent-Based Installer has to pick an install disk on its own,
+which is non-deterministic on multi-disk hardware — confirmed live as a real gap
+against a customer's manually-fixed `agent-config.yaml`, which pinned
+`/dev/nvme0n1` explicitly; the target R7725 hardware has more than one NVMe drive.
+Set `sno_root_device` in `staging/inventory/inventory.yaml` to the real target
+device for any multi-disk server. Leave unset only for genuinely single-disk
+hardware, where there's no ambiguity to begin with.
+
 ## ISO generation is guarded, not re-run unconditionally
 
 `tasks/main.yaml` only runs `agent create image` if `{{ install_dir }}/agent.x86_64.iso`

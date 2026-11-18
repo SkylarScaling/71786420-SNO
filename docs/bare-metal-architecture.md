@@ -40,6 +40,7 @@ task at a time.
 | Staging host and bastion both provisioned as RHEL 10, with `rhel-10-for-x86_64-baseos-rpms`/`-appstream-rpms` attached to staging's subscription | Must match exactly — `sync_bastion_rpms` resolves/downloads RPMs on staging for an offline `dnf install` on the bastion (`bastion_packages`/`bastion_required_repos`); a version mismatch installs cleanly on neither host or silently resolves the wrong RPM set — §3 |
 | iDRAC9/10 reachable from the bastion's network, with BMC credentials | `bmc_address`/`bmc_username`/`bmc_password` — §10 |
 | Static IP/gateway/MAC assignments for the SNO node (and the bastion itself) | `rendezvous_ip`, `sno_mac_address`, `default_gateway`, `machine_network_cidr` — this repo consumes these, it doesn't assign them |
+| The SNO node's real hostname, primary NIC device name, and (on multi-disk hardware) target install disk | `sno_hostname`/`sno_interface_name`/`sno_root_device` — role defaults are generic placeholders (`sno-master-0`/`eno1`/unset); confirmed live as a real mismatch when left at those defaults instead of the actual hardware's values — §10 |
 | DNS records created against `base_domain` | `mirror.<base_domain>`, `api.`/`api-int.`/`*.apps.<cluster_name>.<base_domain>`, plus app-specific hostnames — full list and purpose in §9 |
 | NTP server reachable from the SNO node/bastion network | `ntp_server` — §9 |
 | SMTP relay reachable from the cluster network | `alert_smtp_host`/`alert_email_to` — `configure_alerting` assumes direct reachability, it doesn't stand up a relay |
