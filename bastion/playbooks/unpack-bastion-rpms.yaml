@@ -1,0 +1,19 @@
+---
+# Runs on the bastion (hosts: localhost). Standalone counterpart to
+# staging/playbooks/sync-bastion-rpms.yaml — extracts the separately-shipped
+# sno-bastion-rpms-*.tar.gz into mirror_installers_dir/bastion-rpms, independent of
+# provision-sno.yaml/unpack_bastion_bundle. Requires the main bundle to have been
+# unpacked here at least once already (for bastion/group_vars/all.yaml and the rest
+# of this tree to be present) — this playbook only refreshes the RPM content.
+- name: Unpack the separately-shipped bastion RPMs bundle
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [sync_rpms]
+  tasks:
+    - name: Gather facts
+      setup:
+      tags: always
+
+    - import_role:
+        name: unpack_bastion_rpms_bundle

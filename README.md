@@ -54,18 +54,22 @@ staging/
   inventory/inventory.yaml      # THE single source of per-environment config (BMC/network/customer-specific vars) — edit here only
   playbooks/
     stage-and-package.yaml      # stage_mirror_content + package_bastion_bundle
+    sync-bastion-rpms.yaml      # sync_bastion_rpms + package_bastion_rpms_bundle, standalone
     full-staging-setup.yaml     # imports stage-and-package.yaml
     receive-backup.yaml         # unpack_staging_backup_bundle + push_backup_to_external_s3
     group_vars/all.yaml         # generic, non-secret defaults only
   roles/common/
     stage_mirror_content        # mirror release/operator content + binaries to disk
+    sync_bastion_rpms           # mirror the bastion's own OS RPMs (reposync/resolve), run standalone or from stage_mirror_content
     package_bastion_bundle      # archive content + binaries + bastion/ tree + resolved config into one tar.gz
+    package_bastion_rpms_bundle # archive sync_bastion_rpms's output into its own, separately-shipped tar.gz
     push_backup_to_external_s3  # backup-export relay, final hop
     unpack_staging_backup_bundle  # backup-export relay, receives the bastion's bundle
 bastion/
   inventory/inventory.yaml      # minimal placeholder — localhost only
   playbooks/
     provision-sno.yaml          # unpack bundle -> prepare bastion -> mirror registry -> install-config -> agent ISO -> BMC boot -> wait for install -> configure mirror CatalogSources
+    unpack-bastion-rpms.yaml    # unpack_bastion_rpms_bundle, standalone
     destroy-sno.yaml
     configure-storage.yaml / configure-metallb.yaml / configure-logging.yaml /
     configure-tracing.yaml / configure-alerting.yaml / configure-backup-dr.yaml /
@@ -76,7 +80,7 @@ bastion/
     full-bastion-setup.yaml     # provision + storage + MetalLB + logging + tracing + alerting + backup + Day 2 middleware
     group_vars/all.yaml         # placeholder — overwritten by unpack_bastion_bundle from staging's resolved config
   roles/
-    common/    # bundle unpack/package, mirror registry install, install-config rendering, kubeconfig wait, bastion services, backup export
+    common/    # bundle unpack/package (main + separate RPMs bundle), mirror registry install, install-config rendering, kubeconfig wait, bastion services, backup export
     baremetal/ # bastion prep, agent ISO generation, BMC boot
     ocp/       # Day 2 features: mirror CatalogSources, LVMS/MCG, OADP, logging, tracing, MetalLB, middleware, upgrades, Quay
 docs/          # architecture reference (provider-agnostic, customer-facing)

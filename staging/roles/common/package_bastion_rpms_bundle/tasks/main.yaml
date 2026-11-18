@@ -1,0 +1,55 @@
+---
+# Packages mirror_installers_dir/bastion-rpms (sync_bastion_rpms's output) into its
+# own tar.gz, separate from package_bastion_bundle's main bundle — see this role's
+# README for why. Mirrors that role's own archive/checksum pattern.
+- name: Ensure the bundle export directory exists
+  file:
+    path: "{{ bastion_bundle_export_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Fail fast if there's no bastion-rpms content to package
+  stat:
+    path: "{{ mirror_installers_dir }}/bastion-rpms"
+  register: _bastion_rpms_stat
+  failed_when: not _bastion_rpms_stat.stat.exists
+
+- name: Archive the synced bastion RPMs into one tar.gz
+  archive:
+    path: "{{ mirror_installers_dir }}/bastion-rpms"
+    dest: "{{ bastion_bundle_export_dir }}/{{ bastion_rpms_bundle_name }}"
+    format: gz
+
+# Same reasoning as package_bastion_bundle's checksum task: a physical-media (or
+# rsync) transfer of this tar.gz has no integrity check of its own, and tar -xzf can
+# partially succeed on a corrupted archive without erroring. chdir'd so the checksum
+# file records just the bare filename, matching what unpack_bastion_rpms_bundle's
+# sha256sum -c expects to find alongside it.
+- name: Compute a sha256 checksum of the RPMs bundle for the bastion to verify after transfer
+  command: "sha256sum {{ bastion_rpms_bundle_name }}"
+  args:
+    chdir: "{{ bastion_bundle_export_dir }}"
+  register: _bastion_rpms_bundle_checksum
+  changed_when: false
+
+- name: Write the checksum file alongside the RPMs bundle
+  copy:
+    content: "{{ _bastion_rpms_bundle_checksum.stdout }}\n"
+    dest: "{{ bastion_bundle_export_dir }}/{{ bastion_rpms_bundle_name }}.sha256"
+    mode: '0644'
+
+- name: Report the RPMs bundle next step
+  debug:
+    msg:
+      - "=================================================================="
+      - "Bastion RPMs bundle packaged"
+      - "=================================================================="
+      - "Location: {{ bastion_bundle_export_dir }}/{{ bastion_rpms_bundle_name }}"
+      - "Checksum: {{ bastion_bundle_export_dir }}/{{ bastion_rpms_bundle_name }}.sha256"
+      - "------------------------------------------------------------------"
+      - "This is separate from the main sno-bastion-bundle-*.tar.gz — carry BOTH"
+      - "files to the bastion on removable media and unpack with:"
+      - "  cd ~/sno-deploy/bastion/playbooks"
+      - "  ansible-playbook unpack-bastion-rpms.yaml -i ../inventory/inventory.yaml"
+      - "(requires the main bundle to have been unpacked there at least once already,"
+      - "for bastion/ and the resolved vars to be present)."

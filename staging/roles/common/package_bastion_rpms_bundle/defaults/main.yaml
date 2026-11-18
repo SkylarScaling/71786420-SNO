@@ -1,0 +1,8 @@
+---
+bastion_bundle_export_dir: /tmp/staging-export
+bastion_rpms_bundle_name: "sno-bastion-rpms-{{ cluster_name }}.tar.gz"
+
+# Same default path sync_bastion_rpms downloads into (role defaults aren't shared
+# across roles, so duplicated rather than centralized) — this is the only directory
+# this role ever reads from.
+mirror_installers_dir: /opt/mirror-installers

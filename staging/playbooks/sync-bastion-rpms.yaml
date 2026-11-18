@@ -1,0 +1,30 @@
+---
+# Runs directly on staging (hosts: localhost). Standalone counterpart to
+# stage-and-package.yaml's bastion_prereqs tag — lets the bastion's own OS-level RPM
+# sync (sync_bastion_rpms) be run/re-run entirely on its own, independent of the
+# separate, also-hours-long oc-mirror "mirror to disk" step in stage_mirror_content.
+# Added 2026-11-17 at customer request: a full reposync of bastion_required_repos can
+# run 8+ hours on its own, and tying it to the full stage-and-package.yaml run meant
+# a retry (e.g. after a transient network blip) always re-paid that cost alongside
+# oc-mirror's own hours-long run, even when only the RPM sync needed to be redone.
+#
+# Produces its own tar.gz (sno-bastion-rpms-{{ cluster_name }}.tar.gz) in
+# bastion_bundle_export_dir, separate from package_bastion_bundle's main bundle — see
+# package_bastion_rpms_bundle's README for why. Physically carry that file (and its
+# .sha256) to the bastion and unpack with bastion/playbooks/unpack-bastion-rpms.yaml,
+# the same way package_bastion_bundle's main bundle is carried and unpacked.
+- name: Sync bastion RPMs and package them for transfer
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [sync_rpms]
+  tasks:
+    - name: Gather facts
+      setup:
+      tags: always
+
+    - import_role:
+        name: sync_bastion_rpms
+
+    - import_role:
+        name: package_bastion_rpms_bundle

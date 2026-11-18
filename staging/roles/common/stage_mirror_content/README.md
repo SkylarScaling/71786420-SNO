@@ -86,6 +86,40 @@ written to this host's cache at all (truly unrecoverable — upstream
 staging run with the specific repo/digest list, rather than letting the gap surface
 hours later as an opaque `manifest unknown` on the bastion.
 
+### Why the self-heal retry isn't actually automation-specific
+
+A customer's manual, unscripted `oc-mirror` run against the same environment "didn't
+seem to fail" — worth being precise about what that does and doesn't rule out. The
+underlying commit/race defect this retry exists for doesn't surface as an `oc-mirror`
+error at mirror-to-disk time, from either a manual or an automated run — it's a
+silent gap in the exported archive's blob content. The *only* reason this role
+"fails" (triggers the retry) where a manual run wouldn't is that `scan_archive_gaps.py`
+is the only thing actually looking for it; a manual run has no equivalent check, so
+the same gap in a manually-produced archive would stay invisible until a much later
+`deploy_mirror_registry` disk-to-mirror push hit `manifest unknown` on it — which is
+exactly the original failure mode this whole mechanism was built to catch earlier.
+This is a detection difference, not necessarily a behavior difference: if the manual
+run used the *same* `imageset-config.yaml` (same catalogs, same package/version
+pins) against a *comparably cold* cache, there's no reason to expect oc-mirror itself
+behaves any differently when invoked by Ansible vs. by hand — the defect is in
+`oc-mirror` itself, not in how this role shells out to it.
+
+If it's worth confirming directly: run `deploy_mirror_registry`'s disk-to-mirror push
+against the customer's manually-produced archive and see whether it also hits
+`manifest unknown` on the same handful of repos. If it does, that confirms the gap
+was present in the manual run too, just never surfaced. If it doesn't, the next thing
+to compare is whether the manual test actually used the full, current
+`oc_mirror_operator_packages` list (nine pinned `quay-operator` versions across three
+catalogs) — a smaller/older manual test wouldn't be an apples-to-apples comparison.
+
+Raising `oc_mirror_job_timeout` (see below) only prevents the retry's own async job
+from being killed before it finishes — it doesn't make the retry fire less often.
+Actually reducing how often the retry is needed would mean addressing the oc-mirror
+defect's own trigger more directly (e.g. mirroring each catalog in its own `oc-mirror`
+invocation instead of one combined multi-catalog run, since the defect is specifically
+in how v2 finalizes the *last-processed* catalog's tag when several are mirrored
+together) — not yet attempted; flagged here as a possible follow-up, not implemented.
+
 ## Known `oc-mirror --v2` defect: release-content manifests never make it into the archive at all
 
 Confirmed against a real run, and reproduced two more ways to rule out transfer
@@ -202,70 +236,58 @@ console.redhat.com/openshift/install/pull-secret, which already bundles auths fo
 those registries alongside the cluster-facing ones. If you're using a pull secret
 that's missing those entries, merge them in before running this role.
 
-## Bastion RPMs (`bastion_packages`/`bastion_required_repos`)
+## Bastion RPMs — now `sync_bastion_rpms`
 
-Separate from the container-image mirroring above — `bastion_packages` (default:
-`dnsmasq`, `httpd`, `tmux`, `bind-utils`) are plain RPMs `configure_bastion_services`
-installs on the bastion, which has no internet route of its own to reach them.
-`bastion_required_repos` is mirrored **wholesale** via `reposync` — every RPM in
-each listed repo, not just `bastion_packages`' own dependency closure — needing
-those repo IDs already attached to *this* staging host's subscription (just not
-necessarily enabled by default) to sync against; passed as `--enablerepo` on the
-`reposync` invocation itself rather than toggled host-wide via
-`subscription-manager`, so this role doesn't leave staging's own repo configuration
-changed as a side effect. Keep both vars and the RHEL major version staging/the
-bastion are actually provisioned from in sync — see `configure_bastion_services`'s
-README for why that match matters.
+Mirroring the bastion's own OS-level RPM dependencies (`bastion_packages`/
+`bastion_required_repos`, `reposync`/`resolve` via `bastion_rpm_sync_method`) used to
+be a tagged (`bastion_prereqs`) block directly in this role's `tasks/main.yaml`. Split
+out into its own `sync_bastion_rpms` role on 2026-11-17, at customer request: a full
+`reposync` can run 8+ hours on its own, and the customer wanted to run/re-run it
+independently of this role's separate, also-hours-long oc-mirror "mirror to disk"
+step via a standalone playbook (`staging/playbooks/sync-bastion-rpms.yaml`), without
+one blocking the other.
 
-**This is a deliberate customer choice, not the smallest possible transfer.** An
-earlier version of this task used `dnf download --resolve` to pull just
-`bastion_packages`' own dependency closure (see `tasks/main.yaml` for why not `dnf
-install --downloadonly`) — a much smaller payload, but confirmed unreliable in
-practice: `dnf download --resolve` resolves dependencies in the context of what's
-already installed on *this* staging host, so a dependency already satisfied here
-(even transitively) can be silently skipped from the download set even with
-`--resolve`, producing a closure that looks complete on staging but is missing
-something offline on the bastion (which starts with none of staging's pre-existing
-packages). The customer explicitly chose full-repo `reposync` as the **default**
-after being told it would transfer substantially more data than actually gets
-installed — `reposync` mirrors each repo's real RPM set independent of what's
-locally installed, so this class of gap can't happen. `--download-metadata` has
-`reposync` carry over each repo's own published `repodata/` directly, so no
-`createrepo_c` step is needed in this path. `--delete` prunes RPMs dropped from the
-upstream repo on a re-run, so repeated `bastion_prereqs` runs don't grow this
-directory unbounded. One subdirectory per repoid lands under
-`mirror_installers_dir/bastion-rpms/` — `configure_bastion_services` enables each as
-its own local repo on the bastion.
+This role still imports `sync_bastion_rpms` (tagged `bastion_prereqs`, same tag as
+before) so a combined `stage-and-package.yaml` run still produces both the content
+mirror and the RPM sync in one pass — `--tags bastion_prereqs` on that playbook still
+targets just the RPM-sync tasks, the same as when they lived here directly. See
+`sync_bastion_rpms`'s own README for the `reposync`/`resolve` methods and
+`bastion_rpm_sync_method`, and `package_bastion_rpms_bundle`'s README for why the RPM
+output now ships to the bastion as its own tar.gz rather than inside
+`package_bastion_bundle`'s main bundle.
 
-**`bastion_rpm_sync_method` controls which of the two approaches runs** — `reposync`
-(default) or `resolve` (the original, narrower `dnf download --resolve` approach,
-left in place as an opt-in for after `reposync` has been validated against a real
-run, or for anyone who's confirmed `resolve`'s gap doesn't apply to their
-`bastion_packages` set and wants the smaller transfer). `resolve` downloads into a
-single flat directory and still needs `createrepo_c` (installed from
-`bastion_required_repos` itself) to turn it into a real repo afterward — a different
-on-disk layout from `reposync`'s one-subdirectory-per-repoid, so
-**`bastion_rpm_sync_method` must match between staging and the bastion** — see
-`configure_bastion_services`'s README. If a value mismatch happens, it won't fail
-loudly on its own; `configure_bastion_services` will just look for repo metadata in
-the wrong place and fail with a `repodata not found` guidance message from whichever
-check doesn't match what's actually on disk.
+## `oc_mirror_retry_times`/`oc_mirror_retry_delay`/`oc_mirror_image_timeout`
 
-Tagged `bastion_prereqs` separately from the container-mirroring tasks above so it
-can be re-run on its own (e.g. after adding a package to `bastion_packages` — update
-`configure_bastion_services`'s own copy of the list too, see that role's README)
-without redoing the hour-plus `oc-mirror` run — `--tags bastion_prereqs`, then
-`--tags package` on `package_bastion_bundle` to re-bundle with the new RPMs/metadata
-included.
+Customer-added, confirmed live as a fix for a separate failure mode: `oc-mirror`
+failing outright with transient, multiple "manifest unknown"-style pull errors
+mid-mirror — ordinary registry flakiness, not the multi-catalog commit-race defect
+documented above. `oc-mirror --v2` exposes native retry/timeout flags for exactly
+this: `--retry-times` (default `5`) and `--retry-delay` (default `30s`) retry a
+failed image pull instead of failing the whole run immediately; `--image-timeout`
+(default `30m`) caps how long `oc-mirror` waits on a single stuck pull before giving
+up on it. Applied to **both** oc-mirror invocations in `tasks/main.yaml` (the primary
+mirror-to-disk run and the self-heal retry below), since either can hit the same
+transient pull issue. Unlike the multi-catalog defect, this isn't something the
+scan/retry mechanism detects or recovers from on its own — these flags let `oc-mirror`
+itself ride out a transient failure instead of needing a human to notice and re-run
+the whole role.
 
-**`bastion_rpm_reposync_max_parallel_downloads`** (default `10`) sets
-`reposync`'s `--setopt=max_parallel_downloads`. dnf's own default (3, even with
-multiple `--repoid`s passed) leaves most of a typical staging host's bandwidth idle
-during the full BaseOS+AppStream mirror — confirmed live: a real run projected
-10+ hours at the dnf default given the tens-of-GB transfer size (AppStream's many
-module streams in particular). This only changes download concurrency, not what gets
-mirrored; tune it down if staging's own network or disk I/O turns out to be the
-actual bottleneck instead of request concurrency.
+## `oc_mirror_job_timeout`: a hard kill ceiling, shared by the primary run and the self-heal retry
+
+`oc_mirror_job_timeout` (default `28800`, 8h — raised from `14400`/4h) isn't just a
+polling budget: it's the `async:` value Ansible enforces as a hard kill timeout on the
+background job itself, for **both** the primary "Mirror release and operator content
+to disk" task and the "Re-run oc-mirror once in place to self-heal archive gaps" task
+above — each gets its own independent ceiling of this same value, but a run that hits
+both (see "Known oc-mirror --v2 defect" above — for a large, multi-catalog
+`oc_mirror_operator_packages` list, this is closer to deterministic than
+occasional) is really paying for two oc-mirror invocations, against a var that used
+to be sized for one. Confirmed live: a real customer run needed to double the
+previous 4h default to run reliably, almost certainly because the self-heal retry
+was firing on (effectively) every run. Raising this doesn't make the retry fire less
+often — it only gives both invocations enough headroom not to be killed mid-run; see
+"Why the self-heal retry isn't actually automation-specific" below for why the retry
+itself can't be tuned away by this var.
 
 ## Progress reporting
 

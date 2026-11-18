@@ -40,9 +40,32 @@ ocp_mirror_url: "https://mirror.openshift.com/pub/openshift-v4/clients/ocp/{{ op
 # defaults (role defaults aren't shared across roles).
 mirror_installers_dir: /opt/mirror-installers
 
-# Ceiling for the async "mirror to disk" job (seconds) — generous for a full mirror
-# of the release + operator catalogs, not an expected duration.
-oc_mirror_job_timeout: 14400
+# Ceiling for the async "mirror to disk" job (seconds). This is a hard kill
+# timeout enforced by Ansible's async wrapper on the background job itself — not just
+# a polling budget — so the real oc-mirror process gets forcibly terminated if it
+# runs longer than this, regardless of poll/fire-and-forget mode. Previously 14400
+# (4h), sized for a single oc-mirror invocation; raised to 28800 (8h) after a real
+# customer run needed to double it to run reliably. The likely reason one run wasn't
+# enough: "Re-run oc-mirror once in place to self-heal archive gaps" below reuses
+# this SAME var for its own async ceiling, so any run that hits the (for this
+# customer's large multi-catalog oc_mirror_operator_packages list, apparently
+# near-deterministic) self-heal retry is really paying for two oc-mirror invocations
+# against one timeout sized for one. Raising this doesn't change whether the retry
+# fires — it only gives both the primary run and a potential retry enough headroom
+# not to be killed mid-run.
+oc_mirror_job_timeout: 28800
+
+# Customer-added oc-mirror --v2 flags (confirmed live as a fix for intermittent
+# "manifest unknown"/transient pull failures mid-mirror, separate from the
+# multi-catalog commit-race defect documented below — this is ordinary
+# registry-flakiness retry/timeout tuning oc-mirror exposes natively).
+# --retry-times/--retry-delay retry a failed image pull instead of failing the whole
+# run outright; --image-timeout caps how long oc-mirror waits on a single stuck pull
+# before giving up on it. Applied to both oc-mirror invocations below (the primary
+# run and the self-heal retry) since either can hit the same transient pull issue.
+oc_mirror_retry_times: 5
+oc_mirror_retry_delay: 30s
+oc_mirror_image_timeout: 30m
 
 # How often (seconds) to check the async job and report progress — see
 # tasks/main.yaml's "Poll and report oc-mirror progress" task for why this can now
@@ -65,58 +88,10 @@ oc_mirror_poll_interval: 60
 mirror_registry_version: "2.0.12"
 mirror_registry_url: "https://developers.redhat.com/content-gateway/file/pub/cgw/mirror-registry/{{ mirror_registry_version }}/mirror-registry-amd64.tar.gz"
 
-# RPM packages configure_bastion_services needs installed on the bastion, which has
-# no internet route to reach RHUI/dnf repos itself — downloaded here (with their full
-# dependency closure, not just these names) and synced over the same way as the tool
-# tarballs above. Same default list duplicated in configure_bastion_services's
-# defaults (role defaults aren't shared across roles) purely for documentation; only
-# this role's copy is actually used to drive the download. tmux is an operator
-# convenience (long-running oc-mirror/mirror-registry sessions on the bastion), not a
-# functional dependency of any role.
-bastion_packages:
-  - dnsmasq
-  - httpd
-  - tmux
-  # Provides `dig`, used by deploy_mirror_registry's DNS pre-flight check — `getent`
-  # (NSS-based) was found live to keep reporting success off a stale /etc/hosts
-  # entry even after the customer deleted the actual DNS record; `dig` bypasses
-  # /etc/hosts/NSS entirely and queries the configured nameserver directly.
-  - bind-utils
-
-# `reposync` (default): mirrors bastion_required_repos wholesale — every RPM in each
-# repo, not just bastion_packages' own dependency closure. Larger transfer, but
-# immune to the gap `resolve` below can hit. Customer-requested default after an
-# earlier `resolve`-only approach proved unreliable in practice (see this role's
-# README). `resolve`: the original, narrower `dnf download --resolve` approach —
-# left in place as an opt-in for environments that want the smaller transfer once
-# `reposync` has been validated, or that have confirmed `resolve`'s gap doesn't
-# apply to their bastion_packages set. Must match configure_bastion_services' own
-# copy of this var (role defaults aren't shared across roles) — a mismatch between
-# what staging produced and what the bastion expects to find fails fast with
-# guidance rather than silently installing nothing.
-bastion_rpm_sync_method: reposync
-
-# Repo IDs staging mirrors from, by either method above — this staging host's
-# subscription must already have these attached, just not necessarily enabled by
-# default. Passed as --enablerepo on the reposync/download command itself rather
-# than toggled host-wide via subscription-manager, so this role doesn't leave the
-# staging host's own repo configuration changed as a side effect. Keep in sync with
-# whatever RHEL major version staging and the bastion are actually provisioned from
-# (see this role's README: both must match), and with configure_bastion_services'
-# own copy of this list on the bastion side (role defaults aren't shared across
-# roles).
-bastion_required_repos:
-  - rhel-10-for-x86_64-baseos-rpms
-  - rhel-10-for-x86_64-appstream-rpms
-
-# dnf's own default (max 3 fetched at once, even when multiple repos are passed via
-# --repoid, per dnf.conf(5)) leaves most of a typical staging host's bandwidth idle
-# during the wholesale `reposync` download — confirmed live: a full
-# BaseOS+AppStream reposync (tens of GB, mostly AppStream's many module streams) ran
-# 5+ hours projected 10+ at the dnf default. Raising this doesn't change what gets
-# downloaded, only how many RPMs fetch concurrently — tune down if staging's own
-# network/disk turns out to be the actual bottleneck instead.
-bastion_rpm_reposync_max_parallel_downloads: 10
+# bastion_rpm_sync_method/bastion_packages/bastion_required_repos/
+# bastion_rpm_reposync_max_parallel_downloads moved to sync_bastion_rpms's own
+# defaults/main.yaml when that role was split out of this one (2026-11-17) — see
+# this role's README ("Bastion RPMs") and sync_bastion_rpms's own README.
 
 # The standard set this repo's feature roles install: LVM Storage (configure_lvms —
 # true-SNO storage), OADP (configure_oadp_backup), cluster logging

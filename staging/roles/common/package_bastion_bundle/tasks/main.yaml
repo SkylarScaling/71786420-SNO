@@ -18,6 +18,102 @@
     state: directory
     mode: '0755'
 
+# The intent is still that bastion-resolved-vars.yaml.j2's hand-listed vars (plus
+# _bastion_facing_role_vars below) are kept up to date as the actual,
+# reviewable, complete list of what's supposed to reach the bastion — this task isn't
+# a substitute for that upkeep. _bastion_facing_role_vars IS that permanent
+# list for sync_bastion_rpms specifically (formerly stage_mirror_content's, before
+# that role's RPM-sync tasks were split out — see sync_bastion_rpms's README): when a
+# new sync_bastion_rpms var becomes a real, permanent part of the bastion contract
+# (not a staging-local path — see below), add its name there deliberately, the same
+# way you'd add a new var to the hand-listed set above.
+#
+# What this task actually solves is the *testing* gap confirmed live: a customer's
+# bastion_rpm_sync_method override had no effect on the bastion at all, because
+# nobody had yet added it to that permanent list — exactly the lag this is meant to
+# cover for, not replace. Separately, _inventory_only_vars exists purely so an
+# operator can add a brand-new ad-hoc var directly to inventory.yaml for
+# one-off/iterative testing (no role default anywhere yet) and have it reach the
+# bastion immediately, without a code change — if that var turns out to be a
+# permanent fixture rather than a one-off test, it should still be migrated into the
+# explicit list (template or _bastion_facing_role_vars) afterward rather than
+# left to ride along on this fallback indefinitely.
+#
+# Deliberately NOT a whole-file dump of sync_bastion_rpms's (or any other role's)
+# defaults: most staging-side roles' defaults are staging-local storage paths/URLs
+# that must stay independent per host (see the CAUTION comment at the top of
+# inventory.yaml) — stage_mirror_content's own oc_mirror_workspace/
+# mirror_installers_dir/etc. have their own independent defaults on the bastion side
+# by design, and auto-including those would silently push staging's absolute paths
+# onto the bastion. _explicit_template_vars excludes anything
+# bastion-resolved-vars.yaml.j2 already hand-lists below, so nothing gets emitted
+# twice.
+- name: Determine which extra vars need to reach the bastion beyond the hand-listed ones
+  vars:
+    _bastion_facing_role_vars:
+      - bastion_rpm_sync_method
+      - bastion_packages
+      - bastion_required_repos
+    _explicit_template_vars:
+      - cluster_name
+      - openshift_version
+      - infra_provider
+      - base_domain
+      - ssh_key
+      - ssh_private_key
+      - pull_secret
+      - tmp_dir
+      - install_dir
+      - sno_kubeconfig
+      - machine_network_cidr
+      - cluster_network_cidr
+      - service_network_cidr
+      - bmc_address
+      - bmc_username
+      - bmc_password
+      - iso_http_url
+      - rendezvous_ip
+      - sno_mac_address
+      - default_gateway
+      - dns_server
+      - ntp_server
+      - sno_network_topology
+      - sno_interface_name_secondary
+      - sno_mac_address_secondary
+      - lvms_device_paths
+      - metallb_address_pool
+      - alert_smtp_host
+      - alert_email_to
+      - mirror_registry_quay_hostname
+      - mirror_registry_quay_port
+      - backup_s3_bucket
+      - backup_egress_mode
+      - backup_external_s3_endpoint
+      - backup_external_s3_bucket
+      - backup_external_s3_access_key
+      - backup_external_s3_secret_key
+      - log_forward_endpoint
+    _inventory_only_vars: "{{ (lookup('file', inventory_file) | from_yaml).all.vars.keys() | list }}"
+  set_fact:
+    _bastion_extra_var_names: >-
+      {{
+        (_bastion_facing_role_vars + _inventory_only_vars)
+        | difference(_explicit_template_vars)
+        | unique
+      }}
+
+# lookup('vars', ...), not the vars[item] dict-subscript form — the latter is
+# deprecated as of ansible-core 2.21 (confirmed live, "The internal 'vars' dictionary
+# is deprecated... Use the `vars` and `varnames` lookups instead") and removed
+# entirely in 2.24.
+- name: Resolve the actual (precedence-correct) value for each extra var
+  set_fact:
+    _bastion_extra_vars: "{{ _bastion_extra_vars | default({}) | combine({item: lookup('vars', item)}) }}"
+  loop: "{{ _bastion_extra_var_names }}"
+  loop_control:
+    label: "{{ item }}"
+  when: lookup('vars', item, default=None) is not none
+
 - name: Render the flattened per-environment vars file for the bastion
   template:
     src: bastion-resolved-vars.yaml.j2
@@ -107,6 +203,18 @@
     || cp -an "{{ mirror_installers_dir }}/." "{{ bastion_bundle_export_dir }}/bundle-root/mirror-installers/")
   changed_when: true
 
+# sync_bastion_rpms's output lives under this same mirror_installers_dir, but ships
+# to the bastion as its own tar.gz (package_bastion_rpms_bundle, called below) rather
+# than inside this main bundle — see that role's README for why (the RPM sync can
+# run 8+ hours on its own, and the customer wanted to refresh it independently
+# without re-sending the much larger main bundle). `cp` has no --exclude, so it's
+# removed from this bundle's copy right after instead, the same pattern already used
+# for the mirror-content working-dir exclusion below.
+- name: Remove bastion-rpms from the main bundle's copy (shipped separately, see package_bastion_rpms_bundle)
+  file:
+    path: "{{ bastion_bundle_export_dir }}/bundle-root/mirror-installers/bastion-rpms"
+    state: absent
+
 # stage_mirror_content's "Build the cache handoff" task populates
 # this — the minimal oc-mirror cache subset deploy_mirror_registry's disk-to-mirror
 # step needs, since the archive above doesn't carry this content on its own (see that
@@ -137,6 +245,14 @@
     dest: "{{ bastion_bundle_export_dir }}/bundle-root/relay-key"
     mode: '0600'
     remote_src: true
+
+# Packages mirror_installers_dir/bastion-rpms (removed from bundle-root above) into
+# its own tar.gz in bastion_bundle_export_dir, alongside the main bundle produced
+# below — see package_bastion_rpms_bundle's README for why this ships separately.
+# Reads directly from mirror_installers_dir, not bundle-root, so running this before
+# or after the archive step below doesn't matter.
+- import_role:
+    name: package_bastion_rpms_bundle
 
 - name: Archive the assembled bundle root into one tar.gz
   archive:
