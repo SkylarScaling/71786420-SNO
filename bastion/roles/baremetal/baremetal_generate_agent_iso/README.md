@@ -3,8 +3,19 @@
 Renders the Agent-Based Installer's `agent-config.yaml` (node identity + nmstate
 networking, plus `additionalNTPSources` — see below) alongside `install-config.yaml`
 (via `generate_install_config`), then runs `openshift-install agent create image` to
-produce the boot ISO that `baremetal_boot_node_via_bmc` mounts via Redfish virtual
-media.
+produce the boot ISO, copies it into the bastion's `iso_serve_dir` (served by
+`configure_bastion_services`'s httpd), and restores its SELinux context — the
+resulting `iso_http_url` is what `baremetal_boot_node_via_bmc` mounts via Redfish
+virtual media.
+
+## No separate rootfs.img extraction needed
+
+`baremetal_boot_node_via_bmc` boots the node by mounting the **full ISO** directly as
+Redfish virtual media (`VirtualMediaInsert`), not PXE. PXE-based netboot is a
+different boot path that serves `rootfs.img` (extracted from the ISO) separately from
+a minimal iPXE/kernel boot — that split doesn't apply here. `agent.x86_64.iso` is the
+only artifact that needs to be reachable at `iso_http_url`, and this role copies it
+into place automatically; no manual copy or ISO-mount/extract step is needed.
 
 ## `additionalNTPSources`
 
