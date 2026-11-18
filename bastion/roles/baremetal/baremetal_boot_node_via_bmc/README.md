@@ -12,9 +12,13 @@ full-setup run.
 
 ## Flow
 
-1. `VirtualMediaInsert` (category `Manager`) mounts `iso_http_url` — point this at
-   the ISO as served by `configure_bastion_services`
-   (`http://<bastion>/sno-iso/agent.x86_64.iso`).
+1. `VirtualMediaInsert` (category `bmc_virtual_media_category`, default `Manager`)
+   mounts `iso_http_url` — point this at the ISO as served by
+   `configure_bastion_services` (`http://<bastion>/sno-iso/agent.x86_64.iso`). If this
+   fails with `"VirtualMedia resource not found"`, that firmware doesn't expose
+   `VirtualMedia` under the Manager resource — set `bmc_virtual_media_category:
+   Systems` instead (confirmed live as a real firmware variance across iDRAC9/10
+   versions).
 2. `SetOneTimeBoot` (category `Systems`) to `Cd`, with `boot_override_mode` matching
    `bmc_boot_mode` (`Uefi` by default — set `Legacy` if the server's configured boot
    mode doesn't match).

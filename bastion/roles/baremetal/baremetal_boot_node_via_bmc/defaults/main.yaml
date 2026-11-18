@@ -6,3 +6,8 @@
 bmc_manager_resource_id: iDRAC.Embedded.1
 bmc_system_resource_id: System.Embedded.1
 bmc_boot_mode: Uefi   # Uefi | Legacy — match the server's configured boot mode
+
+# VirtualMedia is exposed under the Manager resource on most iDRAC9/10 firmware;
+# some firmware versions expose it under Systems instead ("VirtualMedia resource
+# not found" on Manager means try Systems). See this role's README.
+bmc_virtual_media_category: Manager
