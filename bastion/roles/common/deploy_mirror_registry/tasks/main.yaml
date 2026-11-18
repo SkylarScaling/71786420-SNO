@@ -1,7 +1,7 @@
 ---
 # Runs on the bastion (the disconnected target) — installs a standalone Quay via
 # mirror-registry, then pushes the synced archive into it ("disk to mirror"). This
-# becomes the registry that install-config.yaml's imageContentSources points at.
+# becomes the registry that install-config.yaml's imageDigestSources points at.
 
 # mirror_registry_quay_hostname isn't provisioned by this automation at all — it's a
 # customer DNS record (docs/bare-metal-architecture.md §9) that has to exist before

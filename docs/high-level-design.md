@@ -152,7 +152,7 @@ The MoSCoW method is used to classify requirements:
 | AD7 | Service Exposure | HTTP(S) application traffic uses the default OpenShift Ingress Controller. Non-HTTP TCP middleware (message queue, database, cache) is optionally exposed via a MetalLB-provisioned `IPAddressPool`, using a customer-supplied address range. |
 | AD8 | Storage Platform | LVMS carves the RAID5 volume into block PVs for all workloads. A standalone Multicloud Object Gateway (no CephCluster) provides S3-compatible object storage, avoiding redundant replication on top of hardware RAID5. Full ODF/Ceph is not implemented — this is a true single-node deployment. |
 | AD9 | Disconnected Content Preparation | A separate internet-connected host stages OpenShift release images, Operator catalogs, and required container images ("mirror to disk"), independent of the bastion/cluster. |
-| AD10 | Content Transfer Method | Staged content is synced to the bastion over a private network path (or physical media where no network path exists), then loaded into a bastion-hosted mirror registry ("disk to mirror") that the installer's `imageContentSources` always point at — there is no connected install fallback. |
+| AD10 | Content Transfer Method | Staged content is synced to the bastion over a private network path (or physical media where no network path exists), then loaded into a bastion-hosted mirror registry ("disk to mirror") that the installer's `imageDigestSources` always point at — there is no connected install fallback. |
 | AD11 | Post-Deployment Registry Strategy | After cluster install, a dedicated on-cluster Quay registry (non-HA, single replica — no availability requirement at this scale) serves application images going forward, separate from the bastion's install-time-only mirror. |
 | AD12 | Observability | Logs are aggregated via an in-cluster LokiStack (object-storage-backed by the Multicloud Object Gateway) and visualized in Grafana. A syslog-based output to an external SIEM runs alongside the LokiStack path, but currently targets a placeholder endpoint — the customer's real SIEM target and auth model (token vs. mTLS) still need to be confirmed before this is production-ready. Application tracing is provided via an OpenTelemetry Collector and Tempo, also object-storage-backed, feeding the same Grafana instance. |
 | AD13 | Alerting | Cluster Alertmanager is configured with an email receiver pointed at a customer-provided, directly reachable SMTP server. |
@@ -256,7 +256,7 @@ Internet-connected staging host --(mirror to disk)--> sync to bastion --(disk to
 2. **Sync** that archive to the bastion, over a private network path or physical
    media where no network path exists.
 3. **Deploy the mirror registry on the bastion** and load the archive into it — this
-   is what the installer's `imageContentSources`/trust bundle always point at; there
+   is what the installer's `imageDigestSources`/trust bundle always point at; there
    is no connected-install fallback.
 4. **Install** the cluster via the Agent-Based Installer, entirely from mirrored
    content.

@@ -25,7 +25,12 @@ sshKey: |
 # Every deployment is treated as disconnected (see docs/architectural-decisions.md #2)
 # — content always comes from the mirror registry on the bastion, never directly
 # from registry.redhat.io/quay.io.
-imageContentSources:
+
+# TODO worth testing for: some disconnected/agent-based install reports describe the
+# bootstrap node specifically not picking up IDMS-based mirror config (registries.conf
+# not yet populated at that stage) — watch for this on the next real run rather than
+# assuming it's fine.
+imageDigestSources:
   - mirrors:
       - "{{ mirror_registry_quay_hostname }}:{{ mirror_registry_quay_port }}/openshift/release-images"
     source: quay.io/openshift-release-dev/ocp-release

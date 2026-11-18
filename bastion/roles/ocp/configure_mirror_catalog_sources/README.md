@@ -8,7 +8,7 @@ any feature role's `include_role` that creates a `Subscription`.
 
 ## Why this exists
 
-`generate_install_config`'s `imageContentSources` only redirects the release image
+`generate_install_config`'s `imageDigestSources` only redirects the release image
 pulls the installer/kubelet/crio need — it says nothing to OLM. Left alone, every
 `Subscription` in this repo resolves against the cluster's three default
 CatalogSources (`redhat-operators`/`community-operators`/`certified-operators`),

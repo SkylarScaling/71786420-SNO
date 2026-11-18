@@ -146,7 +146,7 @@ entire `bastion/` tree + resolved config into one `tar.gz`; physical media by
 default, rsync opt-in) → `bastion/roles/common/unpack_bastion_bundle` (bastion,
 extracts the bundle) → `bastion/roles/common/deploy_mirror_registry` (bastion, "disk
 to mirror" — installs `mirror-registry`/Quay and is what `generate_install_config`'s
-`imageContentSources`/`additionalTrustBundle` always point at, and whose generated
+`imageDigestSources`/`additionalTrustBundle` always point at, and whose generated
 credentials `generate_install_config` also merges into `pullSecret` — without that,
 nothing on the node can authenticate to pull images from it, which otherwise
 manifests as bootstrapping silently timing out rather than a clear auth error). The

@@ -28,7 +28,7 @@ install path.
    — then **deploy the mirror registry** (`mirror-registry`/Quay) and push the
    archive into it ("disk to mirror") — `bastion/roles/common/deploy_mirror_registry`.
    This is the registry `install-config.yaml`'s
-   `imageContentSources`/`additionalTrustBundle` always point at
+   `imageDigestSources`/`additionalTrustBundle` always point at
    (`bastion/roles/common/generate_install_config` has no connected fallback). The
    `mirror-registry`/`oc-mirror`/`openshift-install`/`oc` tool tarballs themselves
    are also downloaded on staging in step 1 and carried over by step 2, not fetched
