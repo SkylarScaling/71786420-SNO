@@ -79,6 +79,18 @@ particular). This only changes download concurrency, not what gets mirrored; tun
 down if staging's own network or disk I/O turns out to be the actual bottleneck
 instead of request concurrency.
 
+## SELinux and `bastion_rpm_resolve_installroot`
+
+If this path sits on a custom mountpoint (e.g. a secondary data volume) with no
+`file_contexts` pattern of its own, SELinux labels everything under it
+`unlabeled_t`/`mnt_t` by default — too restrictive for `rpm --initdb`/`--installroot`
+under Enforcing mode (confirmed against a customer environment: `mnt_t` alone, via a
+manual `semanage fcontext -a -t mnt_t`, did not resolve it). This role sets an
+SELinux fcontext **equivalence to `/`** on `bastion_rpm_resolve_installroot` instead
+— the same technique `mock`'s own policy uses for build roots — so its contents get
+labeled as if they really lived at that absolute path, regardless of which volume
+it's actually mounted on. Skipped (not failed) if `semanage` isn't installed.
+
 ## Where the output goes
 
 RPMs land under `{{ mirror_installers_dir }}/bastion-rpms` — the same directory tree

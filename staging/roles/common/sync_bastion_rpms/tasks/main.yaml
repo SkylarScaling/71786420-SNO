@@ -38,6 +38,33 @@
 # resolve (opt-in): downloads only bastion_packages' own dependency closure. Resolves
 # against a fresh installroot (below), not staging's own rpmdb, so an already-
 # satisfied dependency on staging isn't silently skipped from the download.
+
+# A custom mountpoint (e.g. a secondary data volume) has no file_contexts pattern of
+# its own, so SELinux labels everything under it unlabeled_t/mnt_t — too restrictive
+# for rpm --initdb/--installroot. Equivalence to / makes this path's contents get
+# labeled as if they really were at that absolute path (the same technique mock's
+# own SELinux policy uses for build roots), without needing the customer to relabel
+# their whole volume. Skipped if semanage isn't installed, rather than failing.
+- name: Check whether SELinux management tooling is available (resolve method only)
+  command: which semanage
+  register: _semanage_available
+  changed_when: false
+  failed_when: false
+  when: bastion_rpm_sync_method == 'resolve'
+  tags: [bastion_prereqs]
+
+- name: Give the resolve installroot normal root-filesystem SELinux labeling (resolve method only)
+  community.general.sefcontext:
+    target: "{{ bastion_rpm_resolve_installroot }}"
+    substitute: /
+    ftype: a
+    state: present
+  become: true
+  when:
+    - bastion_rpm_sync_method == 'resolve'
+    - _semanage_available.rc == 0
+  tags: [bastion_prereqs]
+
 - name: Wipe and recreate an empty installroot for dependency-closure resolution (resolve method only)
   file:
     path: "{{ bastion_rpm_resolve_installroot }}"
@@ -46,6 +73,18 @@
   loop: [absent, directory]
   when: bastion_rpm_sync_method == 'resolve'
   become: true
+  tags: [bastion_prereqs]
+
+# Best-effort: the equivalence above should already label new content correctly at
+# creation time, this just guards against a stale label surviving from before it was set.
+- name: Relabel the installroot to pick up the equivalence (resolve method only)
+  command: "restorecon -R {{ bastion_rpm_resolve_installroot }}"
+  become: true
+  changed_when: false
+  failed_when: false
+  when:
+    - bastion_rpm_sync_method == 'resolve'
+    - _semanage_available.rc == 0
   tags: [bastion_prereqs]
 
 - name: Initialize an empty rpm database in the installroot (resolve method only)
