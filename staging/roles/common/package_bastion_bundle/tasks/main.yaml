@@ -1,59 +1,31 @@
 ---
-# Runs on staging (hosts: localhost), after stage_mirror_content. Builds the single
-# self-sufficient artifact the bastion needs: mirrored registry content, the
-# openshift-install/oc/oc-mirror/mirror-registry binaries (the bastion has no
-# internet route to fetch any of this itself), the entire bastion/ automation tree
-# (playbooks + roles — the bastion has no other way to get the code), and a flattened
-# resolved-vars file carrying every per-environment value out of
+# Runs on staging after stage_mirror_content. Builds the single self-sufficient
+# artifact the bastion needs: mirrored registry content, install-time binaries, the
+# bastion/ automation tree, and a flattened resolved-vars file from
 # staging/inventory/inventory.yaml.
-#
-# This replaces the old sync_mirror_to_bastion role's rsync-with-cross-host-polling
-# dance entirely. That complexity only existed because a single Ansible controller
-# used to orchestrate both the mirror-staging host and the bastion in one play; now
-# staging only ever acts on itself and (optionally) pushes outward, so there's no
-# cross-host delegation left to manage.
 - name: Ensure the bundle export directory exists
   file:
     path: "{{ bastion_bundle_export_dir }}"
     state: directory
     mode: '0755'
 
-# The intent is still that bastion-resolved-vars.yaml.j2's hand-listed vars (plus
-# _bastion_facing_role_vars below) are kept up to date as the actual,
-# reviewable, complete list of what's supposed to reach the bastion — this task isn't
-# a substitute for that upkeep. _bastion_facing_role_vars IS that permanent
-# list for sync_bastion_rpms specifically (formerly stage_mirror_content's, before
-# that role's RPM-sync tasks were split out — see sync_bastion_rpms's README): when a
-# new sync_bastion_rpms var becomes a real, permanent part of the bastion contract
-# (not a staging-local path — see below), add its name there deliberately, the same
-# way you'd add a new var to the hand-listed set above.
-#
-# What this task actually solves is the *testing* gap confirmed live: a customer's
-# bastion_rpm_sync_method override had no effect on the bastion at all, because
-# nobody had yet added it to that permanent list — exactly the lag this is meant to
-# cover for, not replace. Separately, _inventory_only_vars exists purely so an
-# operator can add a brand-new ad-hoc var directly to inventory.yaml for
-# one-off/iterative testing (no role default anywhere yet) and have it reach the
-# bastion immediately, without a code change — if that var turns out to be a
-# permanent fixture rather than a one-off test, it should still be migrated into the
-# explicit list (template or _bastion_facing_role_vars) afterward rather than
-# left to ride along on this fallback indefinitely.
-#
-# Deliberately NOT a whole-file dump of sync_bastion_rpms's (or any other role's)
-# defaults: most staging-side roles' defaults are staging-local storage paths/URLs
-# that must stay independent per host (see the CAUTION comment at the top of
-# inventory.yaml) — stage_mirror_content's own oc_mirror_workspace/
-# mirror_installers_dir/etc. have their own independent defaults on the bastion side
-# by design, and auto-including those would silently push staging's absolute paths
-# onto the bastion. _explicit_template_vars excludes anything
-# bastion-resolved-vars.yaml.j2 already hand-lists below, so nothing gets emitted
-# twice.
+# _bastion_facing_role_vars is the permanent, reviewable list of role-default vars
+# (e.g. sync_bastion_rpms') that must reach the bastion — add new ones here
+# deliberately. _inventory_only_vars lets an ad-hoc var added directly to
+# inventory.yaml reach the bastion immediately for one-off testing; migrate it into
+# an explicit list afterward if it becomes permanent. Deliberately not a whole-file
+# dump of any role's defaults: staging-side *_dir paths must stay independent per
+# host (see inventory.yaml's CAUTION comment). _explicit_template_vars excludes
+# anything bastion-resolved-vars.yaml.j2 already hand-lists, so nothing emits twice.
 - name: Determine which extra vars need to reach the bastion beyond the hand-listed ones
   vars:
     _bastion_facing_role_vars:
       - bastion_rpm_sync_method
       - bastion_packages
       - bastion_required_repos
+      - bastion_chrony_server_enabled
+      - bastion_chrony_allow_network
+      - bastion_chrony_stratum
     _explicit_template_vars:
       - cluster_name
       - openshift_version
@@ -102,10 +74,7 @@
         | unique
       }}
 
-# lookup('vars', ...), not the vars[item] dict-subscript form — the latter is
-# deprecated as of ansible-core 2.21 (confirmed live, "The internal 'vars' dictionary
-# is deprecated... Use the `vars` and `varnames` lookups instead") and removed
-# entirely in 2.24.
+# lookup('vars', ...), not the deprecated vars[item] dict-subscript form.
 - name: Resolve the actual (precedence-correct) value for each extra var
   set_fact:
     _bastion_extra_vars: "{{ _bastion_extra_vars | default({}) | combine({item: lookup('vars', item)}) }}"
@@ -134,10 +103,9 @@
       siblings in this checkout.
   when: not _bastion_tree_stat.stat.exists
 
-# Staged into one directory first (rather than a multi-source `archive:` call) so the
-# resulting tar.gz extracts cleanly at the bastion checkout's root with predictable
-# top-level entries (bastion/, mirror-content/, mirror-installers/, release-cache/, relay-key,
-# bastion-resolved-vars.yaml) regardless of each source's own absolute path.
+# Staged into one directory first so the resulting tar.gz extracts with predictable
+# top-level entries (bastion/, mirror-content/, mirror-installers/, release-cache/,
+# relay-key, bastion-resolved-vars.yaml) regardless of each source's own path.
 - name: Ensure a clean staging-root directory for assembling the bundle contents
   file:
     path: "{{ bastion_bundle_export_dir }}/bundle-root"
@@ -145,32 +113,11 @@
     mode: '0755'
   loop: [absent, directory]
 
-# Hardlinked, not copied: bastion_tree_dir/mirror_sync_source_dir/mirror_installers_dir/
-# release_cache_handoff_dir and bastion_bundle_export_dir are all expected to be on the
-# same root filesystem (confirmed on this host — single storage device, no separate
-# mounts for these paths). Confirmed live: a real run's mirrored content alone was
-# ~100GiB — a second physical copy of that into bundle-root via rsync, on top of the
-# oc-mirror workspace it was copied from, was what actually exhausted a 250GB volume
-# before the final tar.gz was even written. `cp -al` costs ~0 extra disk since this
-# content is read-only mirror/installer output never modified in place, and is cheap
-# enough to redo from scratch every run (wiping bundle-root above first) instead of
-# needing rsync's incremental diff/--delete to stay fast — the previous approach's
-# "don't wipe, diff instead" trade-off existed specifically because a real copy of
-# tens of GB was too slow to redo every run; that constraint doesn't apply once the
-# copy is just hardlinks.
-#
-# Falls back to a real copy (`cp -an`, not `cp -a`) for whatever `cp -al` couldn't
-# hardlink — either because it's run across a mount boundary (e.g.
-# bastion_bundle_export_dir or oc_mirror_workspace overridden onto a different
-# filesystem), or because the source has mixed ownership (bastion-rpms/*.rpm can end
-# up root-owned since stage_mirror_content downloads them with `become: true`, and the
-# kernel's protected_hardlinks protection blocks hard-linking to a file you don't own
-# even on the same filesystem). `-n`/--no-clobber, not plain `-a`, matters here: `cp
-# -al` processes every file before reporting one combined failure, so by the time the
-# fallback runs, some files are often already correctly hardlinked — plain `cp -a`
-# would then refuse with "are the same file" (source and destination are the same
-# inode) and fail the whole fallback too; `-n` skips those silently and only actually
-# copies what's still missing.
+# Hardlinked (`cp -al`), not copied — avoids a second multi-GB physical copy of
+# read-only mirror/installer content when source and dest share a filesystem. Falls
+# back to a real copy (`cp -an`) for whatever couldn't be hardlinked (cross-mount, or
+# root-owned files blocked by the kernel's protected_hardlinks); `-n` skips files the
+# first pass already linked instead of failing on "same file".
 - name: Copy the bastion/ automation tree into the bundle root
   shell: >
     mkdir -p "{{ bastion_bundle_export_dir }}/bundle-root/bastion" &&
@@ -178,11 +125,8 @@
     || cp -an "{{ bastion_tree_dir }}/." "{{ bastion_bundle_export_dir }}/bundle-root/bastion/")
   changed_when: true
 
-# Same exclusion the old rsync-based copy applied: stage_mirror_content's own "mirror
-# to disk" scratch output, which deploy_mirror_registry's "disk to mirror" push never
-# reads (it regenerates its own working-dir from the tar chunks) — `cp` has no
-# --exclude, so this is removed right after instead. Hardlinked, not copied — see the
-# comment above the bastion/ tree copy for why.
+# deploy_mirror_registry never reads working-dir (regenerates it from the tar
+# chunks); `cp` has no --exclude, so it's removed right after instead.
 - name: Copy the mirrored content archive into the bundle root
   shell: >
     mkdir -p "{{ bastion_bundle_export_dir }}/bundle-root/mirror-content" &&
@@ -195,7 +139,6 @@
     path: "{{ bastion_bundle_export_dir }}/bundle-root/mirror-content/working-dir"
     state: absent
 
-# Hardlinked, not copied — see the comment above the bastion/ tree copy for why.
 - name: Copy the installer tarballs (oc-mirror, mirror-registry, openshift-install, oc) into the bundle root
   shell: >
     mkdir -p "{{ bastion_bundle_export_dir }}/bundle-root/mirror-installers" &&
@@ -203,23 +146,15 @@
     || cp -an "{{ mirror_installers_dir }}/." "{{ bastion_bundle_export_dir }}/bundle-root/mirror-installers/")
   changed_when: true
 
-# sync_bastion_rpms's output lives under this same mirror_installers_dir, but ships
-# to the bastion as its own tar.gz (package_bastion_rpms_bundle, called below) rather
-# than inside this main bundle — see that role's README for why (the RPM sync can
-# run 8+ hours on its own, and the customer wanted to refresh it independently
-# without re-sending the much larger main bundle). `cp` has no --exclude, so it's
-# removed from this bundle's copy right after instead, the same pattern already used
-# for the mirror-content working-dir exclusion below.
+# Ships separately as its own tar.gz instead (package_bastion_rpms_bundle, below) —
+# see that role's README.
 - name: Remove bastion-rpms from the main bundle's copy (shipped separately, see package_bastion_rpms_bundle)
   file:
     path: "{{ bastion_bundle_export_dir }}/bundle-root/mirror-installers/bastion-rpms"
     state: absent
 
-# stage_mirror_content's "Build the cache handoff" task populates
-# this — the minimal oc-mirror cache subset deploy_mirror_registry's disk-to-mirror
-# step needs, since the archive above doesn't carry this content on its own (see that
-# task's comment for the full "manifest unknown" story, confirmed live). Hardlinked,
-# not copied — see the comment above the bastion/ tree copy for why.
+# The minimal oc-mirror cache subset deploy_mirror_registry's disk-to-mirror step
+# needs, populated by stage_mirror_content's cache-handoff task.
 - name: Copy the release-content cache handoff into the bundle root
   shell: >
     mkdir -p "{{ bastion_bundle_export_dir }}/bundle-root/release-cache" &&
@@ -234,11 +169,8 @@
     mode: '0600'
     remote_src: true
 
-# The bastion needs its own copy of the operator's private key for the one
-# return-trip rsync push it can originate (package_staging_bundle's backup-export
-# relay, §8) — unlike the bastion_transfer_* push below, which runs FROM staging,
-# where this key already lives on disk. unpack_bastion_bundle copies this to the
-# path bastion-resolved-vars.yaml's ssh_private_key points at.
+# Needed for the bastion's own return-trip rsync push (backup-export relay, §8).
+# unpack_bastion_bundle copies this to ssh_private_key's path.
 - name: Stage the SSH private key into the bundle root for the bastion's own return-trip pushes
   copy:
     src: "{{ ssh_private_key }}"
@@ -246,11 +178,8 @@
     mode: '0600'
     remote_src: true
 
-# Packages mirror_installers_dir/bastion-rpms (removed from bundle-root above) into
-# its own tar.gz in bastion_bundle_export_dir, alongside the main bundle produced
-# below — see package_bastion_rpms_bundle's README for why this ships separately.
-# Reads directly from mirror_installers_dir, not bundle-root, so running this before
-# or after the archive step below doesn't matter.
+# Packages bastion-rpms (removed from bundle-root above) into its own tar.gz — see
+# package_bastion_rpms_bundle's README.
 - import_role:
     name: package_bastion_rpms_bundle
 
@@ -260,14 +189,9 @@
     dest: "{{ bastion_bundle_export_dir }}/{{ bastion_bundle_name }}"
     format: gz
 
-# A physical-media (or even rsync, over an imperfect link) transfer of a tens-of-GB
-# file has no inherent integrity check of its own — `tar -xzf` on a truncated or
-# bit-flipped archive can fail loudly, but can also partially succeed with silently
-# corrupted content depending on where the damage lands. Computed with `chdir` (not
-# an absolute path) so the checksum file records just the bare filename, matching
-# what `sha256sum -c` expects to find next to it on the bastion regardless of
-# whatever absolute path it lands at there. unpack_bastion_bundle verifies this
-# automatically before trusting the extracted contents — see that role's README.
+# Lets the bastion detect transfer corruption before trusting the archive —
+# unpack_bastion_bundle verifies this automatically. `chdir` so the checksum file
+# records a bare filename, matching what `sha256sum -c` expects alongside it.
 - name: Compute a sha256 checksum of the bundle for the bastion to verify after transfer
   command: "sha256sum {{ bastion_bundle_name }}"
   args:
@@ -320,10 +244,7 @@
     - bastion_transfer_method == 'rsync'
     - not bastion_transfer_host
 
-# One-directional push FROM staging (the only side acting) — no delegate_to dance
-# needed, unlike the old sync_mirror_to_bastion role: there's no single controller
-# spanning both hosts anymore for the module to get confused about which side is
-# "local".
+# One-directional push FROM staging — no delegate_to needed.
 - name: Rsync the bundle (and its checksum file) to the bastion
   command: >
     rsync -a

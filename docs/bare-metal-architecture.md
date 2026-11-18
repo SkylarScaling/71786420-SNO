@@ -398,6 +398,13 @@ is provided, e.g. a bare-metal lab run without customer DNS).
 used to be rendered there instead, which `openshift-install` doesn't recognize as an
 `InstallConfig` field, so a configured NTP server never actually took effect).
 
+`bastion/roles/baremetal/baremetal_configure_chrony_server` is an optional,
+disabled-by-default role for environments with no real NTP server to point
+`ntp_server` at — it stands up chrony on the bastion itself as a local time source
+(`local stratum`, no upstream) and opens the firewall for NTP. When enabled,
+`ntp_server` should be set to the bastion's own IP so `additionalNTPSources` picks it
+up as above.
+
 ## 10. Hardware provisioning
 
 `bastion/roles/baremetal/baremetal_boot_node_via_bmc` mounts the agent ISO via BMC virtual

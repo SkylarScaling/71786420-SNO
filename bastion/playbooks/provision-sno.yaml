@@ -28,6 +28,9 @@
         name: configure_bastion_services
 
     - include_role:
+        name: baremetal_configure_chrony_server
+
+    - include_role:
         name: generate_install_config
 
     - include_role:

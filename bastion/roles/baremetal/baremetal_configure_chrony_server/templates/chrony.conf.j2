@@ -1,0 +1,5 @@
+local stratum {{ bastion_chrony_stratum }}
+allow {{ bastion_chrony_allow_network }}
+driftfile /var/lib/chrony/drift
+rtcsync
+logdir /var/log/chrony
