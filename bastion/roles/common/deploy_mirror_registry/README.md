@@ -5,7 +5,7 @@ Third step of the disconnected mirroring pattern (see
 runs **on the bastion** (the disconnected target), installs a standalone Quay via
 `mirror-registry`, and pushes the archive synced by `package_bastion_bundle/unpack_bastion_bundle` into it
 ("disk to mirror"). This is the registry `install-config.yaml`'s
-`imageContentSources`/`imageDigestSources` point at — set via
+`imageDigestSources` points at — set via
 `mirror_registry_quay_hostname`/`mirror_registry_quay_port`, consumed by
 `roles/common/generate_install_config`.
 

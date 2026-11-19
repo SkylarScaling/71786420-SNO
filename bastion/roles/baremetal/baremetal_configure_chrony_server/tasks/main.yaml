@@ -1,0 +1,53 @@
+---
+# Stands up the bastion itself as a local NTP source for the SNO node, for test
+# networks with no real upstream NTP server. Point ntp_server (inventory) at this
+# bastion's own IP so baremetal_generate_agent_iso's additionalNTPSources picks it up.
+- name: Install chrony
+  dnf:
+    name: chrony
+    state: present
+  become: true
+  when: bastion_chrony_server_enabled
+
+- name: Render the bastion's chrony.conf
+  template:
+    src: chrony.conf.j2
+    dest: /etc/chrony.conf
+    owner: root
+    group: root
+    mode: '0644'
+    backup: true
+  become: true
+  when: bastion_chrony_server_enabled
+  notify: restart chronyd
+
+- name: Enable chronyd
+  service:
+    name: chronyd
+    enabled: true
+  become: true
+  when: bastion_chrony_server_enabled
+
+- name: Open the NTP port in firewalld (on by default on RHEL; chronyd doesn't do this itself)
+  block:
+    - name: Check whether firewalld is installed
+      command: which firewall-cmd
+      register: firewalld_available
+      changed_when: false
+      failed_when: false
+
+    - name: Add the firewalld rule for NTP
+      command: firewall-cmd --add-service=ntp --permanent
+      register: firewalld_rule
+      changed_when: "'already' not in firewalld_rule.stdout"
+      failed_when: firewalld_rule.rc != 0 and 'NOT_RUNNING' not in firewalld_rule.stderr
+      when: firewalld_available.rc == 0
+
+    - name: Reload firewalld to apply the rule
+      command: firewall-cmd --reload
+      when: firewalld_available.rc == 0 and firewalld_rule is changed
+  become: true
+  when: bastion_chrony_server_enabled
+
+- name: Flush handlers so chronyd picks up the rendered config immediately
+  meta: flush_handlers

@@ -1,0 +1,11 @@
+---
+# Optional — only for a disconnected test network with no real upstream NTP server.
+# Production bare-metal sites provide a real one via ntp_server instead. See README.
+bastion_chrony_server_enabled: false
+
+# Network allowed to query this bastion as an NTP source (the SNO node's network).
+bastion_chrony_allow_network: "{{ machine_network_cidr }}"
+
+# Local-clock stratum this bastion advertises when it has no upstream server of its
+# own to sync against.
+bastion_chrony_stratum: 10

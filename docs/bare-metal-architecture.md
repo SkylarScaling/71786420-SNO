@@ -40,6 +40,7 @@ task at a time.
 | Staging host and bastion both provisioned as RHEL 10, with `rhel-10-for-x86_64-baseos-rpms`/`-appstream-rpms` attached to staging's subscription | Must match exactly — `sync_bastion_rpms` resolves/downloads RPMs on staging for an offline `dnf install` on the bastion (`bastion_packages`/`bastion_required_repos`); a version mismatch installs cleanly on neither host or silently resolves the wrong RPM set — §3 |
 | iDRAC9/10 reachable from the bastion's network, with BMC credentials | `bmc_address`/`bmc_username`/`bmc_password` — §10 |
 | Static IP/gateway/MAC assignments for the SNO node (and the bastion itself) | `rendezvous_ip`, `sno_mac_address`, `default_gateway`, `machine_network_cidr` — this repo consumes these, it doesn't assign them |
+| The SNO node's real hostname, primary NIC device name, and (on multi-disk hardware) target install disk | `sno_hostname`/`sno_interface_name`/`sno_root_device` — role defaults are generic placeholders (`sno-master-0`/`eno1`/unset); confirmed live as a real mismatch when left at those defaults instead of the actual hardware's values — §10 |
 | DNS records created against `base_domain` | `mirror.<base_domain>`, `api.`/`api-int.`/`*.apps.<cluster_name>.<base_domain>`, plus app-specific hostnames — full list and purpose in §9 |
 | NTP server reachable from the SNO node/bastion network | `ntp_server` — §9 |
 | SMTP relay reachable from the cluster network | `alert_smtp_host`/`alert_email_to` — `configure_alerting` assumes direct reachability, it doesn't stand up a relay |
@@ -145,7 +146,7 @@ entire `bastion/` tree + resolved config into one `tar.gz`; physical media by
 default, rsync opt-in) → `bastion/roles/common/unpack_bastion_bundle` (bastion,
 extracts the bundle) → `bastion/roles/common/deploy_mirror_registry` (bastion, "disk
 to mirror" — installs `mirror-registry`/Quay and is what `generate_install_config`'s
-`imageContentSources`/`additionalTrustBundle` always point at, and whose generated
+`imageDigestSources`/`additionalTrustBundle` always point at, and whose generated
 credentials `generate_install_config` also merges into `pullSecret` — without that,
 nothing on the node can authenticate to pull images from it, which otherwise
 manifests as bootstrapping silently timing out rather than a clear auth error). The
@@ -391,8 +392,18 @@ is provided, e.g. a bare-metal lab run without customer DNS).
 | `mirror.<base_domain>` | bastion IP | the install-time mirror registry (`mirror_registry_quay_hostname`) |
 | Application-specific hostnames (Keycloak, RabbitMQ management UI, pgAdmin, etc.) | SNO node IP (via Route) or the MetalLB pool IP for LoadBalancer-exposed services | customer/app-team to finalize the exact list once the application's own Routes/Ingress are defined |
 
-`additionalNTPSources` in `install-config.yaml` is set from `ntp_server` when defined
-(`bastion/roles/common/generate_install_config`).
+`additionalNTPSources` in `agent-config.yaml` is set from `ntp_server` when defined
+(`bastion/roles/baremetal/baremetal_generate_agent_iso` — not
+`generate_install_config`/`install-config.yaml`, confirmed live as a real bug: it
+used to be rendered there instead, which `openshift-install` doesn't recognize as an
+`InstallConfig` field, so a configured NTP server never actually took effect).
+
+`bastion/roles/baremetal/baremetal_configure_chrony_server` is an optional,
+disabled-by-default role for environments with no real NTP server to point
+`ntp_server` at — it stands up chrony on the bastion itself as a local time source
+(`local stratum`, no upstream) and opens the firewall for NTP. When enabled,
+`ntp_server` should be set to the bastion's own IP so `additionalNTPSources` picks it
+up as above.
 
 ## 10. Hardware provisioning
 

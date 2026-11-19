@@ -1,10 +1,27 @@
 ---
-- name: Fail fast — destructive disk wipe requires real hardware access
+- name: Refuse to run unless explicitly confirmed
+  fail:
+    msg: "Set -e baremetal_destroy_sno_confirm=true to power off and reset the SNO node."
+  when: not (baremetal_destroy_sno_confirm | default(false) | bool)
+
+- name: Power off the SNO node via BMC
+  community.general.redfish_command:
+    category: Systems
+    command: PowerForceOff
+    resource_id: "{{ bmc_system_resource_id }}"
+    baseuri: "{{ bmc_address }}"
+    username: "{{ bmc_username }}"
+    password: "{{ bmc_password }}"
+
+# Disk wipe + rescue/live-image boot is still a scaffold — needs real hardware to
+# validate the wipe target/command safely (see README). Fail here rather than guess.
+- name: Fail fast — disk wipe requires real hardware access
   fail:
     msg: >
-      baremetal_destroy_sno is a scaffold (see README.md). It needs BMC-driven
-      power control and a disk-wipe step that can only be validated against real
-      hardware; implement it once hardware is available.
+      baremetal_destroy_sno powers the node off but does not yet wipe the install
+      disk (see README.md) — that step needs real hardware to validate safely.
+      Wipe {{ sno_root_device | default('the install disk') }} manually (or via a
+      rescue/live boot), then re-run provision-sno.yaml.
 
 - name: Clean up locally generated install artifacts
   file:

@@ -1,5 +1,5 @@
 ---
-# install-config.yaml's imageContentSources (generate_install_config) only redirects
+# install-config.yaml's imageDigestSources (generate_install_config) only redirects
 # the release image pulls the installer/kubelet/crio need to bootstrap and run the
 # cluster itself — it says nothing to OLM. Left alone, every OLM Subscription in this
 # repo (configure_lvms, configure_mcg, configure_oadp_backup, configure_lokistack,

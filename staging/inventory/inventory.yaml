@@ -1,27 +1,14 @@
 ---
-# The single source of per-environment config for this entire deployment — staging
-# AND the bastion. staging always runs on localhost (this automation is executed
-# directly on the internet-connected staging host). package_bastion_bundle flattens
-# every var in this file's vars: block into a resolved-vars file bundled into the
-# tar.gz; unpack_bastion_bundle writes it verbatim to bastion/group_vars/all.yaml on
-# the bastion. Don't maintain a second, independent copy of these vars under
-# bastion/ — edit them here only.
+# Single source of per-environment config for both staging and the bastion — edit
+# here only. package_bastion_bundle flattens this vars: block into the bundle;
+# unpack_bastion_bundle writes it verbatim to bastion/group_vars/all.yaml.
 #
-# CAUTION if you override any *_dir path here (oc_mirror_workspace,
-# mirror_installers_dir, mirror_archive_dir, bastion_bundle_export_dir,
-# bastion_bundle_dir, mirror_registry_install_dir, oc_mirror_cache_dir, etc.):
-# staging and the bastion are genuinely separate physical machines (see the
-# top-level CLAUDE.md), each evaluating this SAME single value independently against
-# its OWN storage layout — there's no per-host override mechanism in this design, by
-# design (bastion/playbooks/group_vars/all.yaml is overwritten verbatim from this
-# file). A path that's valid on one host's disks can be wrong, or point at a
-# different (or nonexistent) volume, on the other's. Confirmed as a real
-# misconfiguration source: a customer environment where staging's large storage
-# volume is mounted at /mnt and the bastion's is at /data — any single shared
-# *_dir value here is correct for at most one of those hosts. Mount your large
-# storage volume at the SAME path on both hosts (e.g. /data on both) before
-# overriding any of these, rather than assuming one value here safely covers both
-# sides.
+# CAUTION: *_dir paths (oc_mirror_workspace, mirror_installers_dir,
+# mirror_archive_dir, bastion_bundle_export_dir, bastion_bundle_dir,
+# mirror_registry_install_dir, oc_mirror_cache_dir, etc.) are shared values
+# evaluated independently on two separate physical machines with no per-host
+# override — mount your large storage volume at the same path on both before
+# overriding any of these.
 all:
   vars:
     # --- Identity ---
@@ -33,9 +20,7 @@ all:
     # --- Credentials / keys ---
     ssh_key: "{{ lookup('file', '~/.ssh/id_ed25519.pub') }}"
     ssh_private_key: "~/.ssh/id_ed25519"
-    # Kept as the raw JSON text (not parsed with | from_json) — generate_install_config's
-    # install-config.yaml.j2 embeds this directly as `pullSecret: '{{ pull_secret }}'`,
-    # which needs the literal JSON string, not a dict.
+    # Raw JSON text, not parsed — install-config.yaml.j2 embeds this as a literal string.
     pull_secret: "{{ lookup('file', '~/pull-secret.json') }}"
 
     # --- Working directories (bastion-side; meaningful once unpacked there) ---
@@ -59,23 +44,29 @@ all:
     sno_mac_address: "AA:BB:CC:DD:EE:FF"   # TODO: the SNO node's primary NIC MAC
     default_gateway: 192.168.1.1     # TODO: customer-provided gateway
     dns_server: 192.168.1.2          # TODO: customer-provided Windows DNS server — see docs/bare-metal-architecture.md §9 "DNS and NTP" for the DNS records to request
-    ntp_server: 192.168.1.3          # TODO: customer-provided NTP server
+    ntp_server: 192.168.1.3          # TODO: customer-provided NTP server, or the bastion's own IP
+                                      # with bastion_chrony_server_enabled: true (see
+                                      # baremetal_configure_chrony_server's README)
 
-    # Single switch (default) — leave sno_network_topology unset/single_switch and
-    # ignore the two vars below. Dual switch (opt-in, requires a second physical NIC
-    # on the SNO node, cabled to a second ToR switch) — set sno_network_topology:
-    # dual_switch and uncomment/fill these in. See
-    # bastion/roles/baremetal/baremetal_generate_agent_iso/README.md — this does not
-    # extend to the bastion, which isn't network-configured by this automation at all.
+    # Defaults (baremetal_generate_agent_iso) are sno-master-0/eno1 — override both to
+    # match the real hardware.
+    sno_hostname: sno-master-0       # TODO: real hardware's hostname
+    sno_interface_name: eno1         # TODO: real hardware's primary NIC device name (e.g. eno17405np1)
+
+    # Pins the install disk on multi-disk hardware. See baremetal_generate_agent_iso's README.
+    sno_root_device: ""              # TODO: e.g. /dev/nvme0n1 — confirm on the real server
+
+    # Single switch (default): leave sno_network_topology unset and ignore the two
+    # vars below. Dual switch (opt-in, needs a 2nd NIC + 2nd ToR switch on the SNO
+    # node only): set sno_network_topology: dual_switch and fill these in. See
+    # bastion/roles/baremetal/baremetal_generate_agent_iso/README.md.
     # sno_network_topology: dual_switch
     # sno_interface_name_secondary: eno2
     # sno_mac_address_secondary: "AA:BB:CC:DD:EE:00"
 
     # --- Storage (roles/ocp/configure_lvms, roles/ocp/configure_mcg) ---
-    # The RAID5 virtual disk presents as a single block device to the OS — point
-    # LVMS at that device path once confirmed on the real hardware (RAID5 is the
-    # redundancy layer; LVMS/MCG don't need their own replication on top of it).
-    lvms_device_paths: []            # TODO: e.g. ["/dev/sda"] — the RAID5 VD, confirm actual device name on the real server
+    # RAID5 VD presents as a single block device — point LVMS at it.
+    lvms_device_paths: []            # TODO: e.g. ["/dev/sda"] — confirm on the real server
 
     # --- MetalLB (roles/ocp/configure_metallb) — non-HTTP TCP middleware only ---
     metallb_address_pool: "192.168.1.240-192.168.1.250"   # TODO: customer-provided range
@@ -85,20 +76,14 @@ all:
     alert_email_to: "ocp-alerts@customer.example.com"   # TODO: real distribution list
 
     # --- Disconnected mirroring (always on — see docs/architectural-decisions.md #2) ---
-    # This is the registry install-config.yaml always points at; there is no
-    # connected-install path.
     mirror_registry_quay_hostname: "mirror.{{ base_domain }}"
     mirror_registry_quay_port: 8443
 
-    # --- Backup / DR target (in-cluster) ---
-    # configure_oadp_backup always targets the in-cluster NooBaa provided by
-    # configure_mcg — the only backend it supports.
+    # --- Backup / DR target (in-cluster, via configure_mcg's NooBaa) ---
     backup_s3_bucket: "{{ cluster_name }}-oadp-backup"
 
     # --- Backup/log export egress (roles/ocp/configure_mcg_backup_export) ---
-    # A separate concern from the in-cluster OADP target above: this relays staged
-    # S3 data back OUT to a real external target via the staging host (the only
-    # side of this split with real internet access), see
+    # Relays staged S3 data out to a real external target via staging. See
     # docs/bare-metal-architecture.md §8.
     backup_egress_mode: both   # network | media | both — this customer wants both available
     backup_external_s3_endpoint: ""   # TODO: real external S3 target

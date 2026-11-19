@@ -26,16 +26,10 @@
     dest: "{{ install_dir }}/agent-config.yaml"
     mode: '0600'
 
-# openshift-install consumes (deletes) install-config.yaml/agent-config.yaml as part
-# of generating the ISO — "Consuming Install Config"/"Consuming Agent Config" — so on
-# any re-run they're guaranteed to be freshly re-templated by the tasks above
-# regardless of whether anything actually changed, making a content/mtime-based skip
-# on those inputs meaningless. The ISO's own existence is the only reliable
-# idempotency signal: without this check, re-running provision-sno.yaml after a later
-# failure (e.g. the BMC boot step, a known first-run failure point) would
-# unconditionally regenerate the ISO every time. To force a genuine regeneration
-# (network/BMC details actually changed), delete {{ install_dir }}/agent.x86_64.iso
-# (or the whole install_dir) before re-running.
+# openshift-install consumes (deletes) install-config.yaml/agent-config.yaml while
+# generating the ISO, so the ISO's own existence is the only reliable idempotency
+# signal for skipping regeneration on a re-run. Delete the ISO (or install_dir) to
+# force a genuine rebuild.
 - name: Check whether an agent ISO has already been generated
   stat:
     path: "{{ install_dir }}/agent.x86_64.iso"
@@ -45,9 +39,29 @@
   command: "{{ bin_dir | default('~/.local/bin') }}/openshift-install --dir={{ install_dir }} agent create image"
   when: not _agent_iso_stat.stat.exists
 
+# Mounted whole via Redfish virtual media (not PXE), so no rootfs.img extraction
+# needed. iso_serve_dir comes from configure_bastion_services, which runs earlier in
+# the same play.
+- name: Copy the agent ISO into the bastion's HTTP-served directory
+  copy:
+    src: "{{ install_dir }}/agent.x86_64.iso"
+    dest: "{{ iso_serve_dir }}/agent.x86_64.iso"
+    owner: apache
+    group: apache
+    mode: '0644'
+    remote_src: true
+  become: true
+
+# Best-effort guard against a relocated iso_serve_dir not getting the default
+# httpd_sys_content_t context.
+- name: Restore SELinux context on the served ISO
+  command: "restorecon -v {{ iso_serve_dir }}/agent.x86_64.iso"
+  become: true
+  changed_when: false
+  failed_when: false
+
 - name: Report ISO location
   debug:
     msg: >
-      Boot ISO ready at {{ install_dir }}/agent.x86_64.iso — copy it to the bastion's
-      {{ iso_serve_dir | default('/var/www/html/sno-iso') }} (see configure_bastion_services)
-      and mount it via BMC virtual media to begin installation.
+      Boot ISO ready and served at http://<bastion>{{ iso_serve_dir }}/agent.x86_64.iso
+      (iso_http_url) — mount it via BMC virtual media to begin installation.

@@ -1,9 +1,51 @@
 # baremetal_generate_agent_iso
 
 Renders the Agent-Based Installer's `agent-config.yaml` (node identity + nmstate
-networking) alongside `install-config.yaml` (via `generate_install_config`), then
-runs `openshift-install agent create image` to produce the boot ISO that
-`baremetal_boot_node_via_bmc` mounts via Redfish virtual media.
+networking, plus `additionalNTPSources` — see below) alongside `install-config.yaml`
+(via `generate_install_config`), then runs `openshift-install agent create image` to
+produce the boot ISO, copies it into the bastion's `iso_serve_dir` (served by
+`configure_bastion_services`'s httpd), and restores its SELinux context — the
+resulting `iso_http_url` is what `baremetal_boot_node_via_bmc` mounts via Redfish
+virtual media.
+
+## No separate rootfs.img extraction needed
+
+`baremetal_boot_node_via_bmc` boots the node by mounting the **full ISO** directly as
+Redfish virtual media (`VirtualMediaInsert`), not PXE. PXE-based netboot is a
+different boot path that serves `rootfs.img` (extracted from the ISO) separately from
+a minimal iPXE/kernel boot — that split doesn't apply here. `agent.x86_64.iso` is the
+only artifact that needs to be reachable at `iso_http_url`, and this role copies it
+into place automatically; no manual copy or ISO-mount/extract step is needed.
+
+## `additionalNTPSources`
+
+Set from `ntp_server` when defined (customer-provided NTP server, per
+`staging/inventory/inventory.yaml`). This lives here, not in
+`generate_install_config`'s `install-config.yaml.j2` — confirmed live as a real bug:
+it used to be rendered into `install-config.yaml` instead, which isn't where
+`openshift-install` expects it (`additionalNTPSources` is an `AgentConfig` field),
+so a configured NTP server never actually took effect even though the var appeared
+set correctly in inventory.
+
+## `role: master`
+
+Rendered unconditionally on the single host entry — this is always a true
+single-node deployment (`controlPlane.replicas: 1`, `compute.replicas: 0` in
+`install-config.yaml`), so the sole host is always the control plane. No var needed,
+unlike a multi-node `AgentConfig` where this would vary per host. Confirmed live as a
+gap found against a customer's manually-fixed `agent-config.yaml`, which set this
+explicitly.
+
+## `rootDeviceHints` (`sno_root_device`)
+
+Unset (`""`) by default; rendered as `rootDeviceHints.deviceName` only when set.
+Without this, the Agent-Based Installer has to pick an install disk on its own,
+which is non-deterministic on multi-disk hardware — confirmed live as a real gap
+against a customer's manually-fixed `agent-config.yaml`, which pinned
+`/dev/nvme0n1` explicitly; the target R7725 hardware has more than one NVMe drive.
+Set `sno_root_device` in `staging/inventory/inventory.yaml` to the real target
+device for any multi-disk server. Leave unset only for genuinely single-disk
+hardware, where there's no ambiguity to begin with.
 
 ## ISO generation is guarded, not re-run unconditionally
 
