@@ -1,8 +1,25 @@
 # configure_mcg
 
+## tl;dr
+
 Installs the ODF operator and deploys Multicloud Object Gateway (MCG/NooBaa) in
 **standalone mode** — S3-compatible object storage for this SNO deployment, without
 Ceph.
+
+### To use this correctly:
+
+- Must run after `configure_lvms` (see "Hard dependency" below).
+- Mirroring `odf-operator` alone is not enough — `staging/roles/common/
+  stage_mirror_content`'s `oc_mirror_operator_packages` must also list every
+  ODF 4.22 sub-operator package (`ocs-operator`, `mcg-operator`,
+  `rook-ceph-operator`, `odf-csi-addons-operator`, `cephcsi-operator`,
+  `odf-dependencies`, `odf-prometheus-operator`, `recipe`, `ocs-client-operator`,
+  `ocs-tls-profiles`, `odf-external-snapshotter-operator`), or the Subscription
+  fails with `constraints not satisfiable: ... requires an operator with package:
+  ocs-tls-profiles` (confirmed live) — see "Why odf-operator needs so many
+  sub-packages mirrored" below.
+
+## Full Details:
 
 ## Why standalone MCG instead of full ODF/Ceph
 
@@ -40,9 +57,43 @@ SNO.
 
 | Variable | Default | Notes |
 |---|---|---|
-| `mcg_channel` | `stable` | The `odf-operator` package's channel. |
+| `mcg_channel` | `stable-4.22` | The `odf-operator` package's channel. **Must match** `stage_mirror_content`'s `oc_mirror_operator_packages` pin for every ODF sub-package (same `stable-X.Y`) — see "Why odf-operator needs so many sub-packages mirrored" below. |
 | `mcg_backing_pvc_size` | `500Gi` | Size the default backing store's PV-pool volume. Must fit under the RAID5 array's usable capacity alongside other LVMS-backed PVs — override per-environment. |
 | `mcg_backing_storage_class` | `"{{ lvms_vg_name \| default('vg1') }}"` | Cross-role default, same pattern as `configure_onprem_quay`'s `quay_storage_class`. |
+
+## Why `odf-operator` needs so many sub-packages mirrored
+
+ODF has shipped as a meta-operator since 4.19 — `odf-operator`'s own Subscription
+installs these sub-operator packages via its own generated Subscriptions at
+install time, not as static CSV dependencies `oc-mirror` can resolve and mirror
+transitively ahead of time. Confirmed live: mirroring only `odf-operator` left the
+`odf-dependencies` bundle's own requirement for `ocs-tls-profiles` unsatisfiable,
+since that package was never in the mirrored catalog at all — OLM's resolver had
+nothing to find. `odf-multicluster-orchestrator` (Metro-DR/Regional-DR) and
+`local-storage-operator` (Ceph local-disk PV provisioning) are deliberately left
+out of the mirrored set — neither applies to this role's standalone-MCG mode, which
+never creates a `StorageCluster`/`CephCluster` CR. This sub-package list is sourced
+from community mirroring guides and a GitHub PR description, not a primary Red Hat
+CSV dependency manifest (Red Hat's downstream ODF bundle isn't publicly browsable)
+— re-verify against `oc-mirror list operators --v1 --catalog
+registry.redhat.io/redhat/redhat-operator-index:v4.22 --package odf-operator` (and
+actually completing an install) once a live mirror/cluster is available, and watch
+for this list changing on an `openshift_version` bump.
+
+**Don't trim this list for standalone-MCG mode, even though several entries
+(`rook-ceph-operator`, `cephcsi-operator`, `ocs-client-operator`, `recipe`,
+`odf-csi-addons-operator`, `odf-external-snapshotter-operator`,
+`odf-prometheus-operator`) sound Ceph/StorageCluster-specific.** Confirmed from
+`odf-operator`'s own source (`controllers/subscription_controller.go`,
+`red-hat-storage/odf-operator`): it loads a fixed `pkgs-config` ConfigMap and
+subscribes to every listed sub-operator package unconditionally — there's no
+branching on `StorageSystem` kind or MCG-vs-Ceph mode. The package list is baked in
+per-ODF-version at build time, not computed from which CRs actually get created
+afterward. So even in standalone-MCG mode, `odf-operator` still requests a
+Subscription for every one of these — their workload-level CRs (e.g. `CephCluster`)
+just never get created, but the package-level Subscription is still required for
+install to succeed at all. Removing any of them reproduces the exact
+`ConstraintsNotSatisfiable` bug this list was added to fix.
 
 ## Known gaps / verify against a live cluster
 
