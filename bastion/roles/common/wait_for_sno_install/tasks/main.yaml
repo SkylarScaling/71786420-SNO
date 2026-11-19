@@ -14,10 +14,15 @@
     kind: ClusterVersion
     name: version
   register: cv_status
+  # default([]) guards status.conditions not existing yet (ClusterVersion created
+  # before the cluster-version-operator populates its status) — without it, piping
+  # an undefined value into selectattr raises "'dict object' has no attribute
+  # 'conditions'" and aborts the whole task instead of retrying.
   until: >
     cv_status.resources | length > 0
-    and cv_status.resources[0].status.conditions
+    and cv_status.resources[0].status.conditions | default([])
       | selectattr('type', 'equalto', 'Available')
-      | map(attribute='status') | first == 'True'
+      | selectattr('status', 'equalto', 'True')
+      | list | length > 0
   retries: 40
   delay: 30
