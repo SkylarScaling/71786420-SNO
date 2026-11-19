@@ -10,13 +10,11 @@
     mode: '0755'
 
 # _bastion_facing_role_vars is the permanent, reviewable list of role-default vars
-# (e.g. sync_bastion_rpms') that must reach the bastion — add new ones here
-# deliberately. _inventory_only_vars lets an ad-hoc var added directly to
-# inventory.yaml reach the bastion immediately for one-off testing; migrate it into
-# an explicit list afterward if it becomes permanent. Deliberately not a whole-file
-# dump of any role's defaults: staging-side *_dir paths must stay independent per
-# host (see inventory.yaml's CAUTION comment). _explicit_template_vars excludes
-# anything bastion-resolved-vars.yaml.j2 already hand-lists, so nothing emits twice.
+# that must reach the bastion — add new ones here deliberately. _inventory_only_vars
+# lets an ad-hoc var added directly to inventory.yaml reach the bastion immediately
+# for one-off testing; migrate it into an explicit list once it's permanent.
+# _explicit_template_vars excludes anything bastion-resolved-vars.yaml.j2 already
+# hand-lists, so nothing emits twice.
 - name: Determine which extra vars need to reach the bastion beyond the hand-listed ones
   vars:
     _bastion_facing_role_vars:
@@ -65,12 +63,21 @@
       - backup_external_s3_access_key
       - backup_external_s3_secret_key
       - log_forward_endpoint
+    # Storage-path vars staging resolves independently of the bastion — never
+    # auto-propagate these, even from inventory.yaml. To override one on the bastion
+    # specifically, pass it as -e on the bastion's own ansible-playbook invocation.
+    _staging_local_only_vars:
+      - mirror_installers_dir
+      - bastion_rpm_resolve_installroot
+      - oc_mirror_workspace
+      - bastion_bundle_export_dir
     _inventory_only_vars: "{{ (lookup('file', inventory_file) | from_yaml).all.vars.keys() | list }}"
   set_fact:
     _bastion_extra_var_names: >-
       {{
         (_bastion_facing_role_vars + _inventory_only_vars)
         | difference(_explicit_template_vars)
+        | difference(_staging_local_only_vars)
         | unique
       }}
 

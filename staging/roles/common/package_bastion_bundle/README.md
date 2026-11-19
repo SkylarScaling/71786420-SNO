@@ -1,5 +1,32 @@
 # package_bastion_bundle
 
+## tl;dr
+
+Packages everything the bastion needs (mirrored content, install binaries, the
+`bastion/` automation tree, and per-environment vars from `inventory.yaml`) into one
+`tar.gz` for the bastion to unpack and run against.
+
+### To use this correctly:
+
+- Don't add a new permanent bastion-facing var by only putting it in
+  `inventory.yaml` — add it to `templates/bastion-resolved-vars.yaml.j2`'s hand-list
+  or `_bastion_facing_role_vars` in `tasks/main.yaml` too, or it can silently stop
+  reaching the bastion later (see "How vars reach `bastion-resolved-vars.yaml`").
+- Never override `mirror_installers_dir`, `bastion_rpm_resolve_installroot`,
+  `oc_mirror_workspace`, or `bastion_bundle_export_dir` in the shared
+  `inventory.yaml` expecting it to apply on the bastion — these resolve
+  independently per host and are blocked from propagating. For a bastion-specific
+  override, pass it as `-e` on the bastion's own `ansible-playbook` invocation.
+- Don't delete the generated `tar.gz`/`.sha256` until *after* the bastion's
+  `provision-sno.yaml` run completes.
+- If `staging/` and `bastion/` aren't sibling checkouts, set `bastion_tree_dir`
+  explicitly.
+- This bundle does not include `sync_bastion_rpms`'s RPM sync output — that ships
+  separately via `package_bastion_rpms_bundle` (run automatically alongside this
+  role).
+
+## Full Details:
+
 Second step of the disconnected mirroring pipeline, after `stage_mirror_content`.
 Runs on staging (`hosts: localhost`) and assembles the single artifact the bastion
 needs to run its own automation: the mirrored registry content, the minimal
@@ -75,6 +102,19 @@ Any name already on the explicit hand-list above is excluded from this
 auto-inclusion, so nothing is emitted twice. If you need another role's var to reach
 the bastion the same way, add its name to the allowlist in that task — don't widen
 it to a whole-file scan.
+
+**`_staging_local_only_vars` is a hard denylist, enforced even for inventory-only
+vars.** It exists because the inventory-only mechanism above has no way to tell "this
+var is meant for staging only" from "this var should reach the bastion too" — it
+ships every key in `inventory.yaml`'s `vars:` block unconditionally. Confirmed live
+as a real break: a customer added a staging-only `mirror_installers_dir` override (a
+custom SSD mount path) to `inventory.yaml`, and it silently replaced the bastion's
+own correct role default with a path that doesn't exist there — `mirror_installers_dir`
+has its own independent default on each side (see `inventory.yaml`'s CAUTION
+comment), so it was never supposed to travel between hosts at all. If you need a
+*bastion-specific* override for one of these vars, pass it as `-e` on the bastion's
+own `ansible-playbook` invocation instead of adding it to the shared
+`inventory.yaml` — don't remove it from this denylist to work around it.
 
 ## Disk usage: bundle-root is hardlinked, not copied
 
