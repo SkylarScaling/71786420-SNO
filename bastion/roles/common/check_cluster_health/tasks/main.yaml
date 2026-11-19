@@ -1,0 +1,93 @@
+---
+- name: Get ClusterOperators status
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: config.openshift.io/v1
+    kind: ClusterOperator
+  register: _cluster_operators
+
+- name: Get Node status
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    kind: Node
+  register: _nodes
+
+- name: Get MachineConfigPool status
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: machineconfiguration.openshift.io/v1
+    kind: MachineConfigPool
+  register: _mcps
+
+- name: Get Pods not Running/Succeeded across all namespaces
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    kind: Pod
+    field_selectors:
+      - status.phase!=Running
+      - status.phase!=Succeeded
+  register: _unhealthy_pods
+
+# Looping per-resource (rather than one big selectattr chain) keeps each check a
+# simple, independent per-item default() guard — nothing here raises if a resource's
+# status isn't fully populated, it just counts as unhealthy.
+- name: Determine unhealthy ClusterOperators (not Available, or Degraded)
+  set_fact:
+    _unhealthy_cluster_operators: "{{ _unhealthy_cluster_operators | default([]) + ([item.metadata.name] if not (_co_available and _co_not_degraded) else []) }}"
+  vars:
+    _co_conditions: "{{ item.status.conditions | default([]) }}"
+    _co_available: "{{ (_co_conditions | selectattr('type', 'equalto', 'Available') | map(attribute='status') | list | first | default('Unknown')) == 'True' }}"
+    _co_not_degraded: "{{ (_co_conditions | selectattr('type', 'equalto', 'Degraded') | map(attribute='status') | list | first | default('False')) != 'True' }}"
+  loop: "{{ _cluster_operators.resources }}"
+  loop_control:
+    label: "{{ item.metadata.name }}"
+
+- name: Determine not-Ready Nodes
+  set_fact:
+    _not_ready_nodes: "{{ _not_ready_nodes | default([]) + ([item.metadata.name] if _node_ready != 'True' else []) }}"
+  vars:
+    _node_ready: "{{ (item.status.conditions | default([]) | selectattr('type', 'equalto', 'Ready') | map(attribute='status') | list | first | default('Unknown')) }}"
+  loop: "{{ _nodes.resources }}"
+  loop_control:
+    label: "{{ item.metadata.name }}"
+
+- name: Determine degraded/not-fully-updated MachineConfigPools
+  set_fact:
+    _unhealthy_mcps: "{{ _unhealthy_mcps | default([]) + ([item.metadata.name] if not _mcp_updated or _mcp_degraded else []) }}"
+  vars:
+    _mcp_updated: "{{ (item.status.updatedMachineCount | default(0)) == (item.status.machineCount | default(-1)) }}"
+    _mcp_degraded: "{{ (item.status.degradedMachineCount | default(0)) | int > 0 }}"
+  loop: "{{ _mcps.resources }}"
+  loop_control:
+    label: "{{ item.metadata.name }}"
+
+- name: Determine unhealthy pods
+  set_fact:
+    _unhealthy_pod_names: "{{ _unhealthy_pods.resources | map(attribute='metadata.namespace') | zip(_unhealthy_pods.resources | map(attribute='metadata.name')) | map('join', '/') | list }}"
+
+- name: "Cluster health check results"
+  debug:
+    msg:
+      unhealthy_cluster_operators: "{{ _unhealthy_cluster_operators | default([]) }}"
+      not_ready_nodes: "{{ _not_ready_nodes | default([]) }}"
+      unhealthy_machine_config_pools: "{{ _unhealthy_mcps | default([]) }}"
+      unhealthy_pods: "{{ _unhealthy_pod_names }}"
+      overall: >-
+        {{
+          'HEALTHY' if (
+            (_unhealthy_cluster_operators | default([]) | length) == 0
+            and (_not_ready_nodes | default([]) | length) == 0
+            and (_unhealthy_mcps | default([]) | length) == 0
+            and (_unhealthy_pod_names | length) == 0
+          ) else 'ISSUES FOUND — see fields above'
+        }}
+
+- name: "Manual commands to confirm cluster health"
+  debug:
+    msg:
+      - "export KUBECONFIG={{ sno_kubeconfig }}"
+      - "oc get clusteroperators"
+      - "oc get nodes"
+      - "oc get machineconfigpool"
+      - "oc get pods -A --field-selector=status.phase!=Running,status.phase!=Succeeded"
+      - "oc get csr"

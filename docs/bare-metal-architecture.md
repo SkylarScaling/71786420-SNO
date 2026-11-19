@@ -206,7 +206,7 @@ cluster's three *default* CatalogSources (`redhat-operators`/`community-operator
 live: left alone, those CatalogSource pods sit in `Init:ImagePullBackOff` forever and
 every Subscription just never resolves. `bastion/roles/ocp/
 configure_mirror_catalog_sources` (called once, right after the kubeconfig first
-exists — the last step of `provision-sno.yaml`) fixes this: it applies the
+exists) fixes this: it applies the
 `ImageDigestMirrorSet`/`ImageTagMirrorSet`/release-signature manifests oc-mirror v2
 already generates under `{{ mirror_archive_dir }}/working-dir/cluster-resources/`,
 disables OperatorHub's managed default sources (`disableAllDefaultSources: true` —
@@ -218,6 +218,11 @@ unmodified. It also waits for the resulting MachineConfigPool rollout (the IDMS/
 content only takes effect once `/etc/containers/registries.conf` is re-rendered on
 the node) before returning, so the Subscription tasks that immediately follow don't
 race it.
+
+`bastion/roles/common/check_cluster_health` runs last in `provision-sno.yaml`,
+after that CatalogSource fixup: it checks ClusterOperators/Nodes/
+MachineConfigPools/Pods, prints a pass/fail summary, and prints the equivalent
+`oc` commands for the customer to re-check cluster health manually at any time.
 
 `package_bastion_bundle` and (for backup export, §8) `package_staging_bundle`
 default to physical media precisely because no live network path between staging and

@@ -68,7 +68,7 @@ staging/
 bastion/
   inventory/inventory.yaml      # minimal placeholder — localhost only
   playbooks/
-    provision-sno.yaml          # unpack bundle -> prepare bastion -> mirror registry -> install-config -> agent ISO -> BMC boot -> wait for install -> configure mirror CatalogSources
+    provision-sno.yaml          # unpack bundle -> prepare bastion -> mirror registry -> install-config -> agent ISO -> BMC boot -> wait for install -> configure mirror CatalogSources -> cluster health check
     unpack-bastion-rpms.yaml    # unpack_bastion_rpms_bundle, standalone
     destroy-sno.yaml
     configure-storage.yaml / configure-metallb.yaml / configure-logging.yaml /
@@ -80,7 +80,7 @@ bastion/
     full-bastion-setup.yaml     # provision + storage + MetalLB + logging + tracing + alerting + backup + Day 2 middleware
     group_vars/all.yaml         # placeholder — overwritten by unpack_bastion_bundle from staging's resolved config
   roles/
-    common/    # bundle unpack/package (main + separate RPMs bundle), mirror registry install, install-config rendering, kubeconfig wait, bastion services, backup export
+    common/    # bundle unpack/package (main + separate RPMs bundle), mirror registry install, install-config rendering, kubeconfig wait, bastion services, backup export, cluster health check
     baremetal/ # bastion prep, agent ISO generation, BMC boot
     ocp/       # Day 2 features: mirror CatalogSources, LVMS/MCG, OADP, logging, tracing, MetalLB, middleware, upgrades, Quay
 docs/          # architecture reference (provider-agnostic, customer-facing)

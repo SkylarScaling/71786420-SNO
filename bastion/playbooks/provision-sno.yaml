@@ -44,3 +44,6 @@
 
     - include_role:
         name: configure_mirror_catalog_sources
+
+    - include_role:
+        name: check_cluster_health
