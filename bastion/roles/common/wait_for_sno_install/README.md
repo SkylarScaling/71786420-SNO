@@ -9,6 +9,9 @@ Polls until `sno_kubeconfig` exists and the cluster reports `ClusterVersion`
 
 - No vars to set — this role just waits. If it keeps failing past `retries`, check
   the actual cluster/bootstrap state rather than re-running blindly.
+- Prints the equivalent `openshift-install agent wait-for bootstrap-complete`/
+  `install-complete --log-level=debug` commands at the start, so you can also watch
+  progress manually in another terminal on the bastion.
 
 ## Full Details:
 
