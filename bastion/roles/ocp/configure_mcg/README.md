@@ -35,10 +35,14 @@ broader storage topology discussion.
 ## Hard dependency: `configure_lvms`
 
 This role must run **after** `roles/ocp/configure_lvms`. `mcg_backing_storage_class`
-defaults to `lvms_vg_name`'s storage class — standalone NooBaa's default backing store
-is a PV-pool, i.e. it needs an existing StorageClass capable of satisfying a PVC
-request, and LVMS is the only operator this repo installs that provides one for true
-SNO.
+defaults to `configure_lvms`'s Retain-policy StorageClass (`lvms_retain_storage_class_name`,
+default `vg1-retain`) — standalone NooBaa's default backing store is a PV-pool, i.e.
+it needs an existing StorageClass capable of satisfying a PVC request, and LVMS is
+the only operator this repo installs that provides one for true SNO. Retain, not the
+shared Delete-reclaim `vg1` default, since this PV-pool holds the actual bytes for
+every S3 bucket in the cluster (including OADP's own backups) — same reasoning as
+`configure_postgres`'s `postgres_storage_class`. Confirmed live: this previously fell
+back to the shared Delete-policy `vg1` default instead.
 
 ## What it does
 
@@ -59,7 +63,7 @@ SNO.
 |---|---|---|
 | `mcg_channel` | `stable-4.22` | The `odf-operator` package's channel. **Must match** `stage_mirror_content`'s `oc_mirror_operator_packages` pin for every ODF sub-package (same `stable-X.Y`) — see "Why odf-operator needs so many sub-packages mirrored" below. |
 | `mcg_backing_pvc_size` | `500Gi` | Size the default backing store's PV-pool volume. Must fit under the RAID5 array's usable capacity alongside other LVMS-backed PVs — override per-environment. |
-| `mcg_backing_storage_class` | `"{{ lvms_vg_name \| default('vg1') }}"` | Cross-role default, same pattern as `configure_onprem_quay`'s `quay_storage_class`. |
+| `mcg_backing_storage_class` | `"{{ lvms_retain_storage_class_name \| default('vg1-retain') }}"` | Defaults to `configure_lvms`'s Retain-policy StorageClass, not the shared `vg1` (Delete) default — see "Hard dependency" above. |
 
 ## Why `odf-operator` needs so many sub-packages mirrored
 
