@@ -116,3 +116,25 @@
     state: started
     enabled: true
   become: true
+
+# Without this, the BMC can't reach the ISO over HTTP at all ("No route to host") —
+# firewalld blocks it by default even with httpd running.
+- name: Open the HTTP port in firewalld (on by default on RHEL; httpd doesn't do this itself)
+  block:
+    - name: Check whether firewalld is installed
+      command: which firewall-cmd
+      register: firewalld_available
+      changed_when: false
+      failed_when: false
+
+    - name: Add the firewalld rule for HTTP
+      command: firewall-cmd --add-service=http --permanent
+      register: firewalld_rule
+      changed_when: "'already' not in firewalld_rule.stdout"
+      failed_when: firewalld_rule.rc != 0 and 'NOT_RUNNING' not in firewalld_rule.stderr
+      when: firewalld_available.rc == 0
+
+    - name: Reload firewalld to apply the rule
+      command: firewall-cmd --reload
+      when: firewalld_available.rc == 0 and firewalld_rule is changed
+  become: true

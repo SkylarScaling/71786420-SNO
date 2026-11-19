@@ -2,7 +2,8 @@
 
 Runs directly on the bastion (`hosts: localhost`) — the existing physical bastion.
 Installs `dnsmasq` (DNS for the SNO cluster, only when `rendezvous_ip` is known),
-`httpd` (serves the agent ISO for BMC virtual media boot), and whatever else this
+`httpd` (serves the agent ISO for BMC virtual media boot — also opens firewalld for
+HTTP, without which the BMC can't reach it at all), and whatever else this
 role's own `bastion_packages` default names (`tmux`, an operator convenience, as of
 this writing) — kept in sync with `staging/roles/common/stage_mirror_content`'s own
 copy of the same list (role defaults aren't shared across roles), since both now
