@@ -21,6 +21,7 @@ bastion_packages:
   - bind-utils
   # Provides nmstatectl, required by openshift-install agent create image.
   - nmstate
+  - chrony
 
 # Repo IDs staging mirrors from. Must already be attached to this staging host's
 # subscription, and must match configure_bastion_services' own copy.
