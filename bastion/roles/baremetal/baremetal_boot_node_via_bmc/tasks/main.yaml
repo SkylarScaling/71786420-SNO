@@ -52,7 +52,8 @@
 
 # iDRAC needs a few seconds to act on the power command before PowerState reflects
 # it — poll rather than assume the restart already completed by the time the next
-# task runs.
+# task runs. default([]) avoids indexing entries[0] directly, which errors instead
+# of retrying if that path isn't populated yet on a given poll.
 - name: Wait for the node to report power state On
   community.general.redfish_info:
     category: Systems
@@ -62,7 +63,10 @@
     username: "{{ bmc_username }}"
     password: "{{ bmc_password }}"
   register: bmc_system_info
-  until: bmc_system_info.redfish_facts.system.entries[0].PowerState == 'On'
+  until: >
+    bmc_system_info.redfish_facts.system.entries | default([])
+      | selectattr('PowerState', 'equalto', 'On')
+      | list | length > 0
   retries: 20
   delay: 15
 

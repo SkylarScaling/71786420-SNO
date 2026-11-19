@@ -39,7 +39,13 @@ full-setup run.
    `bmc_boot_mode` (`Uefi` by default — set `Legacy` if the server's configured boot
    mode doesn't match).
 3. `PowerForceRestart`, then poll `GetSystemInfo` until `PowerState == 'On'`
-   (20 retries × 15s) before handing off.
+   (20 retries × 15s) before handing off. The `until` condition pipes
+   `redfish_facts.system.entries` through `default([])` before filtering —
+   without it, a poll where that path isn't populated yet (e.g. a transient BMC
+   response right after the power command) makes the condition template itself
+   raise (`'dict object' has no attribute 'redfish_facts'`), which aborts the task
+   immediately instead of retrying. Confirmed live against real iDRAC hardware —
+   same failure mode as `wait_for_sno_install`'s `ClusterVersion` wait.
 
 Agent-based install takes it from there (boots the ISO, applies
 `agent-config.yaml`/`install-config.yaml`, starts the assisted-installer service) —
