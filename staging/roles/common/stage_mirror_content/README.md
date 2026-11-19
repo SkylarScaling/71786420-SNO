@@ -1,5 +1,25 @@
 # stage_mirror_content
 
+## tl;dr
+
+Mirrors OpenShift release + operator content (via `oc-mirror --v2`, "mirror to
+disk") and downloads the install-time binary tarballs, on the internet-connected
+staging host — the first step of the disconnected mirroring pattern.
+
+### To use this correctly:
+
+- Override `oc_mirror_operator_packages` in `staging/inventory/inventory.yaml` to
+  change which operators get mirrored — every pinned `channel` there must be updated
+  together with the matching `roles/ocp/configure_*` role's own `*_channel` default
+  (two-file edit, see "Operator packages mirrored" below).
+- A nonzero `oc-mirror` exit code alone doesn't mean the run failed — see "Known
+  `oc-mirror --v2` defect: exit code alone isn't a reliable success/failure signal"
+  below before assuming a failed play means a failed mirror.
+- `bastion_rpm_sync_method`/`bastion_packages`/`bastion_required_repos` live in
+  `sync_bastion_rpms` now, not here — see "Bastion RPMs" below.
+
+## Full Details:
+
 First step of the disconnected mirroring pattern (see
 [`docs/architectural-decisions.md`](../../../docs/architectural-decisions.md#2-disconnected-content-mirroring)):
 runs directly on staging (`hosts: localhost` — this automation is executed directly
@@ -37,6 +57,26 @@ push step passes its own `--cache-dir` too. Whether v2 actually resolves the
 signature-verification failure isn't independently confirmed yet — verify against the
 next real bootstrap run; if it doesn't, the gap is in RHCOS's `/etc/containers/
 policy.json` expectations, not this role.
+
+## Known `oc-mirror --v2` defect: exit code alone isn't a reliable success/failure signal
+
+Confirmed live: a run that actually succeeded (logs showed `info: Mirroring
+completed...` and the archive was usable) still had the Ansible task fail outright,
+because `oc-mirror --v2` returned a nonzero exit code anyway — matches Red Hat's own
+documented behavior (KB 7062641, OCPBUGS-49880): a late-stage step (e.g. catalog
+rendering/cleanup, which runs *after* the actual image mirroring completes) can
+return nonzero even though mirroring itself succeeded. Red Hat's guidance is
+explicit: don't rely on the exit status in automated workflows — check the generated
+`mirroring_errors_*.txt` file instead.
+
+`tasks/main.yaml`'s failure handling reflects this: a nonzero `rc` by itself only
+triggers a search for `mirroring_errors_*.txt` under `{{ oc_mirror_workspace
+}}/archive/working-dir/`. If none exists (or it's empty), this is logged as a
+warning and the play continues — the archive-gap scan further down is the real
+correctness check for whether the mirror is actually usable. The play only hard-fails
+if that file exists with real content. Previously, any nonzero `rc` failed the play
+immediately, which — per the bug above — could abort a run that had actually
+succeeded, before the archive-gap scan/self-heal retry ever got a chance to run.
 
 ## Known `oc-mirror --v2` defect: multi-catalog mirror-to-disk can drop a tag's blob
 

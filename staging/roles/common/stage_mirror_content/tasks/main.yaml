@@ -1,12 +1,7 @@
 ---
-# oc-mirror's "mirror to disk" run can go quiet for long stretches with no stdout
-# while pulling large blobs; left at sshd defaults, idle NAT/firewall state between
-# here and the control node can get dropped mid-run, killing the task with "Shared
-# connection to X closed" even though the host itself is healthy (confirmed via
-# dmesg/journalctl showing no OOM kill and no sshd crash). ClientAliveInterval makes
-# sshd actively probe the client so it notices and keeps the session alive instead of
-# silently timing out. Paired with the client-side ServerAliveInterval/ControlPersist
-# in playbooks/ansible.cfg.
+# Keeps long-idle oc-mirror sessions from getting dropped by idle NAT/firewall state
+# ("Shared connection to X closed") — confirmed live. Paired with client-side
+# ServerAliveInterval/ControlPersist in playbooks/ansible.cfg.
 - name: Harden sshd keepalives against long-running oc-mirror sessions dropping
   block:
     - name: Configure sshd ClientAliveInterval/ClientAliveCountMax
@@ -47,11 +42,8 @@
   failed_when: false
   changed_when: false
 
-# The bastion (where deploy_mirror_registry runs) has no internet route at all, so it
-# can't fetch oc-mirror or mirror-registry itself — both are downloaded here instead
-# (this host is internet-connected) as raw tarballs under mirror_installers_dir, which
-# package_bastion_bundle/unpack_bastion_bundle carries over alongside the content archive. oc-mirror is also
-# extracted locally here since this role needs to run it itself.
+# The bastion has no internet route, so oc-mirror/mirror-registry are downloaded here
+# as raw tarballs for package_bastion_bundle/unpack_bastion_bundle to carry over.
 - name: Ensure the installers directory exists, owned by the connecting user (/opt requires root to create)
   file:
     path: "{{ mirror_installers_dir }}"
@@ -61,14 +53,10 @@
     group: "{{ ansible_user }}"
   become: true
 
-# Unconditional (not gated on oc_mirror_check) — package_bastion_bundle/unpack_bastion_bundle needs this
-# tarball present every run regardless of whether the binary is already extracted
-# into bin_dir here. Gating this on oc_mirror_check used to mean a mirror-staging
-# host that already had the binary extracted from an earlier run would never
-# (re-)download the tarball at all, leaving nothing to sync — confirmed as the actual
-# cause of a real "Source '.../oc-mirror.tar.gz' does not exist" failure on
-# deploy_mirror_registry's side. get_url is idempotent (won't needlessly re-fetch an
-# unchanged file), so this is cheap on repeat runs.
+# Unconditional, not gated on oc_mirror_check — gating it previously left nothing to
+# sync on a host that already had the binary extracted, confirmed as a real
+# deploy_mirror_registry failure ("Source '.../oc-mirror.tar.gz' does not exist").
+# get_url is idempotent, so this is cheap on repeat runs.
 - name: Download the oc-mirror tarball
   get_url:
     url: "{{ ocp_mirror_url }}/oc-mirror.tar.gz"
@@ -81,12 +69,8 @@
     dest: "{{ mirror_installers_dir }}/mirror-registry.tar.gz"
     mode: '0644'
 
-# baremetal_generate_agent_iso needs openshift-install, and the agent ISO's
-# bootstrap/day-1 oc usage needs oc — both run on the bastion now, which has no
-# internet route to fetch them itself. Downloaded here as raw tarballs (not
-# unarchived directly, same reasoning as oc-mirror/mirror-registry above) so
-# package_bastion_bundle can carry them into the bastion bundle; unpack_bastion_bundle
-# extracts them into the bastion's own bin_dir.
+# openshift-install/oc run on the bastion, which has no internet route — downloaded
+# here as raw tarballs for package_bastion_bundle to carry over, same as above.
 - name: Download the openshift-install tarball
   get_url:
     url: "{{ ocp_mirror_url }}/openshift-install-linux.tar.gz"
@@ -99,16 +83,10 @@
     dest: "{{ mirror_installers_dir }}/openshift-client-linux.tar.gz"
     mode: '0644'
 
-# The bastion has no internet route at all, so configure_bastion_services can't
-# `dnf install` dnsmasq/httpd directly there either. Split out into its own
-# sync_bastion_rpms role (2026-11-17, customer request) so the RPM sync — which can
-# run 8+ hours on its own for a full reposync — can be run/re-run independently of
-# this role's hour-plus oc-mirror step, via sync_bastion_rpms's own standalone
-# playbook (staging/playbooks/sync-bastion-rpms.yaml). Still imported here (tagged
-# bastion_prereqs, same tag it used when these tasks lived directly in this role) so
-# a combined stage-and-package.yaml run still produces both in one pass — see that
-# role's README for the reposync/resolve methods, bastion_rpm_sync_method, and where
-# the output goes.
+# Split into sync_bastion_rpms (2026-11-17) so its 8+ hour RPM sync can run/re-run
+# independently of this role's own hour-plus oc-mirror step — still imported here so
+# a combined stage-and-package.yaml run produces both in one pass. See that role's
+# README.
 - import_role:
     name: sync_bastion_rpms
   tags: [bastion_prereqs]
@@ -121,12 +99,9 @@
     mode: '0755'
   when: oc_mirror_check.rc != 0
 
-# oc-mirror --v2's "disk to mirror" push (deploy_mirror_registry) needs this same
-# ImageSetConfiguration again, unlike v1 where --from alone was enough since the
-# archive was fully self-describing. Rendered directly into the archive dir (created
-# here since oc-mirror itself only creates it on first invocation, below) so it rides
-# along automatically when package_bastion_bundle/unpack_bastion_bundle rsyncs mirror_sync_source_dir —
-# no separate sync path needed.
+# deploy_mirror_registry's "disk to mirror" push needs this same config again (v2,
+# unlike v1, isn't fully self-describing from --from alone). Rendered into the
+# archive dir so it rides along automatically with the rest of the synced content.
 - name: Ensure the archive directory exists for the rendered config to land in
   file:
     path: "{{ oc_mirror_workspace }}/archive"
@@ -152,20 +127,10 @@
     mode: '0600'
   no_log: true
 
-# Launched async/poll:0 (fire-and-forget) purely so this play can poll its progress
-# in between — the command module itself still blocks until oc-mirror exits either
-# way, and oc-mirror's own stdout is bursty/silent for long stretches (see the
-# sshd-keepalive comment above). v2 writes its logs under
-# oc_mirror_workspace/archive/working-dir/logs/ instead of v1's single
-# .oc-mirror.log — the poll loop below reports growth of the destination directory's
-# total size instead of tailing a specific log file, since v2's exact log filenames
-# aren't verified against a real run yet. oc_mirror_job_timeout is a generous ceiling
-# for a full mirror of the release + operator catalogs, not an expected duration.
-#
-# --retry-times/--retry-delay/--image-timeout: customer-added, confirmed live as a
-# fix for intermittent "manifest unknown"/transient pull failures mid-mirror —
-# unrelated to the multi-catalog commit-race defect documented below, just ordinary
-# registry-flakiness tolerance oc-mirror exposes natively. See defaults/main.yaml.
+# async/poll:0 so this play can report progress while oc-mirror's own stdout stays
+# silent for long stretches — oc_mirror_job_timeout is a generous ceiling, not an
+# expected duration. --retry-times/--retry-delay/--image-timeout: confirmed-live fix
+# for transient pull failures mid-mirror, see defaults/main.yaml.
 - name: Mirror release and operator content to disk (requires internet access + the real pull secret)
   command: >
     {{ bin_dir }}/oc-mirror --v2 --config {{ oc_mirror_workspace }}/archive/imageset-config.yaml
@@ -179,27 +144,12 @@
   poll: 0
   register: _stage_mirror_job
 
-# oc-mirror gives no advance total size to measure progress against (unlike
-# package_bastion_bundle/unpack_bastion_bundle's rsync, where the source archive size
-# is known up front) — this reports archive bytes written so far instead of a
-# percentage.
-#
-# Looped from here (bounded, fixed iteration count) rather than _poll_oc_mirror_progress.yml
-# recursively include_tasks-ing itself, which is what this used to do — confirmed
-# against a real run: with the original 15s poll interval, a multi-hour oc-mirror job
-# recursed deeply enough to hit Ansible's "maximum recursion depth exceeded" (each
-# recursive include_tasks call adds its own stack frame; a 4-hour job at 15s/poll is
-# ~960 levels deep). Looping the include_tasks call itself from here instead keeps
-# stack depth constant regardless of iteration count — each iteration is a fresh,
-# non-nested invocation of the same file. oc_mirror_poll_interval can safely be set
-# back to a short interval now; the previous 15-minute interval was only ever a
-# workaround for the recursion limit, not a fix for it.
-#
-# | list on the range() call — confirmed live against a customer environment: Ansible
-# core's loop handling there rejected a bare range object outright (loop needs a real
-# list, not a lazy range), even though it works fine on other Ansible/Jinja
-# combinations. Forcing it to a list here is harmless everywhere else and fixes the
-# incompatible ones.
+# No advance total size to measure against, so progress is reported as bytes written
+# so far, not a percentage. Looped (bounded, fixed count) rather than
+# _poll_oc_mirror_progress.yml recursively include_tasks-ing itself — the old
+# self-recursive version hit Ansible's max recursion depth on a real multi-hour job;
+# looping from here keeps stack depth constant. | list on range() — confirmed live:
+# some Ansible/Jinja combinations reject a bare range object in a loop.
 - name: Poll and report oc-mirror progress until it completes
   include_tasks: _poll_oc_mirror_progress.yml
   loop: "{{ range(0, (oc_mirror_job_timeout / oc_mirror_poll_interval) | round(0, 'ceil') | int + 1) | list }}"
@@ -208,14 +158,9 @@
     label: "poll {{ _poll_iteration }}"
   when: _stage_mirror_status is not defined or not _stage_mirror_status.finished
 
-# A bare rc/stderr dump here previously left the operator to go digging through
-# {{ oc_mirror_workspace }}/archive/working-dir/logs/ by hand to find the actual
-# reason — confirmed against a real run: a pinned operator channel that no longer
-# existed in the catalog (oc_mirror_operator_packages) surfaced as a failure whose
-# real cause (a "channel not found"-style line) was buried in oc-mirror's own
-# per-component logs, not in stderr/rc. grep those logs for likely-relevant lines and
-# fold them into the failure message directly, plus a pointer at the most common
-# cause, so the first error seen is enough to act on without a manual log hunt.
+# A bare rc/stderr dump left the operator to dig through the logs by hand — confirmed
+# live, a pinned operator channel no longer in the catalog surfaced this way. Grep for
+# likely-relevant lines so the failure message is actionable on its own.
 - name: Collect likely-relevant error lines from oc-mirror's own logs
   shell: >
     grep -rihE "error|not found|invalid|failed|unauthorized" {{ oc_mirror_workspace }}/archive/working-dir/logs/*.log 2>/dev/null | tail -n 30
@@ -224,41 +169,62 @@
   failed_when: false
   when: _stage_mirror_status.rc | default(0) != 0
 
-- name: Fail if the oc-mirror run itself failed
-  fail:
-    msg: |-
-      oc-mirror failed (rc={{ _stage_mirror_status.rc }}).
-      stderr: {{ _stage_mirror_status.stderr | default('(none)') }}
-      Likely-relevant lines from {{ oc_mirror_workspace }}/archive/working-dir/logs/*.log:
-      {{ _stage_mirror_error_lines.stdout | default('') | trim | default('(none matched — inspect that directory directly)', true) }}
-      Full stdout/logs are under {{ oc_mirror_workspace }}/archive/working-dir/logs/ if the
-      above isn't enough context. A common cause: an operator package/channel pinned in
-      oc_mirror_operator_packages (staging/roles/common/stage_mirror_content/defaults/main.yaml)
-      no longer exists in the current catalog — see that file's comments and this role's
-      README ("Updating a mirrored operator's channel") for the two places a channel bump
-      needs to land together.
+# oc-mirror v2's exit code alone isn't reliable (Red Hat KB 7062641/OCPBUGS-49880) —
+# check mirroring_errors_*.txt instead. Confirmed live: this previously failed the
+# play outright on rc!=0 alone, before the archive-gap scan below ever ran, on a run
+# that had actually succeeded. See this role's README.
+- name: Check for oc-mirror's own generated error-summary file(s)
+  find:
+    paths: "{{ oc_mirror_workspace }}/archive/working-dir"
+    patterns: "mirroring_errors_*.txt"
+    recurse: true
+  register: _stage_mirror_error_files
   when: _stage_mirror_status.rc | default(0) != 0
 
-# oc-mirror v2's exported mirror_NNNNNN.tar archive can leave manifest/config/layer
-# blob content out of the archive for a repo while still writing that repo's
-# lightweight tag/revision "link" pointer files — deploy_mirror_registry's
-# disk-to-mirror step then fails with "manifest unknown" on that repo's images,
-# since a fresh --cache-dir on a separate bastion machine has no way to reconstruct
-# missing blob content from the archive alone. First confirmed narrowly against two
-# synthetic openshift/* repos (release, release-images) — see this role's README's
-# "Known oc-mirror --v2 defect" sections for that investigation. Confirmed again
-# 2026-11-16 against a real run where a much larger custom oc_mirror_operator_packages
-# list (several extra catalogs, many package/version pins) hit the same defect far
-# more broadly — dozens of unrelated operator repos (odf4/*, quay/*,
-# cluster-observability-operator/*, etc.), not just the two known synthetic repos.
-# Larger/more complex operator catalogs appear to increase how often this surfaces,
-# not just which repos it hits.
-#
-# scan_archive_gaps.py walks EVERY repo in this cache (not a fixed list) and reports
-# any whose manifests reference blobs the exported archive doesn't actually carry.
-# If it finds any, the known recovery (re-running oc-mirror against this same,
-# already-populated cache lets it dedupe and commit correctly) is attempted once
-# automatically before this role gives up and surfaces the failure to the operator.
+- name: Read oc-mirror's own error-summary file(s), if any were written
+  slurp:
+    src: "{{ item.path }}"
+  loop: "{{ _stage_mirror_error_files.files | default([]) }}"
+  loop_control:
+    label: "{{ item.path }}"
+  register: _stage_mirror_error_file_contents
+  when: _stage_mirror_status.rc | default(0) != 0 and _stage_mirror_error_files.matched | default(0) > 0
+
+- name: Warn (don't fail) if oc-mirror exited nonzero but wrote no real error content
+  debug:
+    msg: |-
+      oc-mirror exited nonzero (rc={{ _stage_mirror_status.rc }}) but wrote no
+      mirroring_errors_*.txt content under {{ oc_mirror_workspace }}/archive/working-dir/ —
+      per Red Hat KB 7062641/OCPBUGS-49880, oc-mirror v2's exit code alone isn't a
+      reliable signal. Continuing; the archive-gap scan below is the real check for
+      whether this mirror is actually usable.
+  when:
+    - _stage_mirror_status.rc | default(0) != 0
+    - (_stage_mirror_error_file_contents.results | default([]) | map(attribute='content') | map('b64decode') | map('trim') | select('ne', '') | list | length) == 0
+
+- name: Fail if oc-mirror's own error-summary file reports real failures
+  fail:
+    msg: |-
+      oc-mirror reported real failures (mirroring_errors_*.txt under
+      {{ oc_mirror_workspace }}/archive/working-dir/):
+      {{ (_stage_mirror_error_file_contents.results | map(attribute='content') | map('b64decode') | join('\n---\n')) }}
+      Likely-relevant lines from {{ oc_mirror_workspace }}/archive/working-dir/logs/*.log:
+      {{ _stage_mirror_error_lines.stdout | default('') | trim | default('(none matched)', true) }}
+      A common cause: an operator package/channel pinned in oc_mirror_operator_packages
+      (staging/roles/common/stage_mirror_content/defaults/main.yaml) no longer exists
+      in the current catalog — see that file's comments and this role's README
+      ("Updating a mirrored operator's channel") for the two places a channel bump
+      needs to land together.
+  when:
+    - _stage_mirror_status.rc | default(0) != 0
+    - (_stage_mirror_error_file_contents.results | default([]) | map(attribute='content') | map('b64decode') | map('trim') | select('ne', '') | list | length) > 0
+
+# oc-mirror v2's exported archive can leave blob content out for a repo while still
+# writing its tag/revision pointer files — deploy_mirror_registry then fails with
+# "manifest unknown". Confirmed live, broadly, across many operator repos — see this
+# role's README ("Known oc-mirror --v2 defect" sections). scan_archive_gaps.py checks
+# every repo in the cache; a found gap triggers one automatic self-heal retry below
+# before surfacing the failure to the operator.
 - name: Scan the mirrored archive for any repository with missing blobs
   vars:
     _registry_v2_dir: "{{ oc_mirror_workspace }}/cache/.oc-mirror/.cache/docker/registry/v2"
@@ -276,12 +242,9 @@
       oc-mirror --v2 defect — see this role's README).
   when: (_archive_gap_scan_1.stdout | from_json).gap_repos | length > 0
 
-# Not wrapped in the async/poll progress-reporting dance the primary mirror task
-# above uses — this is a rare, best-effort self-heal path, not the main run, so a
-# silent (but bounded) wait here is an acceptable trade-off against the complexity
-# of duplicating that polling loop for a secondary invocation.
-# Same --retry-times/--retry-delay/--image-timeout as the primary run above — this
-# invocation can hit the same transient pull flakiness.
+# Rare best-effort self-heal path, so a plain synchronous async/poll wait here (not
+# the full progress-reporting dance above) is an acceptable trade-off. Same
+# retry/timeout flags as the primary run.
 - name: Re-run oc-mirror once in place to self-heal archive gaps
   command: >
     {{ bin_dir }}/oc-mirror --v2 --config {{ oc_mirror_workspace }}/archive/imageset-config.yaml
@@ -313,14 +276,10 @@
         | union((_archive_gap_scan_2.stdout | default(_archive_gap_scan_1.stdout) | from_json).gap_repos)
       }}
 
-# Always includes release_cache_repo_names regardless of what either scan found —
-# that gap is 100% reproducible on every run (see the README), unlike the broader
-# defect this scan/retry pair targets, so it's never left to chance. Hardlinked, not
-# copied — source and destination are both under oc_mirror_workspace on the same
-# filesystem; build_cache_handoff.py falls back to a real copy if that ever isn't
-# true. package_bastion_bundle/unpack_bastion_bundle carry this to the bastion
-# alongside mirror-content/mirror-installers, merged into deploy_mirror_registry's
-# own --cache-dir before the disk-to-mirror push.
+# Always includes release_cache_repo_names — that gap is 100% reproducible every run
+# (see README), never left to chance. Hardlinked (same filesystem), falling back to a
+# real copy otherwise. Carried to the bastion alongside mirror-content/installers,
+# merged into deploy_mirror_registry's own cache before the disk-to-mirror push.
 - name: Build the cache handoff for the bastion's disk-to-mirror step
   vars:
     _registry_v2_dir: "{{ oc_mirror_workspace }}/cache/.oc-mirror/.cache/docker/registry/v2"
@@ -331,12 +290,9 @@
   register: _cache_handoff_result
   changed_when: true
 
-# If the retry above didn't fully self-heal, build_cache_handoff.py still reports
-# exactly which repo(s)/digest(s) it couldn't recover — these were never written to
-# THIS host's cache either, so no amount of re-bundling or re-running can patch them;
-# only a fresh oc-mirror run (ideally after confirming upstream registry.redhat.io/
-# quay.io availability for the specific repos listed) can recover them. Failing here,
-# on staging, surfaces this in minutes instead of hours later on the bastion.
+# If the self-heal retry didn't fully recover, these repos were never written to this
+# host's cache at all — no re-bundling/re-running helps, only a fresh oc-mirror run.
+# Failing here surfaces this in minutes instead of hours later on the bastion.
 - name: Fail clearly if any repo's blobs are still unrecoverable after the self-heal retry and handoff
   vars:
     _handoff_result: "{{ _cache_handoff_result.stdout | from_json }}"
