@@ -24,6 +24,8 @@ Packages everything the bastion needs (mirrored content, install binaries, the
 - This bundle does not include `sync_bastion_rpms`'s RPM sync output — that ships
   separately via `package_bastion_rpms_bundle` (run automatically alongside this
   role).
+- Set `debug_vars: true` (inventory.yaml) to print the full `_bastion_extra_vars`
+  dict before it's written into `bastion-resolved-vars.yaml`.
 
 ## Full Details:
 

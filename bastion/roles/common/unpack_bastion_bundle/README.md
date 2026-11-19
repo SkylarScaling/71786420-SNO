@@ -1,5 +1,23 @@
 # unpack_bastion_bundle
 
+## tl;dr
+
+Bastion-side counterpart of `package_bastion_bundle` — unpacks the staging-produced
+bundle and loads its vars into the current run.
+
+### To use this correctly:
+
+- Extract the staging-produced `tar.gz` into `bastion_bundle_dir` (`~/sno-deploy` by
+  default) before running `provision-sno.yaml` — this role fails fast with guidance
+  if it isn't there.
+- Don't delete the `tar.gz`/`.sha256` before this role runs — it verifies the
+  checksum automatically if both are present.
+- Set `debug_vars: true` (inventory.yaml) to print key resolved vars right after
+  they're loaded, to confirm what the bastion actually believes its own config to be
+  (a curated subset — secrets are never printed even with this on).
+
+## Full Details:
+
 First task in `bastion/playbooks/provision-sno.yaml` — the bastion-side counterpart
 of staging's `package_bastion_bundle`. Lays down what the bundle carried: mirrored
 registry content into `mirror_archive_dir`, the installer tarballs/RPMs into

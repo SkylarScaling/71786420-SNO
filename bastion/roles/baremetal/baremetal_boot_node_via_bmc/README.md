@@ -1,5 +1,21 @@
 # baremetal_boot_node_via_bmc
 
+## tl;dr
+
+Mounts the agent ISO via BMC virtual media (Redfish) and power-cycles the node.
+
+### To use this correctly:
+
+- Set `bmc_address`/`bmc_username`/`bmc_password`/`iso_http_url` in inventory —
+  this role fails fast if any are missing.
+- If `VirtualMediaInsert` fails with `"VirtualMedia resource not found"`, set
+  `bmc_virtual_media_category: Systems` (default `Manager`) — a known firmware
+  variance across iDRAC9/10 versions.
+- Set `debug_vars: true` (inventory.yaml) to print the BMC vars in effect
+  (excluding credentials) before the Redfish calls run.
+
+## Full Details:
+
 Mounts the agent ISO via BMC virtual media and power-cycles the node to boot it —
 confirmed against Dell iDRAC9/10 (the target hardware, PowerEdge R7725), which
 implements standard Redfish with no vendor-specific payload beyond naming the

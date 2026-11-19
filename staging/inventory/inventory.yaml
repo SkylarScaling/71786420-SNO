@@ -17,6 +17,11 @@ all:
     infra_provider: baremetal   # This repo is bare-metal only.
     base_domain: example.com     # TODO: override per environment
 
+    # --- Debugging ---
+    # Prints resolved values of key vars at several points in both staging's and the
+    # bastion's automation, to confirm what's actually in effect vs. what's expected.
+    debug_vars: false
+
     # --- Credentials / keys ---
     ssh_key: "{{ lookup('file', '~/.ssh/id_ed25519.pub') }}"
     ssh_private_key: "~/.ssh/id_ed25519"

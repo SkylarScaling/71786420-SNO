@@ -1,5 +1,24 @@
 # baremetal_generate_agent_iso
 
+## tl;dr
+
+Renders `agent-config.yaml`, builds the boot ISO, and copies it into place on the
+bastion for BMC virtual media boot.
+
+### To use this correctly:
+
+- Confirm/override `sno_hostname`/`sno_interface_name`/`sno_root_device` in
+  inventory to match the real hardware — left at the generic defaults, the rendered
+  `agent-config.yaml` won't match your actual server.
+- Set `debug_vars: true` (inventory.yaml) to print the vars feeding
+  `agent-config.yaml` before it's rendered — use this to confirm hostname/NIC/NTP
+  values match expectations before generating the ISO.
+- To force a genuine ISO rebuild (network/BMC details changed), delete
+  `{{ install_dir }}/agent.x86_64.iso` first — this role skips regeneration if it
+  already exists.
+
+## Full Details:
+
 Renders the Agent-Based Installer's `agent-config.yaml` (node identity + nmstate
 networking, plus `additionalNTPSources` — see below) alongside `install-config.yaml`
 (via `generate_install_config`), then runs `openshift-install agent create image` to

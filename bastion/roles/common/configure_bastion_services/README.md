@@ -1,5 +1,19 @@
 # configure_bastion_services
 
+## tl;dr
+
+Installs `dnsmasq`/`httpd`/etc. on the bastion from the synced local RPM repo, and
+opens firewalld for HTTP/DNS.
+
+### To use this correctly:
+
+- `bastion_rpm_sync_method` here must match `sync_bastion_rpms`' own copy — a
+  mismatch fails with a `repodata not found` message.
+- Set `debug_vars: true` (inventory.yaml) to print the RPM/ISO-serving vars in
+  effect before this role's tasks run.
+
+## Full Details:
+
 Runs directly on the bastion (`hosts: localhost`) — the existing physical bastion.
 Installs `dnsmasq` (DNS for the SNO cluster, only when `rendezvous_ip` is known),
 `httpd` (serves the agent ISO for BMC virtual media boot — also opens firewalld for

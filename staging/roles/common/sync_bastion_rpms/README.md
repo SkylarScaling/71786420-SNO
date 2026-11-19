@@ -1,5 +1,24 @@
 # sync_bastion_rpms
 
+## tl;dr
+
+Mirrors the bastion's OS-level RPM dependencies on staging, since the bastion has no
+internet route of its own.
+
+### To use this correctly:
+
+- `bastion_rpm_sync_method` here must match `configure_bastion_services`' own copy
+  (default `reposync`) — a mismatch fails with a `repodata not found` message rather
+  than silently misinstalling.
+- Set `debug_vars: true` (inventory.yaml) to print the RPM sync vars in effect
+  (`bastion_rpm_sync_method`, `mirror_installers_dir`,
+  `bastion_rpm_resolve_installroot`, `bastion_required_repos`) before syncing.
+- Don't add `mirror_installers_dir`/`bastion_rpm_resolve_installroot` overrides to
+  the shared `inventory.yaml` expecting them to reach the bastion — they're blocked
+  from propagating (see `package_bastion_bundle`'s README).
+
+## Full Details:
+
 Mirrors the bastion's own OS-level RPM dependencies (`dnsmasq`, `httpd`, `tmux`,
 `bind-utils`, `nmstate` by default) on the internet-connected staging host, for
 offline install on the bastion — which has no internet route to reach RHUI/dnf repos

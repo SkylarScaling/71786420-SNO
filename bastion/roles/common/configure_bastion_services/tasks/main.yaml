@@ -19,6 +19,15 @@
 # bastion_rpm_sync_method here MUST match staging's — it determines which of the two
 # layouts below this role actually looks for.
 
+- name: "Debug: show the RPM/ISO-serving vars in effect"
+  debug:
+    msg:
+      bastion_rpm_sync_method: "{{ bastion_rpm_sync_method }}"
+      mirror_installers_dir: "{{ mirror_installers_dir }}"
+      bastion_required_repos: "{{ bastion_required_repos }}"
+      iso_serve_dir: "{{ iso_serve_dir }}"
+  when: debug_vars | default(false)
+
 - name: Confirm each local bastion RPM repo's metadata is present (reposync method)
   stat:
     path: "{{ mirror_installers_dir }}/bastion-rpms/{{ item }}/repodata"

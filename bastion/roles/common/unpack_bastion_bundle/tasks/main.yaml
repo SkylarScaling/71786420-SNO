@@ -34,6 +34,27 @@
   include_vars:
     file: "{{ playbook_dir }}/group_vars/all.yaml"
 
+# Deliberately a curated subset, not a dump of the whole file — it also carries
+# secrets (pull_secret, ssh_private_key, bmc_password, etc.) that shouldn't be
+# printed even with debug_vars on.
+- name: "Debug: show key resolved vars as loaded on the bastion"
+  debug:
+    msg:
+      cluster_name: "{{ cluster_name | default('undefined') }}"
+      base_domain: "{{ base_domain | default('undefined') }}"
+      mirror_installers_dir: "{{ mirror_installers_dir | default('undefined') }}"
+      mirror_archive_dir: "{{ mirror_archive_dir | default('undefined') }}"
+      bastion_rpm_sync_method: "{{ bastion_rpm_sync_method | default('undefined') }}"
+      rendezvous_ip: "{{ rendezvous_ip | default('undefined') }}"
+      sno_hostname: "{{ sno_hostname | default('undefined') }}"
+      sno_interface_name: "{{ sno_interface_name | default('undefined') }}"
+      sno_root_device: "{{ sno_root_device | default('undefined') }}"
+      dns_server: "{{ dns_server | default('undefined') }}"
+      ntp_server: "{{ ntp_server | default('undefined') }}"
+      default_gateway: "{{ default_gateway | default('undefined') }}"
+      mirror_registry_quay_hostname: "{{ mirror_registry_quay_hostname | default('undefined') }}"
+  when: debug_vars | default(false)
+
 # A tens-of-GB tar.gz carried over physical media or rsync has no integrity check of
 # its own — tar -xzf can partially succeed on a corrupted archive without erroring,
 # so by the time bastion-resolved-vars.yaml is readable (confirming extraction at

@@ -1,5 +1,20 @@
 # generate_install_config
 
+## tl;dr
+
+Renders `install-config.yaml` for the Agent-Based Installer, always disconnected.
+
+### To use this correctly:
+
+- `deploy_mirror_registry` must run before this role — it sets the facts
+  (`mirror_registry_ca_cert`/`mirror_registry_auth_b64`) this role requires.
+- Set `debug_vars: true` (inventory.yaml) to print the key vars feeding
+  `install-config.yaml` before it's rendered.
+- Don't expect `additionalNTPSources` here — that's `agent-config.yaml`'s field,
+  rendered by `baremetal_generate_agent_iso` instead.
+
+## Full Details:
+
 Renders `install-config.yaml` for the Agent-Based Installer. Every install is treated
 as disconnected (see
 [`docs/architectural-decisions.md`](../../../docs/architectural-decisions.md#2-disconnected-content-mirroring))

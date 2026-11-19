@@ -1,6 +1,15 @@
 ---
 # Mirrors the bastion's OS-level RPM dependencies on staging, for offline install on
 # the bastion. See this role's README for the reposync/resolve methods.
+- name: "Debug: show the RPM sync vars in effect"
+  debug:
+    msg:
+      bastion_rpm_sync_method: "{{ bastion_rpm_sync_method }}"
+      mirror_installers_dir: "{{ mirror_installers_dir }}"
+      bastion_rpm_resolve_installroot: "{{ bastion_rpm_resolve_installroot }}"
+      bastion_required_repos: "{{ bastion_required_repos }}"
+  when: debug_vars | default(false)
+
 - name: Ensure the installers directory exists, owned by the connecting user (/opt requires root to create)
   file:
     path: "{{ mirror_installers_dir }}"

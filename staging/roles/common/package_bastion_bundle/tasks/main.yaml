@@ -90,6 +90,11 @@
     label: "{{ item }}"
   when: lookup('vars', item, default=None) is not none
 
+- name: "Debug: show the extra vars being shipped to the bastion beyond the hand-listed ones"
+  debug:
+    var: _bastion_extra_vars
+  when: debug_vars | default(false)
+
 - name: Render the flattened per-environment vars file for the bastion
   template:
     src: bastion-resolved-vars.yaml.j2

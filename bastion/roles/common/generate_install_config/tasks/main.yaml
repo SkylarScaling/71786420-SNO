@@ -48,6 +48,18 @@
       }}
   no_log: true
 
+- name: "Debug: show the vars feeding install-config.yaml"
+  debug:
+    msg:
+      cluster_name: "{{ cluster_name }}"
+      base_domain: "{{ base_domain }}"
+      machine_network_cidr: "{{ machine_network_cidr }}"
+      cluster_network_cidr: "{{ cluster_network_cidr }}"
+      service_network_cidr: "{{ service_network_cidr }}"
+      mirror_registry_quay_hostname: "{{ mirror_registry_quay_hostname }}"
+      mirror_registry_quay_port: "{{ mirror_registry_quay_port }}"
+  when: debug_vars | default(false)
+
 - name: Render install-config.yaml (always disconnected — see template header)
   template:
     src: install-config.yaml.j2

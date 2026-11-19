@@ -7,6 +7,15 @@
       role's README.md.
   when: bmc_address is not defined or bmc_username is not defined or bmc_password is not defined or iso_http_url is not defined
 
+- name: "Debug: show the BMC vars in effect (excluding credentials)"
+  debug:
+    msg:
+      bmc_address: "{{ bmc_address }}"
+      bmc_virtual_media_category: "{{ bmc_virtual_media_category }}"
+      bmc_boot_mode: "{{ bmc_boot_mode }}"
+      iso_http_url: "{{ iso_http_url }}"
+  when: debug_vars | default(false)
+
 - name: Insert virtual media (agent ISO)
   community.general.redfish_command:
     category: "{{ bmc_virtual_media_category }}"

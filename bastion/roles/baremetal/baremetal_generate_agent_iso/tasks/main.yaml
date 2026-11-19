@@ -20,6 +20,20 @@
   include_role:
     name: generate_install_config
 
+- name: "Debug: show the vars feeding agent-config.yaml"
+  debug:
+    msg:
+      rendezvous_ip: "{{ rendezvous_ip }}"
+      sno_mac_address: "{{ sno_mac_address }}"
+      sno_hostname: "{{ sno_hostname }}"
+      sno_interface_name: "{{ sno_interface_name }}"
+      sno_root_device: "{{ sno_root_device }}"
+      dns_server: "{{ dns_server }}"
+      default_gateway: "{{ default_gateway }}"
+      ntp_server: "{{ ntp_server | default('undefined') }}"
+      sno_network_topology: "{{ sno_network_topology }}"
+  when: debug_vars | default(false)
+
 - name: Render agent-config.yaml
   template:
     src: agent-config.yaml.j2
