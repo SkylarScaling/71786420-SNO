@@ -53,11 +53,16 @@
   when: bastion_rpm_sync_method == 'resolve'
   tags: [bastion_prereqs]
 
+# Raw command, not community.general.sefcontext — that module needs the
+# libselinux-python bindings importable from whatever Python interpreter Ansible
+# uses, which isn't guaranteed in a venv (confirmed live: failed when Ansible ran
+# under a venv Python without system SELinux bindings). semanage's own CLI has no
+# such dependency on Ansible's interpreter.
 - name: Give the resolve installroot normal root-filesystem SELinux labeling (resolve method only)
-  community.general.sefcontext:
-    target: "{{ bastion_rpm_resolve_installroot }}"
-    substitute: /
-    state: present
+  command: "semanage fcontext -a -e / {{ bastion_rpm_resolve_installroot }}"
+  register: _semanage_fcontext
+  changed_when: "'already' not in (_semanage_fcontext.stderr | default(''))"
+  failed_when: _semanage_fcontext.rc != 0 and 'already' not in _semanage_fcontext.stderr
   become: true
   when:
     - bastion_rpm_sync_method == 'resolve'
