@@ -5,14 +5,16 @@ metadata:
   labels:
     openshift.io/cluster-monitoring: "true"
 ---
+# Empty spec (AllNamespaces), not targetNamespaces: [metallb_namespace] — the
+# MetalLB operator's CSV doesn't support OwnNamespace InstallMode, so an
+# OperatorGroup targeting its own namespace fails with "OwnNamespace
+# InstallModeType not supported". Confirmed live.
 apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
 metadata:
   name: metallb-operator
   namespace: {{ metallb_namespace }}
-spec:
-  targetNamespaces:
-    - {{ metallb_namespace }}
+spec: {}
 ---
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription

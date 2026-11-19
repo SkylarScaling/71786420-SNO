@@ -1,8 +1,17 @@
 # configure_metallb
 
+## tl;dr
+
 Installs the MetalLB operator and creates a `MetalLB` CR, an `IPAddressPool`, and an
 `L2Advertisement` so that non-HTTP(S) TCP middleware services can be exposed via
 `type: LoadBalancer` Kubernetes Services.
+
+### To use this correctly:
+
+- Set `metallb_address_pool` in `staging/inventory/inventory.yaml` — there's no
+  default, and the role fails fast without it.
+
+## Full Details:
 
 ## Why this is needed on a single-node, disconnected cluster
 
@@ -28,6 +37,13 @@ single-switch, single-node bare-metal environment with no routing peer to speak 
 
 The role fails fast with a clear message if `metallb_address_pool` is undefined or
 empty, same guard style as `roles/ocp/simulate_node_failure`.
+
+## OperatorGroup uses AllNamespaces (`spec: {}`), not `targetNamespaces`
+
+The MetalLB operator's CSV doesn't support the `OwnNamespace` InstallMode — an
+earlier version of this role's `OperatorGroup` set
+`targetNamespaces: [metallb_namespace]` (targeting its own namespace), which OLM
+rejected with `OwnNamespace InstallModeType not supported`. Confirmed live.
 
 ## Known gaps
 

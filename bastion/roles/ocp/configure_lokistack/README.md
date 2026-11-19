@@ -1,10 +1,24 @@
 # configure_lokistack
 
+## tl;dr
+
 Installs the Loki Operator and a `LokiStack` custom resource for centralized
 application/infrastructure/audit log storage and querying, backed by a NooBaa object
-bucket for chunk storage. Sized for a single small SNO node
-(`1x.demo`, the smallest documented LokiStack tier) rather than production log
-volumes — see [`docs/architectural-decisions.md`](../../../docs/architectural-decisions.md).
+bucket for chunk storage.
+
+### To use this correctly:
+
+- Requires `configure_mcg` to have already run (see "Hard dependency" below).
+- Don't move the Loki Operator's Subscription into `loki_namespace` — its CSV only
+  supports the AllNamespaces InstallMode and would collide with
+  `configure_log_forwarding`'s OperatorGroup there. See "Why the operator installs
+  into a separate namespace" below.
+
+## Full Details:
+
+Sized for a single small SNO node (`1x.demo`, the smallest documented LokiStack
+tier) rather than production log volumes — see
+[`docs/architectural-decisions.md`](../../../docs/architectural-decisions.md).
 
 ## Hard dependency
 
@@ -23,9 +37,25 @@ the `mcg_s3_*` facts directly.
 | `loki_retention_days` | `30` | Maps to `spec.limits.global.retention.days` — **verify field path** against a live `LokiStack` CRD. |
 | `loki_hot_retention_days` | `7` | See "Retention model" below — this is an approximation, not a second storage tier. |
 | `loki_bucket_name` | `{{ cluster_name }}-loki` | Name of the `ObjectBucketClaim` and generated bucket. |
-| `loki_namespace` | `openshift-logging` | Shared with `configure_log_forwarding` so both roles' resources (and the Services `configure_grafana` references) live in one namespace. |
+| `loki_namespace` | `openshift-logging` | Where the `LokiStack` CR/storage secret/OBC live — shared with `configure_log_forwarding` so both roles' resources (and the Services `configure_grafana` references) live in one namespace. **Not** where the Loki Operator itself installs — see `loki_operator_namespace`. |
+| `loki_operator_namespace` | `openshift-operators-redhat` | Where the Loki Operator's Subscription/OperatorGroup install — Red Hat's documented namespace for it, kept separate from `loki_namespace` on purpose (see below). |
 | `loki_storage_class` | `{{ lvms_vg_name \| default('vg1') }}` | Block storage for LokiStack's own WAL/index PVCs — distinct from the NooBaa-backed object bucket. |
 | `loki_lokistack_name` | `{{ cluster_name }}-loki` | **Must stay in sync** with `configure_grafana`'s Loki datasource and `configure_log_forwarding`'s `lokiStack` output — all three assume the same LokiStack-generated Service names. |
+
+## Why the operator installs into a separate namespace
+
+The Loki Operator's CSV only supports the AllNamespaces InstallMode (confirmed
+against Red Hat's own install docs), which needs an OperatorGroup with no
+`targetNamespaces` at all. Installing it into `loki_namespace` (`openshift-logging`)
+would also collide with `configure_log_forwarding`'s `cluster-logging-operator`,
+which already owns the one OperatorGroup OLM allows per namespace there
+(`OwnNamespace`-scoped) — a second one fails with `TooManyOperatorGroups`, the same
+conflict `configure_mcg` avoids in `openshift-storage` by reusing `configure_lvms`'s
+OperatorGroup instead of creating its own. `openshift-operators-redhat` is Red Hat's
+documented namespace for exactly this operator, so the Subscription/OperatorGroup
+install there instead — the `LokiStack` CR, storage secret, and `ObjectBucketClaim`
+all still live in `loki_namespace`, since AllNamespaces scope lets the operator
+manage resources outside its own namespace.
 
 ## Retention model: how the 7-day/30-day requirement is approximated
 

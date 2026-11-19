@@ -42,8 +42,20 @@ loki_bucket_name: "{{ cluster_name }}-loki"
 # Namespace shared with configure_log_forwarding's Cluster Logging operator — kept
 # identical so the gateway/query-frontend Services configure_grafana and
 # configure_log_forwarding both reference live in a single namespace on this
-# single-node cluster.
+# single-node cluster. This is where the LokiStack CR/secret/OBC live, NOT where the
+# Loki operator itself installs — see loki_operator_namespace.
 loki_namespace: openshift-logging
+
+# Red Hat's documented namespace for the Loki Operator itself (distinct from
+# loki_namespace, where the LokiStack CR it manages actually lives). Two reasons this
+# can't just be loki_namespace: (1) the Loki Operator's CSV only supports the
+# AllNamespaces InstallMode, which needs its own OperatorGroup with no
+# targetNamespaces; (2) configure_log_forwarding's cluster-logging-operator already
+# owns the one OperatorGroup allowed in openshift-logging (OwnNamespace-scoped) — a
+# second OperatorGroup there fails with TooManyOperatorGroups, the same conflict
+# configure_mcg avoids in openshift-storage by reusing configure_lvms's group instead
+# of creating its own.
+loki_operator_namespace: openshift-operators-redhat
 
 # Block storage class backing LokiStack's own WAL/index PVCs (distinct from the
 # object storage bucket below, which NooBaa provides). Falls back to configure_lvms's

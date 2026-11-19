@@ -1,10 +1,26 @@
 # configure_opentelemetry
 
+## tl;dr
+
 Installs the (Red Hat build of) OpenTelemetry Operator and Tempo Operator, an
 `OpenTelemetryCollector` with an OTLP receiver, and a `TempoStack` for trace storage —
 giving applications on this SNO cluster an OTLP endpoint to send distributed traces to,
 and wiring those traces into the same observability stack as `configure_lokistack`/
 `configure_grafana`.
+
+### To use this correctly:
+
+- Requires `configure_mcg` to have already run (see "Hard dependency" below).
+- Both operators' OperatorGroups use AllNamespaces (`spec: {}`) — based on Red Hat's
+  documented install steps, not a confirmed CSV check (see "OperatorGroup scoping"
+  below). If either Subscription is ever rejected with `OwnNamespace InstallModeType
+  not supported`, that confirms it; if instead it's accepted but behaves oddly,
+  that's a sign this assumption needs revisiting.
+- If you split `tempo_namespace` from `otel_namespace`, Tempo gets its own
+  Namespace/OperatorGroup automatically — don't also hand-create one, see
+  "OperatorGroup scoping" below.
+
+## Full Details:
 
 ## Hard dependency
 
@@ -29,6 +45,27 @@ Point application OTLP exporters at the Collector Service:
 TempoStack query-frontend Service (`tempo_stack_name` must match
 `configure_grafana`'s `tempo_stack_name` default). Set `opentelemetry_tempo_enabled:
 false` in both roles together to skip tracing entirely for an environment.
+
+## OperatorGroup scoping
+
+Both `otel-subscription.yaml.j2` and `tempo-subscription.yaml.j2` use AllNamespaces
+(`spec: {}`), not `targetNamespaces` — Red Hat's own install docs for both operators
+show their OperatorGroup with no `targetNamespaces` at all, matching the
+`OwnNamespace`-unsupported bug class confirmed live for MetalLB and the Loki
+Operator (see `configure_metallb`'s and `configure_lokistack`'s READMEs). This
+hasn't been confirmed against the literal CSV `installModes` the way those two were
+(Red Hat's build isn't in the public bundle repos), so if a live run ever rejects
+either Subscription on InstallMode grounds despite this, that's new information —
+update this note.
+
+`tempo_namespace` defaults to `{{ otel_namespace }}` (same namespace as the
+OpenTelemetry Collector operator) — `tempo-subscription.yaml.j2` only creates its
+own Namespace/OperatorGroup when `tempo_namespace` differs from `otel_namespace`;
+otherwise it reuses the OperatorGroup `otel-subscription.yaml.j2` already created.
+Two separately-named OperatorGroups in the same namespace fail with
+`TooManyOperatorGroups` regardless of InstallMode — same conflict `configure_mcg`
+avoids in `openshift-storage` by reusing `configure_lvms`'s OperatorGroup instead of
+creating its own.
 
 ## Variables
 

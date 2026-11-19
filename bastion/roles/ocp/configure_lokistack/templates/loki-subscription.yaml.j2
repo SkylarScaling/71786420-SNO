@@ -1,22 +1,26 @@
+# Installed into loki_operator_namespace, not loki_namespace — the Loki Operator's
+# CSV only supports AllNamespaces (spec: {}, no targetNamespaces), and
+# configure_log_forwarding's cluster-logging-operator already owns the one
+# OperatorGroup allowed in loki_namespace. The LokiStack CR itself still lives in
+# loki_namespace (templates/lokistack.yaml.j2) — AllNamespaces scope is what lets the
+# operator in this separate namespace manage it there.
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: {{ loki_namespace }}
+  name: {{ loki_operator_namespace }}
 ---
 apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
 metadata:
   name: loki-operator-group
-  namespace: {{ loki_namespace }}
-spec:
-  targetNamespaces:
-    - {{ loki_namespace }}
+  namespace: {{ loki_operator_namespace }}
+spec: {}
 ---
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
   name: loki-operator
-  namespace: {{ loki_namespace }}
+  namespace: {{ loki_operator_namespace }}
 spec:
   channel: {{ loki_channel }}
   name: loki-operator

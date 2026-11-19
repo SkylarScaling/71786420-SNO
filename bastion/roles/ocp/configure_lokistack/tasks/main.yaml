@@ -10,7 +10,7 @@
     kubeconfig: "{{ sno_kubeconfig }}"
     api_version: apps/v1
     kind: Deployment
-    namespace: "{{ loki_namespace }}"
+    namespace: "{{ loki_operator_namespace }}"
     name: loki-operator-controller-manager
   register: loki_operator_deploy
   until: >

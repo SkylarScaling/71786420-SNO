@@ -1,3 +1,7 @@
+# AllNamespaces (spec: {}), not targetNamespaces — Red Hat's own install docs show
+# this operator's OperatorGroup with no targetNamespaces at all (unconfirmed against
+# the literal CSV installModes, but matches the same OwnNamespace-unsupported bug
+# class confirmed live for MetalLB/Loki — see configure_metallb's README).
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -8,9 +12,7 @@ kind: OperatorGroup
 metadata:
   name: opentelemetry-operator-group
   namespace: {{ otel_namespace }}
-spec:
-  targetNamespaces:
-    - {{ otel_namespace }}
+spec: {}
 ---
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription

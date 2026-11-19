@@ -1,3 +1,6 @@
+{% if tempo_namespace != otel_namespace %}
+# AllNamespaces (spec: {}), not targetNamespaces — same reasoning as
+# otel-subscription.yaml.j2's OperatorGroup; see that file's comment.
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -8,10 +11,15 @@ kind: OperatorGroup
 metadata:
   name: tempo-operator-group
   namespace: {{ tempo_namespace }}
-spec:
-  targetNamespaces:
-    - {{ tempo_namespace }}
+spec: {}
 ---
+{% else %}
+# tempo_namespace defaults to otel_namespace — reuse otel-subscription.yaml.j2's
+# Namespace/OperatorGroup instead of creating a second, separately-named
+# OperatorGroup in the same namespace, which OLM rejects with
+# TooManyOperatorGroups regardless of InstallMode (same pattern configure_mcg uses
+# to share configure_lvms's OperatorGroup in openshift-storage).
+{% endif %}
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
