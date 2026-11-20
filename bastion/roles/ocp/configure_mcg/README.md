@@ -23,12 +23,13 @@ Ceph.
 
 ## Why standalone MCG instead of full ODF/Ceph
 
-The target hardware already has RAID5 providing disk redundancy. Full ODF/Ceph's
-`StorageCluster` mode runs Ceph with its own 3x replication on top of that — redundant
-operational and capacity overhead for a true single-node cluster that already has
-disk-level protection, and isn't implemented anywhere in this repo. This role deploys
-only the `NooBaa` CR (no `StorageCluster`/`CephCluster` anywhere in this role), backed
-by a plain PVC that `configure_lvms` already provisions. See also
+The target hardware already has RAID5 providing disk redundancy. Full ODF/Ceph with
+Ceph's own 3x replication on top of that is redundant operational and capacity
+overhead for a true single-node cluster that already has disk-level protection, and
+isn't implemented anywhere in this repo. This role deploys a `StorageCluster` CR with
+`spec.multiCloudGateway.reconcileStrategy: standalone` — the supported "MCG-only"
+mode, which deploys only NooBaa, never a `CephCluster` — backed by a plain PVC that
+`configure_lvms` already provisions. See also
 [`docs/architectural-decisions.md`](../../../docs/architectural-decisions.md) for the
 broader storage topology discussion.
 
@@ -46,12 +47,16 @@ back to the shared Delete-policy `vg1` default instead.
 
 ## What it does
 
-1. Installs the ODF operator (the `odf-operator` package also provides full
-   ODF/Ceph's `StorageCluster` mode, not used by this role — MCG is just one mode it
-   supports) and waits for `odf-operator-controller-manager` to be ready.
-2. Applies a `NooBaa` CR in standalone mode.
-3. Waits for `NooBaa.status.phase == Ready`.
-4. Reads the operator-generated `noobaa-admin` Secret and the NooBaa S3 `Route`, then
+1. Installs the ODF operator and waits for `odf-operator-controller-manager` to be
+   ready.
+2. Labels the SNO node `cluster.ocs.openshift.io/openshift-storage=''` — required for
+   NooBaa's pods to schedule, even in standalone mode (confirmed live; `ocs-operator`
+   uses the same node-selection logic regardless of `reconcileStrategy`).
+3. Applies a `StorageCluster` CR with `spec.multiCloudGateway.reconcileStrategy:
+   standalone`, and waits for `StorageCluster.status.phase == Ready`.
+4. Waits for the `NooBaa` CR `ocs-operator` creates from that `StorageCluster` to
+   reach `status.phase == Ready`.
+5. Reads the operator-generated `noobaa-admin` Secret and the NooBaa S3 `Route`, then
    exposes `mcg_s3_endpoint`, `mcg_s3_access_key`, `mcg_s3_secret_key` as facts on
    `localhost` (same `delegate_to: localhost` / `delegate_facts: true` pattern
    `deploy_mirror_registry` uses for `mirror_registry_ca_cert`), for downstream roles
@@ -62,8 +67,8 @@ back to the shared Delete-policy `vg1` default instead.
 | Variable | Default | Notes |
 |---|---|---|
 | `mcg_channel` | `stable-4.22` | The `odf-operator` package's channel. **Must match** `stage_mirror_content`'s `oc_mirror_operator_packages` pin for every ODF sub-package (same `stable-X.Y`) — see "Why odf-operator needs so many sub-packages mirrored" below. |
-| `mcg_backing_pvc_size` | `500Gi` | Size the default backing store's PV-pool volume. Must fit under the RAID5 array's usable capacity alongside other LVMS-backed PVs — override per-environment. |
-| `mcg_backing_storage_class` | `"{{ lvms_retain_storage_class_name \| default('vg1-retain') }}"` | Defaults to `configure_lvms`'s Retain-policy StorageClass, not the shared `vg1` (Delete) default — see "Hard dependency" above. |
+| `mcg_backing_pvc_size` | `500Gi` | Intended size for the default backing store's PV-pool volume — **not yet wired into `templates/storagecluster.yaml.j2`**, see "Known gaps" below. Must fit under the RAID5 array's usable capacity alongside other LVMS-backed PVs — override per-environment. |
+| `mcg_backing_storage_class` | `"{{ lvms_retain_storage_class_name \| default('vg1-retain') }}"` | Defaults to `configure_lvms`'s Retain-policy StorageClass, not the shared `vg1` (Delete) default — see "Hard dependency" above. Passed as `spec.multiCloudGateway.dbStorageClassName` on the `StorageCluster` CR. |
 
 ## Why `odf-operator` needs so many sub-packages mirrored
 
@@ -76,7 +81,9 @@ since that package was never in the mirrored catalog at all — OLM's resolver h
 nothing to find. `odf-multicluster-orchestrator` (Metro-DR/Regional-DR) and
 `local-storage-operator` (Ceph local-disk PV provisioning) are deliberately left
 out of the mirrored set — neither applies to this role's standalone-MCG mode, which
-never creates a `StorageCluster`/`CephCluster` CR. This sub-package list is sourced
+never creates a `CephCluster` CR (the `StorageCluster` this role does create sets
+`spec.multiCloudGateway.reconcileStrategy: standalone`, which tells `ocs-operator` to
+skip Ceph entirely). This sub-package list is sourced
 from community mirroring guides and a GitHub PR description, not a primary Red Hat
 CSV dependency manifest (Red Hat's downstream ODF bundle isn't publicly browsable)
 — re-verify against `oc-mirror list operators --v1 --catalog
@@ -101,19 +108,13 @@ install to succeed at all. Removing any of them reproduces the exact
 
 ## Known gaps / verify against a live cluster
 
-No live cluster exists yet to test this role against, so the following need
-confirmation once hardware/a real ODF install is available:
-
-- **NooBaa CR field names** (`templates/noobaa.yaml.j2`): `dbStorageClass` and
-  `pvPoolDefaultStorageClass` are the standard NooBaa CRD fields for pointing the
-  default PV-pool backing store at a StorageClass, but these have shifted across ODF
-  releases — confirm with `oc explain noobaa.spec` against the actual installed
-  operator version.
-- **Backing-store sizing**: the NooBaa CR's auto-created default backing store has
-  historically defaulted to a fixed per-volume size (around 50Gi) rather than reading
-  an arbitrary size field. `mcg_backing_pvc_size` is defined here as the intended size,
-  but wiring it in may require creating an explicit `BackingStore` CR (type
-  `pv-pool`) instead of relying on the NooBaa CR's implicit default — see the inline
-  comment in `templates/noobaa.yaml.j2`.
+- **Backing-store sizing**: `mcg_backing_pvc_size` isn't wired into
+  `templates/storagecluster.yaml.j2` at all yet — `spec.multiCloudGateway` has no
+  documented size field, and the NooBaa CR `ocs-operator` creates from it has
+  historically defaulted its auto-created default backing store to a fixed per-volume
+  size (around 50Gi). Wiring in a real size likely means creating an explicit
+  `BackingStore` CR (type `pv-pool`) referencing `mcg_backing_pvc_size` after
+  `StorageCluster`/`NooBaa` come up, rather than relying on either CR's implicit
+  default — not yet implemented, confirm against a live cluster.
 - **S3 Route name**: assumed to be `s3` in `openshift-storage` (NooBaa's standard
   generated route) — confirm once the operator is actually installed.

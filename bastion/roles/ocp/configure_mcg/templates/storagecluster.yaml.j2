@@ -1,0 +1,15 @@
+apiVersion: ocs.openshift.io/v1
+kind: StorageCluster
+metadata:
+  name: ocs-storagecluster
+  namespace: openshift-storage
+  annotations:
+    uninstall.ocs.openshift.io/cleanup-policy: delete
+    uninstall.ocs.openshift.io/mode: graceful
+spec:
+  # standalone: deploy only NooBaa, no Ceph. See README.
+  multiCloudGateway:
+    reconcileStrategy: standalone
+    dbStorageClassName: {{ mcg_backing_storage_class }}
+    # No LB infra on bare metal.
+    disableLoadBalancerService: true

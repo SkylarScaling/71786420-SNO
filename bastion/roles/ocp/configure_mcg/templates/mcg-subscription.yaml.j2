@@ -18,9 +18,8 @@ metadata:
   name: odf-operator
   namespace: openshift-storage
 spec:
-  # MCG/NooBaa ships as part of the ODF operator package — same package name as
-  # configure_odf's subscription. The difference is downstream: we never create a
-  # StorageCluster/CephCluster CR, so no Ceph daemons get deployed, only NooBaa.
+  # MCG/NooBaa ships as part of the ODF operator package — see
+  # templates/storagecluster.yaml.j2 for the standalone (no-Ceph) mode setting.
   channel: {{ mcg_channel }}
   name: odf-operator
   source: redhat-operators

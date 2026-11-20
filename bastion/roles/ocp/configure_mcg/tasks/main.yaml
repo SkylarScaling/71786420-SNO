@@ -19,11 +19,45 @@
   retries: 30
   delay: 20
 
-- name: Create standalone NooBaa CR (no StorageCluster/CephCluster)
+- name: Get the (single) cluster node name
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: v1
+    kind: Node
+  register: mcg_cluster_nodes
+
+# Required for NooBaa's pods to schedule, even in standalone mode.
+- name: Label the SNO node for NooBaa scheduling
+  kubernetes.core.k8s:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: v1
+    kind: Node
+    name: "{{ mcg_cluster_nodes.resources[0].metadata.name }}"
+    definition:
+      metadata:
+        labels:
+          cluster.ocs.openshift.io/openshift-storage: ""
+    merge_type: strategic-merge
+
+- name: Create StorageCluster (standalone MCG mode, no Ceph)
   kubernetes.core.k8s:
     kubeconfig: "{{ sno_kubeconfig }}"
     state: present
-    template: noobaa.yaml.j2
+    template: storagecluster.yaml.j2
+
+- name: Wait for StorageCluster to report Ready
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_kubeconfig }}"
+    api_version: ocs.openshift.io/v1
+    kind: StorageCluster
+    namespace: openshift-storage
+    name: ocs-storagecluster
+  register: mcg_storagecluster_status
+  until: >
+    mcg_storagecluster_status.resources | length > 0
+    and mcg_storagecluster_status.resources[0].status.phase | default('') == 'Ready'
+  retries: 30
+  delay: 20
 
 - name: Wait for NooBaa to report Ready
   kubernetes.core.k8s_info:
