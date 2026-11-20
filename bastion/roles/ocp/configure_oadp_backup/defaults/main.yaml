@@ -14,15 +14,32 @@ oadp_channel: stable
 # bare metal's fully disconnected network. See docs/architectural-decisions.md #2.
 noobaa_namespace: openshift-storage
 
-# Default backup cadence — a once-daily, off-peak full backup (cluster resources +
-# PV data via kopia/fs-backup) with 30 days of retention. This is a general-purpose
-# baseline for a single-node cluster with no stated RPO/RTO target, not a
-# customer-confirmed SLA: it caps data loss at ~24h and gives ~30 restore points to
-# choose from without the backup bucket growing unbounded. Override per-environment
-# once real RPO/RTO targets are agreed.
+# Default backup cadence — a once-daily, off-peak backup with 30 days of retention.
+# This is a general-purpose baseline for a single-node cluster with no stated
+# RPO/RTO target, not a customer-confirmed SLA: it caps data loss at ~24h and gives
+# ~30 restore points to choose from without the backup bucket growing unbounded.
+# Override per-environment once real RPO/RTO targets are agreed.
 oadp_backup_schedule_name: "{{ cluster_name }}-daily-backup"
 oadp_backup_schedule_cron: "0 2 * * *"   # 02:00 daily — outside typical business hours
 oadp_backup_ttl: "720h0m0s"              # 30 days
+
+# stateful (default): back up only oadp_backup_stateful_namespaces' PV data — this
+# cluster is IaC-provisioned, so re-creating Operators/Deployments/etc. via restore is
+# redundant; only actual stateful bytes (e.g. Postgres) need backing up.
+# platform: the previous behavior — every namespace, cluster resources included.
+# Available for a one-off full-state snapshot, not the recommended steady state.
+oadp_backup_scope: stateful
+
+# Namespaces with real stateful data IaC can't regenerate. configure_postgres's
+# namespace by default — add rabbitmq/keycloak/etc. per-environment if their data
+# matters beyond cache. Deliberately excludes openshift-storage: NooBaa's own PV-pool
+# PVC backs the backup bucket itself, so snapshotting it via Velero/kopia would be
+# circular — NooBaa's object data is handled by the offsite-export relay instead
+# (roles/common/export_backup_from_noobaa), not by this role.
+oadp_backup_stateful_namespaces:
+  - postgres
+
+# Only used when oadp_backup_scope: platform.
 oadp_backup_excluded_namespaces:
   # Velero's own namespace: backing it up risks restoring stale Backup/Restore/
   # Schedule CRs on top of live ones and re-triggering reconciliation loops.

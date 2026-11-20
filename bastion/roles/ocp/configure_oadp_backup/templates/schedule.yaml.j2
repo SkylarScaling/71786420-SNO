@@ -6,6 +6,7 @@ metadata:
 spec:
   schedule: "{{ oadp_backup_schedule_cron }}"
   template:
+{% if oadp_backup_scope == 'platform' %}
     includedNamespaces:
       - "*"
     excludedNamespaces:
@@ -13,6 +14,13 @@ spec:
       - {{ ns }}
 {% endfor %}
     includeClusterResources: true
+{% else %}
+    includedNamespaces:
+{% for ns in oadp_backup_stateful_namespaces %}
+      - {{ ns }}
+{% endfor %}
+    includeClusterResources: false
+{% endif %}
     snapshotVolumes: true
     defaultVolumesToFsBackup: true
     ttl: {{ oadp_backup_ttl }}

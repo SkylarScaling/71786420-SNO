@@ -38,7 +38,7 @@ default set there would silently win over the real inventory override.
 | `alert_smtp_host`, `alert_email_to` | bastion's `configure_alerting` | assumes direct network reachability to the customer's SMTP server |
 | `backup_s3_bucket` | bastion's `configure_oadp_backup` | bucket name on the in-cluster NooBaa — the only backend this role supports |
 | `backup_egress_mode` | bastion's `configure_mcg_backup_export`/`export-backup.yaml` | `network` \| `media` \| `both` — how app S3 data replicates out of a disconnected environment |
-| `backup_external_s3_endpoint/bucket/access_key/secret_key` | bastion's `export-backup.yaml`, staging's `push_backup_to_external_s3` | real external S3 target |
+| `backup_external_s3_endpoint/bucket/access_key/secret_key` | bastion's `export-backup.yaml`, staging's `push_backup_to_external_target` | real external S3 target |
 | `log_forward_endpoint` | bastion's `configure_log_forwarding` | external SIEM endpoint — placeholder, not production-ready (see that role's README) |
 
 See `bastion/README.md` for bastion-only variables (e.g. upgrade/node-failure-drill

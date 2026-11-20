@@ -45,7 +45,7 @@ task at a time.
 | NTP server reachable from the SNO node/bastion network | `ntp_server` — §9 |
 | SMTP relay reachable from the cluster network | `alert_smtp_host`/`alert_email_to` — `configure_alerting` assumes direct reachability, it doesn't stand up a relay |
 | MetalLB address pool: a contiguous, routable, reserved IP range on the machine network | `metallb_address_pool` — §5; non-HTTP TCP middleware only |
-| External S3 target (endpoint, bucket, credentials), only if `backup_egress_mode: network` or `both` | `backup_external_s3_*` — §8 |
+| External backup target (S3, SMB, SFTP, or already-mounted local path), only if `backup_egress_mode: network` or `both` | `backup_external_target_type` + per-type vars — §8 |
 | Outbound firewall egress from the staging host to Red Hat's content sources | `registry.redhat.io`, `quay.io`, `mirror.openshift.com`, `console.redhat.com` and friends — §3; the bastion and SNO node need no egress at all |
 | A way to physically carry the bastion bundle from staging to the bastion | Removable media by default (`bastion_transfer_method: media`); a network path between the two hosts only if `rsync` is opted into instead — §2 |
 
@@ -321,20 +321,28 @@ Two independent concerns:
    supports. An external cloud S3 bucket backend was considered early on but
    removed: **this deployment has no internet route at all**, so an external-S3
    backend would just time out. The role also creates a default Velero `Schedule` CR
-   (`oadp_backup_schedule_name`/`oadp_backup_schedule_cron`/`oadp_backup_ttl`/
-   `oadp_backup_excluded_namespaces`) — a once-daily, 30-day-retention full backup as
-   a general-purpose baseline, not a customer-confirmed RPO/RTO; override per
-   environment once real targets are agreed. DR restore rehearsal (actually running
+   (`oadp_backup_schedule_name`/`oadp_backup_schedule_cron`/`oadp_backup_ttl`) — a
+   once-daily, 30-day-retention backup as a general-purpose baseline, not a
+   customer-confirmed RPO/RTO; override per environment once real targets are
+   agreed. `oadp_backup_scope` (default `stateful`) scopes the backup to just
+   `oadp_backup_stateful_namespaces` (default: `postgres`) with
+   `includeClusterResources: false` — since this whole cluster is IaC-provisioned,
+   re-creating Operators/Deployments/etc. via restore is redundant; only actual
+   stateful bytes (e.g. Postgres's PV data) need backing up. `oadp_backup_scope:
+   platform` (disabled by default) restores the previous full-cluster behavior
+   (`includedNamespaces: ["*"]`, `oadp_backup_excluded_namespaces`,
+   `includeClusterResources: true`) for a one-off full-state snapshot; it isn't the
+   recommended steady state. DR restore rehearsal (actually running
    `velero restore create` against one of these backups) is not automated — see the
    role's README.
 2. **External export, off the node entirely**: RAID5 protects against a single disk
-   failing; it does nothing for losing the whole chassis. The customer wants
-   application S3 data (and, separately/not yet built, log data) exported
-   somewhere off the node. A genuine internet-reachable external S3 target is the
-   **least likely** of the three export paths to actually exist on a deployment
-   like this — don't assume it by default. The realistic options are manual
-   removable media, or pushing to a backup system the customer already runs on the
-   same disconnected network as the bastion.
+   failing; it does nothing for losing the whole chassis. The customer wants the
+   OADP backup bucket (and any application-created buckets) exported somewhere off
+   the node — see below for scope. A genuine internet-reachable external S3 target
+   is the **least likely** of the three export paths to actually exist on a
+   deployment like this — don't assume it by default. The realistic options are
+   manual removable media, or pushing to a backup system the customer already runs
+   on the same disconnected network as the bastion.
 
 **The cluster has no internet route** (§2), so external export cannot be a
 continuously-running in-cluster CR (an earlier attempt at this — a NooBaa
@@ -351,21 +359,21 @@ initial setup playbooks:
   drive"). Assumes nothing about what the customer's network allows, so it's the
   safe default.
 - **`internal`**: `push_backup_to_internal_target` (runs on the bastion) pushes the
-  staged data straight to an S3-compatible backup system the customer already runs
-  on the *same disconnected network* — no internet route needed. Prefer this over
-  `network` once the customer's on-prem backup target is confirmed; it's the more
-  realistic automated path for this kind of deployment.
+  staged data straight to the customer's on-prem backup system on the *same
+  disconnected network* — no internet route needed. Prefer this over `network` once
+  the customer's on-prem backup target is confirmed; it's the more realistic
+  automated path for this kind of deployment.
 - **`network`** / **`both`**: packages and relays data through the same two sides
-  the inbound mirroring pipeline uses, reversed, all the way to a real
-  internet-reachable external S3 target:
+  the inbound mirroring pipeline uses, reversed, all the way to the real external
+  target:
 
   ```
   NooBaa (SNO node) → export_backup_from_noobaa (bastion, same private network)
                     → package_staging_bundle (bastion, reverse of package_bastion_bundle;
                        physical media by default, rsync opt-in)
-                    → unpack_staging_backup_bundle + push_backup_to_external_s3 (staging,
+                    → unpack_staging_backup_bundle + push_backup_to_external_target (staging,
                        the only side of this split with real internet)
-                    → real external S3 target
+                    → real external target
   ```
 
   Unlikely to apply on a genuinely disconnected production deployment — only use
@@ -373,9 +381,22 @@ initial setup playbooks:
   also leaves the staged bastion copy in place for an additional manual media
   export.
 
-`bastion/roles/ocp/configure_mcg_backup_export` only validates the target vars for whichever
-mode is active (`backup_internal_target_*` for `internal`, `backup_external_s3_*`
-for `network`/`both`) — it applies no CRs.
+Neither target has to be S3-compatible: `backup_internal_target_type`/
+`backup_external_target_type` (default `s3`; also `smb` | `sftp` | `local`) select
+which backend `push_backup_to_internal_target`/`push_backup_to_external_target` push to
+via `rclone` — this hop is this repo's own code, not an OADP/Velero component, which
+is what makes a non-S3 target possible here even though OADP's own
+`BackupStorageLocation` is S3-only. `bastion/roles/ocp/configure_mcg_backup_export`
+only validates the vars required for whichever mode and target type are active — it
+applies no CRs. See `push_backup_to_internal_target`/`push_backup_to_external_target`'s
+READMEs for the full per-type variable list.
+
+**Export scope**: `export_backup_from_noobaa`'s `backup_export_buckets` defaults to
+just the OADP backup bucket (`backup_s3_bucket`) — the bucket `configure_oadp_backup`
+writes Velero backups to, including the stateful-workload PV data (e.g. Postgres)
+captured via kopia. Without this default, OADP's backups would never actually leave
+the node. Add application-created buckets per-environment if those also need
+exporting.
 
 **Log/metrics export is explicitly out of scope / not yet built** — don't assume
 `backup_egress_mode` covers Loki data.
@@ -445,7 +466,7 @@ to the implementing automation, so gaps are visible rather than assumed covered.
 |---|---|---|
 | S3-compatible storage, RAID5-backed | `configure_lvms` + `configure_mcg` | Built; NooBaa CRD field names flagged for live-cluster verification |
 | 6TB RAID5, no OCP-level replication | MCG standalone (no CephCluster) | Built |
-| External backup, no data loss tolerance for app data | OADP + `export-backup.yaml` relay | Built; log/metrics export not yet built |
+| External backup, no data loss tolerance for stateful app data | OADP (stateful-only scope by default) + `export-backup.yaml` relay, non-S3 targets supported | Built; log/metrics export not yet built |
 | Loki + Grafana, 7-day/30-day retention | `configure_lokistack` + `configure_grafana` | Built; retention approximated via per-stream override, see §6 |
 | OpenTelemetry application tracing | `configure_opentelemetry` | Built; operator package names flagged for verification |
 | Email alerting | `configure_alerting` | Built; assumes direct SMTP reachability |

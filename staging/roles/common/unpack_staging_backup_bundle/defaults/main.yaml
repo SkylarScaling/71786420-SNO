@@ -5,6 +5,6 @@
 # manually isn't desired; this role extracts it itself when given a file.
 staging_backup_bundle_path: "~/sno-staging-backup-bundle.tar.gz"
 
-# Same default path push_backup_to_external_s3 reads from (role defaults aren't
+# Same default path push_backup_to_external_target reads from (role defaults aren't
 # shared across roles, so duplicated rather than centralized).
 backup_push_source_dir: /opt/backup-export-staged

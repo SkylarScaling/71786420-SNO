@@ -1,16 +1,26 @@
 # configure_mcg_backup_export
 
-Validates configuration for exporting **application S3 data** (objects stored in
-MCG/NooBaa via `configure_mcg`) off the node, as insurance against total node loss.
-This is a fully disconnected single-node environment with hardware RAID5 providing
-disk-level redundancy already — RAID5 protects against a single disk failure, it
-does nothing for losing the whole node/chassis, which this covers.
+## tl;dr
 
-A genuine internet-reachable external S3 target is the **least likely** of the
-three export paths to actually be available on a deployment like this — don't
-assume it exists by default. The realistic options are manual removable media, or
-pushing to a backup system the customer already runs on the same disconnected
-network as the bastion. See `backup_egress_mode` below.
+Validates configuration for exporting NooBaa/MCG bucket data off the node, as
+insurance against total node loss (RAID5 covers single-disk failure, not the whole
+chassis). Applies no CRs itself — see "The actual export path" below for what
+actually moves the data.
+
+### To use this correctly:
+
+- A genuine internet-reachable external target is the **least likely** of the three
+  export paths to actually be available on a deployment like this — don't assume it
+  exists by default. The realistic options are manual removable media, or pushing to
+  a backup system the customer already runs on the same disconnected network as the
+  bastion. See `backup_egress_mode` below.
+- Neither target has to be S3-compatible — see "Per-environment target variables"
+  below.
+- Run `bastion/playbooks/export-backup.yaml` (and, for `network`/`both`,
+  `staging/playbooks/receive-backup.yaml`) periodically or on-demand — this role
+  alone doesn't move any data.
+
+## Full Details:
 
 ## Why this role applies no CRs
 
@@ -20,8 +30,9 @@ work: **the SNO node has no internet route at all** — it's fully air-gapped. A
 BackingStore pointed at an external endpoint would never reach `Ready`; nothing in
 this architecture reconciles that, so don't re-add it.
 
-This role now only fails fast if `backup_egress_mode` requires the external S3 target
-and `backup_external_s3_endpoint/bucket/access_key/secret_key` aren't all set, and
+This role now only fails fast if `backup_egress_mode` requires a target whose
+required vars for its configured `backup_external_target_type`/
+`backup_internal_target_type` (`s3` | `smb` | `sftp` | `local`) aren't all set, and
 prints a pointer to the actual export mechanism below.
 
 ## The actual export path: `bastion/playbooks/export-backup.yaml`
@@ -37,11 +48,11 @@ there, `backup_egress_mode` picks one of three paths out:
   `roles/common/export_backup_from_noobaa`'s README. The safe default: it assumes
   nothing about what the customer's network allows.
 - **`internal`**: **`roles/common/push_backup_to_internal_target`** (runs on the
-  bastion) pushes the staged data straight to an S3-compatible backup system the
-  customer already runs on the *same disconnected network* — no internet route
-  needed at all. This is the realistic automated path on most deployments like this
-  one; prefer it over `network` once the customer's on-prem backup target is
-  confirmed.
+  bastion) pushes the staged data straight to a backup system the customer already
+  runs on the *same disconnected network* — no internet route needed at all, and no
+  requirement that the target be S3-compatible. This is the realistic automated path
+  on most deployments like this one; prefer it over `network` once the customer's
+  on-prem backup target is confirmed.
 - **`network`** / **`both`**: reuses the same bundle-and-transfer pattern the
   inbound mirroring pipeline uses (`stage_mirror_content` → `package_bastion_bundle`
   → `unpack_bastion_bundle` → `deploy_mirror_registry`), just reversed, since
@@ -51,8 +62,8 @@ there, `backup_egress_mode` picks one of three paths out:
      into a tar.gz, physically carried (or rsynced) to staging — the literal reverse
      of `package_bastion_bundle`.
   2. **`roles/common/unpack_staging_backup_bundle`** (staging) extracts it, then
-     **`roles/common/push_backup_to_external_s3`** (also staging) pushes the data to
-     the real external S3 target.
+     **`roles/common/push_backup_to_external_target`** (also staging) pushes the data to
+     the real external target.
 
   Unlikely to apply on a genuinely disconnected production deployment — only use
   this if the customer has explicitly confirmed that outbound path exists. `both`
@@ -68,21 +79,28 @@ on-demand refresh rather than part of `provision-sno.yaml`.
 
 ## Per-environment target variables
 
-- `backup_internal_target_endpoint`/`bucket`/`access_key`/`secret_key`
-  (`roles/common/push_backup_to_internal_target`'s defaults) — the customer's
-  on-prem backup system, for `backup_egress_mode: internal`.
-- `backup_external_s3_endpoint`/`bucket`/`access_key`/`secret_key` (this role's
-  defaults; only `backup_external_s3_region` gets a real default: `us-east-1`) — a
-  genuine internet-reachable target, for `backup_egress_mode: network`/`both`.
+Neither target has to be S3-compatible. `backup_internal_target_type`/
+`backup_external_target_type` (`s3` default | `smb` | `sftp` | `local`) select which
+set of vars apply — see `roles/common/push_backup_to_internal_target/README.md` and
+`roles/common/push_backup_to_external_target/README.md` for the full per-type variable
+list. `backup_egress_mode: internal` validates against
+`backup_internal_target_type`'s vars; `network`/`both` validate against
+`backup_external_target_type`'s vars.
 
-Both sets are deliberately left empty in their respective `defaults/main.yaml`. Set
-the real values in `staging/inventory/inventory.yaml`'s `vars:` block, **not** in
-`staging/inventory/inventory.yaml` or back into either role's defaults — Ansible's
-precedence puts playbook-adjacent `group_vars/all` above inline inventory-file
-vars, so a default set there would silently win over a per-environment inventory
-override.
+All of these are deliberately left empty (or default-only) in their respective
+`defaults/main.yaml`. Set the real values in `staging/inventory/inventory.yaml`'s
+`vars:` block, **not** in `staging/inventory/inventory.yaml` or back into either
+role's defaults — Ansible's precedence puts playbook-adjacent `group_vars/all` above
+inline inventory-file vars, so a default set there would silently win over a
+per-environment inventory override.
 
-## Scope: application S3 data only
+## Scope: NooBaa buckets — the OADP backup bucket by default, plus any app buckets added
+
+`roles/common/export_backup_from_noobaa`'s `backup_export_buckets` defaults to just
+`backup_s3_bucket` — the bucket `configure_oadp_backup` writes Velero backups to,
+including the stateful-workload PV data (e.g. Postgres) it captures via kopia.
+Without this, OADP's backups would never actually leave the node. Add
+application-created buckets per-environment if those also need exporting.
 
 Log/metrics export (Loki, cluster observability) is out of scope and not yet built —
 don't assume `backup_egress_mode` covers log forwarding;

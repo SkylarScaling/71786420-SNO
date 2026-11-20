@@ -1,0 +1,31 @@
+---
+# Same default path unpack_staging_backup_bundle extracts the bastion-produced
+# backup bundle into (role defaults aren't shared across roles, so duplicated rather
+# than centralized — see that role's defaults/main.yaml).
+backup_push_source_dir: /opt/backup-export-staged
+bin_dir: "~/.local/bin"
+rclone_download_url: "https://downloads.rclone.org/rclone-current-linux-amd64.zip"
+
+# Which rclone backend to push to: s3 (default) | smb | sftp | local. The external
+# target doesn't have to be S3-compatible — this hop is this repo's own rclone
+# invocation, not an OADP/Velero component.
+backup_external_target_type: s3
+
+# All target vars below are deliberately left empty: genuinely per-environment, must
+# be set in staging/inventory/inventory.yaml's vars: block, not here — same
+# precedence reasoning as push_backup_to_internal_target's defaults.
+
+# backup_external_target_type: smb
+backup_external_target_host: ""
+backup_external_target_share: ""
+backup_external_target_user: ""
+backup_external_target_password: ""
+backup_external_target_domain: ""
+
+# backup_external_target_type: sftp (host/user/password shared with smb above)
+backup_external_target_port: 22
+backup_external_target_ssh_key_file: ""
+
+# backup_external_target_type: local — an already-mounted filesystem path on staging.
+# This role does not manage the mount itself.
+backup_external_target_path: ""

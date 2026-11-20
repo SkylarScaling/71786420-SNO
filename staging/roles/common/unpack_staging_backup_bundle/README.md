@@ -2,7 +2,7 @@
 
 First task in `staging/playbooks/receive-backup.yaml` — the staging-side counterpart
 of the bastion's `package_staging_bundle`. Extracts the backup bundle the bastion
-produced into `backup_push_source_dir`, which `push_backup_to_external_s3` (run
+produced into `backup_push_source_dir`, which `push_backup_to_external_target` (run
 immediately after, in the same playbook) relays on to the real external S3 target.
 
 ## Variables
@@ -10,7 +10,7 @@ immediately after, in the same playbook) relays on to the real external S3 targe
 | Variable | Default | Notes |
 | --- | --- | --- |
 | `staging_backup_bundle_path` | `~/sno-staging-backup-bundle.tar.gz` | Where the bastion-produced tar.gz landed on staging (physically copied or rsynced). |
-| `backup_push_source_dir` | `/opt/backup-export-staged` | Must match `push_backup_to_external_s3`'s own default. |
+| `backup_push_source_dir` | `/opt/backup-export-staged` | Must match `push_backup_to_external_target`'s own default. |
 
 ## Known gap
 

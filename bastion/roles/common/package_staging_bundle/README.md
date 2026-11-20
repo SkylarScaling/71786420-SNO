@@ -6,7 +6,7 @@ backup-export relay. Runs on the bastion (`hosts: localhost`) after
 `push_backup_to_internal_target`), and archives the staged export data
 (`backup_export_workspace`) into one `tar.gz` for the trip back to staging — the only
 side of this split with real internet access to relay it on to an external S3
-target via `push_backup_to_external_s3`.
+target via `push_backup_to_external_target`.
 
 Only runs when `backup_egress_mode` is `network` or `both` (gated in
 `bastion/playbooks/export-backup.yaml`, not in this role itself).

@@ -1,0 +1,67 @@
+---
+# Final step of the backup-export relay — runs on staging (hosts: localhost), the
+# only side of this split with real internet access, pushing the data
+# unpack_staging_backup_bundle just extracted up to the real external S3 target
+# (backup_external_s3_endpoint/bucket/access_key/secret_key, plain per-environment
+# inventory vars). See roles/ocp/configure_mcg_backup_export/README.md for the full
+# picture.
+- name: Ensure bin_dir exists
+  file:
+    path: "{{ bin_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Check for the rclone binary
+  command: "{{ bin_dir }}/rclone version"
+  register: rclone_check
+  failed_when: false
+  changed_when: false
+
+- name: Download and install rclone
+  when: rclone_check.rc != 0
+  block:
+    - name: Download the rclone zip
+      get_url:
+        url: "{{ rclone_download_url }}"
+        dest: /tmp/rclone.zip
+        mode: '0644'
+
+    - name: Extract the rclone binary (flatten the versioned subdirectory the zip contains)
+      shell: "unzip -j -o /tmp/rclone.zip '*/rclone' -d {{ bin_dir }}"
+      args:
+        creates: "{{ bin_dir }}/rclone"
+
+    - name: Make rclone executable
+      file:
+        path: "{{ bin_dir }}/rclone"
+        mode: '0755'
+
+- name: Obscure the SMB/SFTP password, if one was given
+  command: "{{ bin_dir }}/rclone obscure {{ backup_external_target_password }}"
+  register: _backup_external_obscured_password
+  no_log: true
+  when:
+    - backup_external_target_type in ['smb', 'sftp']
+    - backup_external_target_password | length > 0
+
+# See roles/common/push_backup_to_internal_target's matching task for the per-type
+# rclone remote-spec shapes this dict mirrors.
+- name: Resolve the rclone destination for the configured target type
+  set_fact:
+    _backup_external_target_dest: >-
+      {{
+        {
+          's3': ':s3,provider=Other,env_auth=false,access_key_id=' ~ backup_external_s3_access_key ~ ',secret_access_key=' ~ backup_external_s3_secret_key ~ ',endpoint=' ~ backup_external_s3_endpoint ~ ':' ~ backup_external_s3_bucket,
+          'smb': ':smb,host=' ~ backup_external_target_host ~ ',user=' ~ backup_external_target_user ~ ',pass=' ~ (_backup_external_obscured_password.stdout | default('')) ~ (',domain=' ~ backup_external_target_domain if backup_external_target_domain | length > 0 else '') ~ ':' ~ backup_external_target_share,
+          'sftp': ':sftp,host=' ~ backup_external_target_host ~ ',user=' ~ backup_external_target_user ~ ',port=' ~ backup_external_target_port ~ (',key_file=' ~ backup_external_target_ssh_key_file if backup_external_target_ssh_key_file | length > 0 else ',pass=' ~ (_backup_external_obscured_password.stdout | default(''))) ~ ':' ~ backup_external_target_path,
+          'local': backup_external_target_path,
+        }[backup_external_target_type]
+      }}
+  no_log: true
+
+- name: Push the relayed backup data to the configured external target
+  no_log: true
+  command: >
+    {{ bin_dir }}/rclone sync
+    "{{ backup_push_source_dir }}"
+    "{{ _backup_external_target_dest }}"

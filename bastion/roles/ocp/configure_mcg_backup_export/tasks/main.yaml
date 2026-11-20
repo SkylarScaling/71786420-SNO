@@ -7,39 +7,67 @@
 # SNO node) pulls from NooBaa, relays to mirror-staging (the only host with real
 # internet), which pushes to the real external target.
 # That relay is bastion/playbooks/export-backup.yaml (roles/common/export_backup_from_noobaa
-# → package_staging_bundle/unpack_staging_backup_bundle → push_backup_to_external_s3) — run periodically/on-demand,
+# → package_staging_bundle/unpack_staging_backup_bundle → push_backup_to_external_target) — run periodically/on-demand,
 # not continuously, since there's no always-on path out of a disconnected cluster.
 # This role only validates the external-target vars are set and points at that
 # playbook; it applies no CRs.
-- name: Fail fast if the external S3 target isn't configured for network-based export
+- name: Determine whether the configured external target has its required vars set
+  set_fact:
+    _external_target_configured: >-
+      {{
+        {
+          's3': (backup_external_s3_endpoint | default('')) and (backup_external_s3_bucket | default('')) and (backup_external_s3_access_key | default('')) and (backup_external_s3_secret_key | default('')),
+          'smb': (backup_external_target_host | default('')) and (backup_external_target_share | default('')) and (backup_external_target_user | default('')),
+          'sftp': (backup_external_target_host | default('')) and (backup_external_target_user | default('')) and ((backup_external_target_ssh_key_file | default('')) or (backup_external_target_password | default(''))),
+          'local': (backup_external_target_path | default('')),
+        }[backup_external_target_type | default('s3')]
+      }}
+
+- name: Determine whether the configured internal target has its required vars set
+  set_fact:
+    _internal_target_configured: >-
+      {{
+        {
+          's3': (backup_internal_target_endpoint | default('')) and (backup_internal_target_bucket | default('')) and (backup_internal_target_access_key | default('')) and (backup_internal_target_secret_key | default('')),
+          'smb': (backup_internal_target_host | default('')) and (backup_internal_target_share | default('')) and (backup_internal_target_user | default('')),
+          'sftp': (backup_internal_target_host | default('')) and (backup_internal_target_user | default('')) and ((backup_internal_target_ssh_key_file | default('')) or (backup_internal_target_password | default(''))),
+          'local': (backup_internal_target_path | default('')),
+        }[backup_internal_target_type | default('s3')]
+      }}
+
+- name: Fail fast if the external target isn't configured for network-based export
   fail:
     msg: >
-      backup_egress_mode is '{{ backup_egress_mode }}' but backup_external_s3_endpoint/
-      bucket/access_key/secret_key aren't all set. Set them in
-      inventory/<provider>/inventory.yaml's vars block.
+      backup_egress_mode is '{{ backup_egress_mode }}' and backup_external_target_type
+      is '{{ backup_external_target_type | default("s3") }}', but the required vars for
+      that type aren't all set. Set them in inventory/<provider>/inventory.yaml's vars
+      block. See roles/common/push_backup_to_external_target/README.md for the vars each
+      type needs.
   when:
     - backup_egress_mode in ['network', 'both']
-    - not (backup_external_s3_endpoint and backup_external_s3_bucket and backup_external_s3_access_key and backup_external_s3_secret_key)
+    - not _external_target_configured
 
 - name: Fail fast if the internal on-prem backup target isn't configured
   fail:
     msg: >
-      backup_egress_mode is 'internal' but backup_internal_target_endpoint/bucket/
-      access_key/secret_key aren't all set. Set them in
-      inventory/<provider>/inventory.yaml's vars block.
+      backup_egress_mode is 'internal' and backup_internal_target_type is
+      '{{ backup_internal_target_type | default("s3") }}', but the required vars for
+      that type aren't all set. Set them in inventory/<provider>/inventory.yaml's vars
+      block. See roles/common/push_backup_to_internal_target/README.md for the vars
+      each type needs.
   when:
     - backup_egress_mode == 'internal'
-    - not (backup_internal_target_endpoint | default('') and backup_internal_target_bucket | default('') and backup_internal_target_access_key | default('') and backup_internal_target_secret_key | default(''))
+    - not _internal_target_configured
 
 - name: Report the backup export configuration
   debug:
     msg:
       - "backup_egress_mode: {{ backup_egress_mode }}"
-      - "External S3 target (network mode): {{ backup_external_s3_endpoint | default('(not set)') }} / {{ backup_external_s3_bucket | default('(not set)') }}"
-      - "Internal on-prem target (internal mode): {{ backup_internal_target_endpoint | default('(not set)') }} / {{ backup_internal_target_bucket | default('(not set)') }}"
+      - "External target type (network mode): {{ backup_external_target_type | default('s3') }}"
+      - "Internal target type (internal mode): {{ backup_internal_target_type | default('s3') }}"
       - "This role only validates configuration — it applies no CRs (the cluster has no"
       - "route to either target). Run bastion/playbooks/export-backup.yaml periodically"
       - "(or on your own schedule) to actually relay data out via the bastion. See"
       - "roles/common/export_backup_from_noobaa/README.md,"
       - "roles/common/push_backup_to_internal_target/README.md, and"
-      - "roles/common/push_backup_to_external_s3/README.md."
+      - "roles/common/push_backup_to_external_target/README.md."

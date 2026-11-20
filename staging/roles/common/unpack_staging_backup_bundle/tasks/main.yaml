@@ -2,7 +2,7 @@
 # Runs on staging (hosts: localhost), first task in
 # staging/playbooks/receive-backup.yaml — the staging-side counterpart of the
 # bastion's package_staging_bundle. Extracts the tar.gz the bastion produced so
-# push_backup_to_external_s3 has something to relay on.
+# push_backup_to_external_target has something to relay on.
 - name: Fail fast if the expected backup bundle isn't present
   stat:
     path: "{{ staging_backup_bundle_path }}"

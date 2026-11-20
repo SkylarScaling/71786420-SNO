@@ -1,7 +1,11 @@
 ---
-# Which application buckets to export. Empty by default — this is application-
-# specific and must be set per-environment (inventory vars block), not defaulted here.
-backup_export_buckets: []
+# Buckets to export. Defaults to just the OADP/Velero backup bucket (configure_oadp_backup's
+# backup_s3_bucket) — without it, OADP's own backups (including the stateful-workload
+# PV data it captures via kopia) would never actually leave the node. Add
+# application-created buckets per-environment (inventory vars block) if those also
+# need exporting.
+backup_export_buckets:
+  - "{{ backup_s3_bucket }}"
 
 backup_export_workspace: /opt/backup-export
 

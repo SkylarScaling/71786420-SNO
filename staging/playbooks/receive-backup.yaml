@@ -14,4 +14,4 @@
         name: unpack_staging_backup_bundle
 
     - include_role:
-        name: push_backup_to_external_s3
+        name: push_backup_to_external_target

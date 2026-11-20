@@ -56,14 +56,14 @@ staging/
     stage-and-package.yaml      # stage_mirror_content + package_bastion_bundle
     sync-bastion-rpms.yaml      # sync_bastion_rpms + package_bastion_rpms_bundle, standalone
     full-staging-setup.yaml     # imports stage-and-package.yaml
-    receive-backup.yaml         # unpack_staging_backup_bundle + push_backup_to_external_s3
+    receive-backup.yaml         # unpack_staging_backup_bundle + push_backup_to_external_target
     group_vars/all.yaml         # generic, non-secret defaults only
   roles/common/
     stage_mirror_content        # mirror release/operator content + binaries to disk
     sync_bastion_rpms           # mirror the bastion's own OS RPMs (reposync/resolve), run standalone or from stage_mirror_content
     package_bastion_bundle      # archive content + binaries + bastion/ tree + resolved config into one tar.gz
     package_bastion_rpms_bundle # archive sync_bastion_rpms's output into its own, separately-shipped tar.gz
-    push_backup_to_external_s3  # backup-export relay, final hop
+    push_backup_to_external_target  # backup-export relay, final hop
     unpack_staging_backup_bundle  # backup-export relay, receives the bastion's bundle
 bastion/
   inventory/inventory.yaml      # minimal placeholder — localhost only
