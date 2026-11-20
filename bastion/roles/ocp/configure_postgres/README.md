@@ -8,14 +8,14 @@ customer's stated priorities — no HA/replica set.
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `postgres_operator_channel` | `v5` | **Verify** against the mirrored catalog/CSV — Crunchy PGO's channel naming has shifted across major versions. |
-| `postgres_catalog_source` / `postgres_catalog_source_namespace` | `redhat-operators` / `openshift-marketplace` | Verify the `crunchy-postgres-operator` package is actually present in whichever catalog was mirrored. |
+| `postgres_operator_channel` | `"{{ operator_catalog.postgres.channel }}"` | Single source is `operator_catalog.postgres` in `staging/inventory/inventory.yaml`, shared with `stage_mirror_content`'s mirrored pin. |
+| `postgres_catalog_source` / `postgres_catalog_source_namespace` | derived from `operator_catalog.postgres.catalog` (default `certified`) / `openshift-marketplace` | `crunchy-postgres-operator` is confirmed mirrored from `certified-operators`, not `redhat-operators`. |
 | `postgres_namespace` | `postgres` | |
 | `postgres_replicas` | `1` | Single instance — no HA requirement today. |
 | `postgres_storage_size` | `20Gi` | Used for both the data volume and the pgBackRest repo volume. |
 | `postgres_storage_class` | `"{{ lvms_retain_storage_class_name \| default('vg1-retain') }}"` | Defaults to `configure_lvms`'s Retain-policy StorageClass, not the shared `vg1` (Delete) default — see "Storage class" below. |
 | `pgadmin_enabled` | `true` | Deploys a plain pgAdmin Deployment+Service+Route (no operator exists for pgAdmin). |
-| `pgadmin_image` | `docker.io/dpage/pgadmin4:latest` | See mirroring gap below. |
+| `pgadmin_image` | pinned in `staging/inventory/inventory.yaml` | See mirroring gap below. |
 | `pgadmin_default_email` / `pgadmin_default_password` | `admin@example.com` / `changeme` | Change these for anything beyond throwaway testing. |
 | `postgres_expose_external` | `false` | Reserved for a future LoadBalancer Service for the Postgres port; not wired up in this scaffold since direct external DB access is unusual — app workloads should reach Postgres in-cluster via the Crunchy-generated Service. |
 

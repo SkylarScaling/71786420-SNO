@@ -31,7 +31,7 @@ single-switch, single-node bare-metal environment with no routing peer to speak 
 
 | Variable                | Default           | Notes |
 |--------------------------|-------------------|-------|
-| `metallb_channel`        | `stable`          | Operator subscription channel. |
+| `metallb_channel`        | `"{{ operator_catalog.metallb.channel }}"` | Single source is `operator_catalog.metallb.channel` in `staging/inventory/inventory.yaml`, shared with `stage_mirror_content`'s mirrored pin. |
 | `metallb_namespace`      | `metallb-system`  | Namespace for operator + CRs. |
 | `metallb_address_pool`   | *(none — required)* | Customer-provided IP range from their network team. **Not defaulted** — same precedence reason as `base_domain` in `staging/inventory/inventory.yaml`: a real inventory override must win, so no generic value is set here. Must be set in `staging/inventory/inventory.yaml`'s `vars` block. Accepts a CIDR (e.g. `"192.168.1.240/28"`), an explicit range string (e.g. `"192.168.1.240-192.168.1.250"`), or a YAML list of either form — the role wraps a single string in a list automatically when templating `IPAddressPool.spec.addresses`. |
 

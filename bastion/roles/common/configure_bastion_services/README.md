@@ -7,8 +7,9 @@ opens firewalld for HTTP/DNS.
 
 ### To use this correctly:
 
-- `bastion_rpm_sync_method` here must match `sync_bastion_rpms`' own copy — a
-  mismatch fails with a `repodata not found` message.
+- `bastion_rpm_sync_method`/`bastion_packages`/`bastion_required_repos` are pinned
+  once in `staging/inventory/inventory.yaml` (single source, shared with
+  `sync_bastion_rpms` — no more keeping two copies in sync by hand).
 - Set `debug_vars: true` (inventory.yaml) to print the RPM/ISO-serving vars in
   effect before this role's tasks run.
 
@@ -17,12 +18,10 @@ opens firewalld for HTTP/DNS.
 Runs directly on the bastion (`hosts: localhost`) — the existing physical bastion.
 Installs `dnsmasq` (DNS for the SNO cluster, only when `rendezvous_ip` is known),
 `httpd` (serves the agent ISO for BMC virtual media boot — also opens firewalld for
-HTTP, without which the BMC can't reach it at all), and whatever else this
-role's own `bastion_packages` default names (`tmux`, an operator convenience, as of
-this writing) — kept in sync with `staging/roles/common/stage_mirror_content`'s own
-copy of the same list (role defaults aren't shared across roles), since both now
-drive this by package name rather than this role just installing whatever files
-happen to be found on disk.
+HTTP, without which the BMC can't reach it at all), and whatever else
+`bastion_packages` (`staging/inventory/inventory.yaml`, single source shared with
+`sync_bastion_rpms`) names — driven by package name rather than this role just
+installing whatever files happen to be found on disk.
 
 ## Why the packages come from synced local repos, not `dnf install`
 
@@ -50,12 +49,10 @@ the files named on the command line, with none of the repo metadata it normally
 uses to work out a correct transaction across a larger closure. Fails fast with
 guidance if any `bastion-rpms/<repoid>/repodata` isn't present (e.g. an older bundle
 built before `stage_mirror_content` switched to `reposync`), rather than a confusing
-dnf resolution error later. Adding a new entry to `bastion_packages` needs updating
-*both* copies of that list (here and in `stage_mirror_content`) — see that role's
-own README comment for the two-file-edit reasoning, same pattern as its
-operator-channel pins. `bastion_required_repos` is duplicated the same way, and
-needs to stay in sync for the same reason: this role loops over it by name to find
-each synced repo directory and build its matching `enablerepo` list.
+dnf resolution error later. `bastion_packages`/`bastion_required_repos` are both
+pinned once in `staging/inventory/inventory.yaml` — this role loops over
+`bastion_required_repos` by name to find each synced repo directory and build its
+matching `enablerepo` list.
 
 ## `bastion_rpm_sync_method`: `reposync` (default) vs `resolve`
 
@@ -70,18 +67,16 @@ has to know which, since the two produce different on-disk layouts:
   for why `reposync` became the default). This role enables exactly one
   `yum_repository`, `bastion-local-rpms`.
 
-**This var must be set to the same value on both sides** — it comes from the same
-flattened `bastion-resolved-vars.yaml` as every other per-environment var, so a
-single override in `staging/inventory/inventory.yaml` normally keeps both roles in
-sync automatically, but each role still carries its own default (role defaults
-aren't shared across roles) in case it's never overridden at all. A mismatch doesn't
-fail loudly on its own — this role just looks for repo metadata in the layout the
-*other* method would have produced, and fails with a `repodata not found` guidance
-message pointing at whichever check doesn't match what's actually on disk.
+`bastion_rpm_sync_method` is pinned once in `staging/inventory/inventory.yaml` and
+reaches both this role and `sync_bastion_rpms` via the same flattened
+`bastion-resolved-vars.yaml` — the two can no longer drift apart. If the on-disk
+layout still doesn't match what this role expects (e.g. an older bundle built before
+`sync_bastion_rpms` switched to `reposync`), it fails with a `repodata not found`
+guidance message rather than a confusing dnf resolution error.
 
-`stage_mirror_content`'s `bastion_required_repos` must already be attached to the
-staging host's own subscription (just not necessarily enabled by default) for
-`reposync` to sync against them — e.g.
+`bastion_required_repos` must already be attached to the staging host's own
+subscription (just not necessarily enabled by default) for `reposync` to sync against
+them — e.g.
 `rhel-10-for-x86_64-baseos-rpms`/`-appstream-rpms` for a RHEL 10 staging/bastion
 pair.
 

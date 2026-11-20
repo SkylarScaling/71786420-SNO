@@ -1,17 +1,12 @@
 ---
-# Confirmed via `oc-mirror list operators --v1 --catalog
-# registry.redhat.io/redhat/certified-operator-index:v4.18 --package
-# crunchy-postgres-operator` — v5 is the current default channel.
-# crunchy-postgres-operator isn't in redhat-operator-index, hence
-# certified-operators below.
-#
-# MUST match staging/roles/common/stage_mirror_content/defaults/main.yaml's
-# oc_mirror_operator_packages `crunchy-postgres-operator` entry's `channel` exactly —
-# see that file's comment (and configure_lokistack's loki_channel, which hit this for
-# real) for why a mismatch here is a silent install-time or mirror-time failure, not
-# an obvious one.
-postgres_operator_channel: v5
-postgres_catalog_source: certified-operators
+# Single source is staging/inventory/inventory.yaml's operator_catalog.postgres
+# (shared with stage_mirror_content's mirrored pin). crunchy-postgres-operator isn't
+# in redhat-operator-index, hence the certified/*-operators catalog mapping below.
+postgres_operator_channel: "{{ operator_catalog.postgres.channel }}"
+postgres_catalog_source: >-
+  {{ {'redhat': 'redhat-operators', 'certified': 'certified-operators',
+      'community': 'community-operators', 'marketplace': 'redhat-marketplace'}
+     [operator_catalog.postgres.catalog | default('certified')] }}
 postgres_catalog_source_namespace: openshift-marketplace
 
 postgres_namespace: postgres
@@ -25,7 +20,7 @@ postgres_storage_class: "{{ lvms_retain_storage_class_name | default((lvms_vg_na
 # pgAdmin has no operator — it's a plain Deployment+Service+Route templated
 # directly by this role. See README for the container-image mirroring gap.
 pgadmin_enabled: true
-pgadmin_image: "docker.io/dpage/pgadmin4:latest"
+# pgadmin_image is pinned in staging/inventory/inventory.yaml (single source).
 pgadmin_default_email: "admin@example.com"
 pgadmin_default_password: "changeme"
 

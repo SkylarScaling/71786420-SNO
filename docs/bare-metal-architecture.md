@@ -166,7 +166,11 @@ otherwise only ever lives on staging.
 
 The bastion's own OS packages (`dnsmasq`/`httpd`, installed by
 `bastion/roles/common/configure_bastion_services`) go through a related but
-**separate** path: `staging/roles/common/sync_bastion_rpms` (split out of
+**separate** path: `bastion_packages`/`bastion_required_repos`/
+`bastion_rpm_sync_method` are pinned once in `staging/inventory/inventory.yaml`
+(single source for both `sync_bastion_rpms` and `configure_bastion_services`, which
+otherwise had no way to stay in sync with each other).
+`staging/roles/common/sync_bastion_rpms` (split out of
 `stage_mirror_content` on 2026-11-17, at customer request — a full `reposync` can run
 8+ hours on its own, and the customer wanted to run/re-run it independently of the
 separate, also-hours-long oc-mirror "mirror to disk" step) mirrors each of
@@ -189,14 +193,17 @@ against each local repo's own metadata (`disablerepo: '*'`), since a direct `dnf
 install` on the bastion itself fails (RHUI has no route either) — regardless of
 which playbook most recently refreshed `bastion-rpms/`.
 
-`oc_mirror_operator_packages` (role default in `stage_mirror_content`) controls which
-operators get mirrored — entries are either a bare package name (default catalog
-channel) or a `{name, channel}` dict to pin a non-default channel, or a
-`{name, channel, catalog}` dict when a package ships from a different operator index
-(`certified`/`community`/`marketplace` rather than the default `redhat` index — see
-the role's `defaults/main.yaml` for the confirmed values used by the roles below).
-Every feature role below that installs an operator needs its package present in this
-list with a matching channel/catalog.
+`oc_mirror_operator_packages` (`stage_mirror_content`'s default) controls which
+operators get mirrored, built from `operator_catalog`/`odf_sub_packages` —
+pinned once in `staging/inventory/inventory.yaml`, the single source for both what
+oc-mirror fetches on staging and what each `bastion/roles/ocp/configure_*` role's own
+`*_channel`/`*_catalog_source` default requests at install time. Each
+`operator_catalog` entry has a `channel` and, for packages shipping outside the
+default `redhat` index, a `catalog` (`certified`/`community`/`marketplace`) — see
+`staging/inventory/inventory.yaml` for the confirmed values used by the roles below.
+Every feature role below that installs an operator has a corresponding
+`operator_catalog` entry; update that entry only, never a role's own
+`defaults/main.yaml`.
 
 Mirroring the operator content to the bastion's registry is necessary but not
 sufficient — OLM still resolves every `Subscription` in this repo against the
@@ -470,9 +477,9 @@ content / the actual hardware, don't assume they're already correct:
   `loki-operator` is `stable-6.7` (redhat-operators); `grafana-operator` is `v5`
   (**community-operators**, not redhat-operators); `rabbitmq-cluster-operator` is
   `stable` (**community-operators**); `crunchy-postgres-operator` is `v5`
-  (**certified-operators**). `oc_mirror_operator_packages` supports a per-package
-  `catalog:` key so `stage_mirror_content` mirrors each from the right index — see
-  `staging/roles/common/stage_mirror_content/defaults/main.yaml`.
+  (**certified-operators**). `operator_catalog` (`staging/inventory/inventory.yaml`)
+  supports a per-entry `catalog:` key so `stage_mirror_content` mirrors each from the
+  right index.
 
   **These channel strings move, confirmed live, not just hypothetically**:
   `loki-operator`'s channel was `stable-6.6` when first confirmed here, then
@@ -482,13 +489,14 @@ content / the actual hardware, don't assume they're already correct:
   "Fail if the oc-mirror run itself failed" task). Re-verify with
   `oc-mirror list operators` **periodically, not just on an `openshift_version`
   bump** — a catalog refresh can drop an older channel on its own. Each pinned
-  channel exists in **two** places that must change together: the mirror-side pin
-  here, and the matching role's own `*_channel` default (what its `Subscription`
-  actually requests at install time) — see `stage_mirror_content`'s README
-  ("Updating a mirrored operator's channel") for the full procedure. The same pass
-  also found `quay-operator` (`configure_onprem_quay`) missing from
+  channel now lives in exactly **one** place — `operator_catalog` in
+  `staging/inventory/inventory.yaml`, consumed by both `stage_mirror_content`'s
+  mirror-side pin and the matching role's own `*_channel` default (what its
+  `Subscription` actually requests at install time) — collapsing what used to be a
+  two-file edit (see `stage_mirror_content`'s README) into one. The same pass also
+  found `quay-operator` (`configure_onprem_quay`) missing from
   `oc_mirror_operator_packages` entirely — its `Subscription` requested a channel
-  nothing had ever mirrored; added as `{ name: quay-operator, channel: stable-3.13 }`.
+  nothing had ever mirrored; added as `quay: { channel: stable-3.13 }`.
 - OpenTelemetry/Tempo, Keycloak (`rhbk-operator` vs `keycloak-operator`)
   channel/package names — not yet independently confirmed
   (no error surfaced against these in the first real mirroring run, but that only
@@ -505,8 +513,8 @@ content / the actual hardware, don't assume they're already correct:
 - `sno_network_topology: dual_switch` (`bastion/roles/baremetal/baremetal_generate_agent_iso`)
   unverified against real dual-NIC hardware — the bonded nmstate syntax hasn't been
   tested against a live Agent-Based install yet.
-- `mirror_registry_version` (`staging/roles/common/stage_mirror_content/defaults/main.yaml`,
-  currently `2.0.12`) is a pinned point-in-time version, not a "latest" alias — Red
+- `mirror_registry_version` (`staging/inventory/inventory.yaml`, currently `2.0.12`)
+  is a pinned point-in-time version, not a "latest" alias — Red
   Hat's own `latest/` path requires a cookie-based redirect a plain `get_url` can't
   follow. Re-verify against
   https://mirror.openshift.com/pub/cgw/mirror-registry/ before a production run if

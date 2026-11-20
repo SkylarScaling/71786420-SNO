@@ -7,9 +7,9 @@ internet route of its own.
 
 ### To use this correctly:
 
-- `bastion_rpm_sync_method` here must match `configure_bastion_services`' own copy
-  (default `reposync`) — a mismatch fails with a `repodata not found` message rather
-  than silently misinstalling.
+- `bastion_rpm_sync_method`/`bastion_packages`/`bastion_required_repos` are pinned
+  once in `staging/inventory/inventory.yaml` (single source, shared with
+  `configure_bastion_services` — no more keeping two copies in sync by hand).
 - Set `debug_vars: true` (inventory.yaml) to print the RPM sync vars in effect
   (`bastion_rpm_sync_method`, `mirror_installers_dir`,
   `bastion_rpm_resolve_installroot`, `bastion_required_repos`) before syncing.
@@ -76,18 +76,18 @@ wanted to run/re-run that independently of the separate, also-hours-long oc-mirr
   Downloads into a single flat directory and needs `createrepo_c` (installed from
   `bastion_required_repos` itself) to turn it into a real repo afterward.
 
-**`bastion_rpm_sync_method` must match between staging and the bastion** (this role's
-copy and `configure_bastion_services`'s copy) — a mismatch doesn't fail loudly on its
-own; `configure_bastion_services` just looks for repo metadata in the wrong place and
-fails with a `repodata not found` guidance message.
+**`bastion_rpm_sync_method`/`bastion_packages`/`bastion_required_repos` are single-sourced
+in `staging/inventory/inventory.yaml`** — this role and `configure_bastion_services`
+both consume the same values, so the two copies can no longer drift out of sync with
+each other.
 
 `bastion_required_repos` must already be attached to *this* staging host's
 subscription (just not necessarily enabled by default) — passed as `--enablerepo` on
 the `reposync`/`download` command itself rather than toggled host-wide via
 `subscription-manager`, so this role doesn't leave staging's own repo configuration
 changed as a side effect. Keep this list, and the RHEL major version staging/the
-bastion are actually provisioned from, in sync with `configure_bastion_services`'s own
-copy on the bastion side.
+bastion are actually provisioned from, in sync with the real subscriptions attached
+to both hosts.
 
 **`bastion_rpm_reposync_max_parallel_downloads`** (default `10`) sets `reposync`'s
 `--setopt=max_parallel_downloads`. dnf's own default (3, even with multiple

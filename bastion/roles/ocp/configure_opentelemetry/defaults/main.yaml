@@ -1,11 +1,13 @@
 ---
 otel_namespace: openshift-opentelemetry
-otel_channel: stable
+# Single source is staging/inventory/inventory.yaml's operator_catalog.opentelemetry/
+# .tempo channels (shared with stage_mirror_content's mirrored pins).
+otel_channel: "{{ operator_catalog.opentelemetry.channel }}"
 
 # Reuse the same namespace as the Collector by default — simplest layout for a single
 # small cluster. Override to split them if that's ever needed.
 tempo_namespace: "{{ otel_namespace }}"
-tempo_channel: stable
+tempo_channel: "{{ operator_catalog.tempo.channel }}"
 
 tempo_bucket_name: "{{ cluster_name }}-tempo"
 

@@ -72,9 +72,9 @@ creating its own.
 | Variable | Default | Notes |
 |---|---|---|
 | `otel_namespace` | `openshift-opentelemetry` | Namespace for both the Collector operator/CR and (by default) Tempo. |
-| `otel_channel` | `stable` | **Verify** against the mirrored catalog. |
+| `otel_channel` | `"{{ operator_catalog.opentelemetry.channel }}"` | Single source is `operator_catalog.opentelemetry.channel` in `staging/inventory/inventory.yaml`, shared with `stage_mirror_content`'s mirrored pin. |
 | `tempo_namespace` | `{{ otel_namespace }}` | Deliberately shared with the Collector's namespace — simplest for a single small cluster; override to split them. |
-| `tempo_channel` | `stable` | **Verify** against the mirrored catalog. |
+| `tempo_channel` | `"{{ operator_catalog.tempo.channel }}"` | Single source is `operator_catalog.tempo.channel` in `staging/inventory/inventory.yaml`, shared with `stage_mirror_content`'s mirrored pin. |
 | `tempo_bucket_name` | `{{ cluster_name }}-tempo` | Name of the Tempo `ObjectBucketClaim`/bucket. |
 | `tempo_size` | `1x.extra-small` | Smallest documented TempoStack size tier; bump per-environment once real trace volume is known. |
 | `tempo_stack_name` | `{{ cluster_name }}-tempo` | **Must match** `configure_grafana`'s `tempo_stack_name`. |
@@ -87,8 +87,6 @@ creating its own.
 - Subscription package names `opentelemetry-product` and `tempo-product` are the
   typical Red Hat OperatorHub names for these builds — **verify** against the
   mirrored catalog; these have been known to change during rebrands.
-- `otel_channel`/`tempo_channel` default to `stable` as a placeholder — verify exact
-  channel strings.
 - The Collector's exporter endpoint (`{{ tempo_stack_name }}-distributor`) and the
   Grafana datasource's query-frontend Service name are both *assumed*
   TempoStack-generated Service names — verify both against `oc get svc` once the

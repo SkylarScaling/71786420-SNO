@@ -98,6 +98,61 @@ all:
 
     # --- Log forwarding target ---
     log_forward_endpoint: "https://siem.example.com:9200"
+
+    # --- Operator catalog pins (single source for oc-mirror on staging AND every
+    # Subscription on the bastion — see stage_mirror_content's and each
+    # roles/ocp/configure_*'s README for how this is consumed). Update here only. ---
+    operator_catalog:
+      lvms:          { channel: stable-4.22 }                    # configure_lvms
+      oadp:          { channel: stable }                         # configure_oadp_backup
+      logging:       { channel: stable-6.7 }                     # configure_log_forwarding (cluster-logging)
+      odf:           { channel: stable-4.22 }                    # configure_mcg (odf-operator + sub-packages below)
+      loki:          { channel: stable-6.7 }                     # configure_lokistack
+      grafana:       { channel: v5, catalog: community }         # configure_grafana
+      opentelemetry: { channel: stable }                         # configure_opentelemetry (otel collector)
+      tempo:         { channel: stable }                         # configure_opentelemetry (tempo)
+      metallb:       { channel: stable }                         # configure_metallb
+      rabbitmq:      { channel: stable, catalog: community }     # configure_rabbitmq
+      postgres:      { channel: v5, catalog: certified }         # configure_postgres
+      keycloak:      { channel: stable }                         # configure_keycloak
+      quay:          { channel: stable-3.13 }                    # configure_onprem_quay
+
+    # odf-operator's own fixed sub-package list — see configure_mcg's README ("Why
+    # odf-operator needs so many sub-packages mirrored"). All pinned to
+    # operator_catalog.odf.channel.
+    odf_sub_packages:
+      - ocs-operator
+      - mcg-operator
+      - rook-ceph-operator
+      - odf-csi-addons-operator
+      - cephcsi-operator
+      - odf-dependencies
+      - odf-prometheus-operator
+      - recipe
+      - ocs-client-operator
+      - ocs-tls-profiles
+      - odf-external-snapshotter-operator
+
+    # --- Other version pins ---
+    mirror_registry_version: "2.0.12"   # TODO: re-verify against https://mirror.openshift.com/pub/cgw/mirror-registry/
+    pgadmin_image: "docker.io/dpage/pgadmin4:latest"
+    redis_image: "registry.redhat.io/rhscl/redis-6-rhel7"
+
+    # --- Bastion RPM lists (single source for sync_bastion_rpms and
+    # configure_bastion_services — see sync_bastion_rpms' README) ---
+    bastion_rpm_sync_method: reposync
+    bastion_packages:
+      - dnsmasq
+      - httpd
+      - tmux
+      # Provides `dig`, used by deploy_mirror_registry's DNS pre-flight check.
+      - bind-utils
+      # Provides nmstatectl, required by openshift-install agent create image.
+      - nmstate
+      - chrony
+    bastion_required_repos:
+      - rhel-10-for-x86_64-baseos-rpms
+      - rhel-10-for-x86_64-appstream-rpms
   hosts:
     localhost:
       ansible_connection: local

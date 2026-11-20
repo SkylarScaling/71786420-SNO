@@ -8,8 +8,8 @@ simple" per the customer's stated priorities, no clustering/HA.
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `rabbitmq_operator_channel` | `stable` | Operator subscription channel. |
-| `rabbitmq_catalog_source` | `redhat-operators` | **Verify against the mirrored catalog.** The RabbitMQ Cluster Operator package (`rabbitmq-cluster-operator`) is not reliably carried in `redhat-operators` — it's more commonly in `certified-operators` or `community-operators`. Confirm which catalog is actually mirrored by `roles/common/stage_mirror_content` before first run and update this var if needed. |
+| `rabbitmq_operator_channel` | `"{{ operator_catalog.rabbitmq.channel }}"` | Single source is `operator_catalog.rabbitmq` in `staging/inventory/inventory.yaml`, shared with `stage_mirror_content`'s mirrored pin. |
+| `rabbitmq_catalog_source` | derived from `operator_catalog.rabbitmq.catalog` (default `community`) | The RabbitMQ Cluster Operator package (`rabbitmq-cluster-operator`) isn't reliably carried in `redhat-operators` — confirmed mirrored from `community-operators`. |
 | `rabbitmq_catalog_source_namespace` | `openshift-marketplace` | |
 | `rabbitmq_namespace` | `rabbitmq` | |
 | `rabbitmq_replicas` | `1` | Single replica — no HA requirement today. |

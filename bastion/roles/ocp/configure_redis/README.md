@@ -16,7 +16,7 @@ cheapest thing that satisfies both.
 | `redis_replicas` | `1` | Single replica — intentionally no clustering. |
 | `redis_storage_size` | `5Gi` | |
 | `redis_storage_class` | `"{{ lvms_vg_name \| default('vg1') }}"` | Defaults to the LVMS-provided storage class. |
-| `redis_image` | `registry.redhat.io/rhscl/redis-6-rhel7` | **Verify** this is the actual image present in the mirrored content set — pick whatever Red Hat-distributed Redis image tag is current and confirmed mirrored before first run. |
+| `redis_image` | pinned in `staging/inventory/inventory.yaml` | **Verify** this is the actual image present in the mirrored content set — pick whatever Red Hat-distributed Redis image tag is current and confirmed mirrored before first run. |
 | `redis_expose_external` | `false` | When `true`, creates a `type: LoadBalancer` Service annotated `metallb.io/address-pool: default`. |
 
 ## What this is NOT

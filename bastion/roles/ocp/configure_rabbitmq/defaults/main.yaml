@@ -1,17 +1,12 @@
 ---
-# MUST match staging/roles/common/stage_mirror_content/defaults/main.yaml's
-# oc_mirror_operator_packages `rabbitmq-cluster-operator` entry's `channel` exactly —
-# see that file's comment (and configure_lokistack's loki_channel, which hit this for
-# real) for why a mismatch here is a silent install-time or mirror-time failure, not
-# an obvious one.
-rabbitmq_operator_channel: stable
-
-# Confirmed via `oc-mirror list operators --v1 --catalog
-# registry.redhat.io/redhat/community-operator-index:v4.18 --package
-# rabbitmq-cluster-operator` — stable is the current default channel.
-# rabbitmq-cluster-operator isn't in redhat-operator-index, hence
-# community-operators below.
-rabbitmq_catalog_source: community-operators
+# Single source is staging/inventory/inventory.yaml's operator_catalog.rabbitmq
+# (shared with stage_mirror_content's mirrored pin). rabbitmq-cluster-operator isn't
+# in redhat-operator-index, hence the community/*-operators catalog mapping below.
+rabbitmq_operator_channel: "{{ operator_catalog.rabbitmq.channel }}"
+rabbitmq_catalog_source: >-
+  {{ {'redhat': 'redhat-operators', 'certified': 'certified-operators',
+      'community': 'community-operators', 'marketplace': 'redhat-marketplace'}
+     [operator_catalog.rabbitmq.catalog | default('community')] }}
 rabbitmq_catalog_source_namespace: openshift-marketplace
 
 rabbitmq_namespace: rabbitmq

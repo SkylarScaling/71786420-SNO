@@ -1,11 +1,16 @@
 ---
-keycloak_operator_channel: stable
+# Single source is staging/inventory/inventory.yaml's operator_catalog.keycloak
+# (shared with stage_mirror_content's mirrored pin).
+keycloak_operator_channel: "{{ operator_catalog.keycloak.channel }}"
 # Package name varies by catalog/version — Red Hat's own build of Keycloak
 # ships as `rhbk-operator` in redhat-operators on recent OCP versions, but
 # older/community catalogs use `keycloak-operator`. Verify the exact package
 # name against the mirrored catalog before first run.
 keycloak_operator_package: rhbk-operator
-keycloak_catalog_source: redhat-operators
+keycloak_catalog_source: >-
+  {{ {'redhat': 'redhat-operators', 'certified': 'certified-operators',
+      'community': 'community-operators', 'marketplace': 'redhat-marketplace'}
+     [operator_catalog.keycloak.catalog | default('redhat')] }}
 keycloak_catalog_source_namespace: openshift-marketplace
 
 keycloak_namespace: keycloak

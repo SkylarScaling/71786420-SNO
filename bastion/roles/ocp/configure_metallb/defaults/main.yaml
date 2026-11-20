@@ -1,5 +1,7 @@
 ---
-metallb_channel: stable
+# Single source is staging/inventory/inventory.yaml's operator_catalog.metallb.channel
+# (shared with stage_mirror_content's mirrored pin).
+metallb_channel: "{{ operator_catalog.metallb.channel }}"
 metallb_namespace: metallb-system
 
 # metallb_address_pool is NOT defaulted here (same precedence reason as base_domain —

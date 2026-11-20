@@ -2,32 +2,15 @@
 # Must match package_bastion_bundle/package_bastion_rpms_bundle's mirror_installers_dir.
 mirror_installers_dir: /opt/mirror-installers
 
-# reposync (default) mirrors bastion_required_repos wholesale; resolve downloads only
-# bastion_packages' dependency closure. Must match configure_bastion_services' copy.
-# See this role's README.
-bastion_rpm_sync_method: reposync
+# bastion_rpm_sync_method/bastion_packages/bastion_required_repos are pinned in
+# staging/inventory/inventory.yaml (single source, shared with
+# configure_bastion_services). reposync (default) mirrors bastion_required_repos
+# wholesale; resolve downloads only bastion_packages' dependency closure. See this
+# role's README.
 
 # Scratch installroot used by the resolve method to resolve dependencies without
 # staging's own packages masking the download. Wiped and recreated every run.
 bastion_rpm_resolve_installroot: /tmp/bastion-rpm-resolve-root
-
-# RPMs installed on the bastion from the synced repo(s). Must match
-# configure_bastion_services' own copy.
-bastion_packages:
-  - dnsmasq
-  - httpd
-  - tmux
-  # Provides `dig`, used by deploy_mirror_registry's DNS pre-flight check.
-  - bind-utils
-  # Provides nmstatectl, required by openshift-install agent create image.
-  - nmstate
-  - chrony
-
-# Repo IDs staging mirrors from. Must already be attached to this staging host's
-# subscription, and must match configure_bastion_services' own copy.
-bastion_required_repos:
-  - rhel-10-for-x86_64-baseos-rpms
-  - rhel-10-for-x86_64-appstream-rpms
 
 # reposync's --setopt=max_parallel_downloads. Tune down if staging's own
 # network/disk is the actual bottleneck.

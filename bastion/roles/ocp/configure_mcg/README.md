@@ -61,7 +61,7 @@ back to the shared Delete-policy `vg1` default instead.
 
 | Variable | Default | Notes |
 |---|---|---|
-| `mcg_channel` | `stable-4.22` | The `odf-operator` package's channel. **Must match** `stage_mirror_content`'s `oc_mirror_operator_packages` pin for every ODF sub-package (same `stable-X.Y`) — see "Why odf-operator needs so many sub-packages mirrored" below. |
+| `mcg_channel` | `"{{ operator_catalog.odf.channel }}"` | The `odf-operator` package's channel — single source is `operator_catalog.odf.channel` in `staging/inventory/inventory.yaml`, shared with every ODF sub-package's mirrored pin — see "Why odf-operator needs so many sub-packages mirrored" below. |
 | `mcg_backing_pvc_size` | `500Gi` | Size the default backing store's PV-pool volume. Must fit under the RAID5 array's usable capacity alongside other LVMS-backed PVs — override per-environment. |
 | `mcg_backing_storage_class` | `"{{ lvms_retain_storage_class_name \| default('vg1-retain') }}"` | Defaults to `configure_lvms`'s Retain-policy StorageClass, not the shared `vg1` (Delete) default — see "Hard dependency" above. |
 

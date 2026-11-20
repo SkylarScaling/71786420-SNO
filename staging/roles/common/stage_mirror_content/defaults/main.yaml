@@ -49,60 +49,50 @@ oc_mirror_poll_interval: 60
 
 # Red Hat moved mirror-registry behind developers.redhat.com/content-gateway with an
 # architecture-qualified filename; the old mirror.openshift.com URL 404s and the
-# gateway's "latest" alias 400s without a cookie. Pin the version and re-verify
-# against https://mirror.openshift.com/pub/cgw/mirror-registry/ periodically.
-mirror_registry_version: "2.0.12"
+# gateway's "latest" alias 400s without a cookie. mirror_registry_version is pinned in
+# staging/inventory/inventory.yaml (single source, re-verify against
+# https://mirror.openshift.com/pub/cgw/mirror-registry/ periodically).
 mirror_registry_url: "https://developers.redhat.com/content-gateway/file/pub/cgw/mirror-registry/{{ mirror_registry_version }}/mirror-registry-amd64.tar.gz"
 
 # Bare string = default catalog/channel; dict = { name, channel?, catalog? }
 # (redhat|certified|community|marketplace, default redhat).
 #
-# EVERY pinned `channel` here MUST be updated together with the matching
-# roles/ocp/configure_*'s own `*_channel` default — this list controls what
-# oc-mirror fetches on staging, that default controls what the Subscription
-# requests on the bastion. A mismatch doesn't fail obviously: if the role's channel
-# was never mirrored, the Subscription just sits pending; if this file's pin goes
-# stale first, oc-mirror itself fails (confirmed live: loki-operator's stable-6.6).
-# Treat every pinned entry as a two-file edit.
-#
-# loki-operator/grafana-operator/rabbitmq-cluster-operator/crunchy-postgres-operator
-# channels confirmed via `oc-mirror list operators --v1 --catalog <index>[:vX.Y]
-# [--package <name>]` for openshift_version 4.22 — these drift with catalog
-# refreshes even without a version bump; re-verify periodically, don't assume a pin
-# still exists.
+# Channel/catalog values come from staging/inventory/inventory.yaml's
+# operator_catalog/odf_sub_packages — single source shared with each matching
+# roles/ocp/configure_*'s own `*_channel`/`*_catalog_source` default. Update
+# inventory.yaml only; don't reintroduce a literal pin here.
 #
 # imageset-config.yaml.j2 also sets `defaultChannel` alongside `channels` — oc-mirror
 # v2 otherwise validates the catalog's current default channel even when it isn't
 # being mirrored, so a catalog-side default move alone broke mirroring outright.
 # `defaultChannel` only needs to be one of the kept channels, not the catalog's
 # actual default.
-oc_mirror_operator_packages:
-  - lvms-operator
-  - redhat-oadp-operator
-  - cluster-logging
-  # odf-operator is a meta-operator that installs these sub-packages via its own
-  # generated Subscriptions — all must be mirrored explicitly, each pinned to the
-  # same channel odf-operator itself requests. Don't trim, even the Ceph-sounding
-  # ones — see configure_mcg's README ("Why odf-operator needs so many sub-packages
-  # mirrored") for the full explanation and live-confirmed error.
-  - { name: odf-operator, channel: stable-4.22 }                              # configure_mcg
-  - { name: ocs-operator, channel: stable-4.22 }                              # configure_mcg — odf-operator sub-package
-  - { name: mcg-operator, channel: stable-4.22 }                              # configure_mcg — odf-operator sub-package
-  - { name: rook-ceph-operator, channel: stable-4.22 }                        # configure_mcg — odf-operator sub-package
-  - { name: odf-csi-addons-operator, channel: stable-4.22 }                   # configure_mcg — odf-operator sub-package
-  - { name: cephcsi-operator, channel: stable-4.22 }                          # configure_mcg — odf-operator sub-package
-  - { name: odf-dependencies, channel: stable-4.22 }                         # configure_mcg — odf-operator sub-package
-  - { name: odf-prometheus-operator, channel: stable-4.22 }                   # configure_mcg — odf-operator sub-package
-  - { name: recipe, channel: stable-4.22 }                                   # configure_mcg — odf-operator sub-package
-  - { name: ocs-client-operator, channel: stable-4.22 }                       # configure_mcg — odf-operator sub-package
-  - { name: ocs-tls-profiles, channel: stable-4.22 }                         # configure_mcg — odf-operator sub-package
-  - { name: odf-external-snapshotter-operator, channel: stable-4.22 }        # configure_mcg — odf-operator sub-package
-  - { name: loki-operator, channel: stable-6.7 }                              # configure_lokistack — pinned for openshift_version 4.22, re-verify on upgrade
-  - { name: grafana-operator, catalog: community, channel: v5 }               # configure_grafana — not in redhat-operator-index
-  - opentelemetry-product                                                     # configure_opentelemetry
-  - tempo-product                                                             # configure_opentelemetry
-  - metallb-operator                                                          # configure_metallb
-  - { name: rabbitmq-cluster-operator, catalog: community, channel: stable }  # configure_rabbitmq — not in redhat-operator-index
-  - { name: crunchy-postgres-operator, catalog: certified, channel: v5 }      # configure_postgres — not in redhat-operator-index
-  - rhbk-operator                                                             # configure_keycloak
-  - { name: quay-operator, channel: stable-3.13 }                             # configure_onprem_quay — pinned, not catalog default
+oc_mirror_operator_packages: >-
+  {{
+    [
+      'lvms-operator', 'redhat-oadp-operator', 'cluster-logging',
+    ]
+    +
+    [
+      { 'name': 'odf-operator', 'channel': operator_catalog.odf.channel },
+    ]
+    +
+    (
+      odf_sub_packages
+      | map('community.general.dict_kv', 'name')
+      | map('combine', { 'channel': operator_catalog.odf.channel })
+      | list
+    )
+    +
+    [
+      { 'name': 'loki-operator', 'channel': operator_catalog.loki.channel },
+      { 'name': 'grafana-operator', 'catalog': operator_catalog.grafana.catalog, 'channel': operator_catalog.grafana.channel },
+      { 'name': 'opentelemetry-product', 'channel': operator_catalog.opentelemetry.channel },
+      { 'name': 'tempo-product', 'channel': operator_catalog.tempo.channel },
+      { 'name': 'metallb-operator', 'channel': operator_catalog.metallb.channel },
+      { 'name': 'rabbitmq-cluster-operator', 'catalog': operator_catalog.rabbitmq.catalog, 'channel': operator_catalog.rabbitmq.channel },
+      { 'name': 'crunchy-postgres-operator', 'catalog': operator_catalog.postgres.catalog, 'channel': operator_catalog.postgres.channel },
+      { 'name': 'rhbk-operator', 'channel': operator_catalog.keycloak.channel },
+      { 'name': 'quay-operator', 'channel': operator_catalog.quay.channel },
+    ]
+  }}

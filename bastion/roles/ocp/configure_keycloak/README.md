@@ -8,9 +8,9 @@ replica — no HA requirement today.
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `keycloak_operator_channel` | `stable` | |
+| `keycloak_operator_channel` | `"{{ operator_catalog.keycloak.channel }}"` | Single source is `operator_catalog.keycloak` in `staging/inventory/inventory.yaml`, shared with `stage_mirror_content`'s mirrored pin. |
 | `keycloak_operator_package` | `rhbk-operator` | **Verify** the exact package name against the mirrored catalog — some catalog snapshots carry this as `keycloak-operator` instead. |
-| `keycloak_catalog_source` / `keycloak_catalog_source_namespace` | `redhat-operators` / `openshift-marketplace` | |
+| `keycloak_catalog_source` / `keycloak_catalog_source_namespace` | derived from `operator_catalog.keycloak.catalog` (default `redhat`) / `openshift-marketplace` | |
 | `keycloak_namespace` | `keycloak` | |
 | `keycloak_replicas` | `1` | |
 | `keycloak_storage_class` | `"{{ lvms_vg_name \| default('vg1') }}"` | Not directly consumed by the `Keycloak` CR itself (Keycloak stores no local PV state beyond Postgres), kept for parity/future use if file-based theme storage etc. is added. |

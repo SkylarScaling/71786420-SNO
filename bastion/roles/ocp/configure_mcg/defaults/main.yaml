@@ -1,8 +1,7 @@
 ---
-# odf-operator's channel — "stable" alone doesn't exist on this package (confirmed
-# live: only stable-4.21/stable-4.22). Tied to openshift_version, same as
-# configure_lvms's lvms_channel — re-verify on version bumps.
-mcg_channel: stable-4.22
+# odf-operator's channel — single source is staging/inventory/inventory.yaml's
+# operator_catalog.odf.channel (shared with stage_mirror_content's mirrored pin).
+mcg_channel: "{{ operator_catalog.odf.channel }}"
 
 # Placeholder sized for the hardware RAID5 array with headroom for other LVMS PVs —
 # override per-environment.

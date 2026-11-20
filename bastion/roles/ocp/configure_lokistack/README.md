@@ -32,7 +32,7 @@ the `mcg_s3_*` facts directly.
 
 | Variable | Default | Notes |
 |---|---|---|
-| `loki_channel` | `stable-6.x` | **Verify** against the mirrored catalog — Loki Operator channels are dated/rolling and this is a placeholder. |
+| `loki_channel` | `"{{ operator_catalog.loki.channel }}"` | Single source is `operator_catalog.loki.channel` in `staging/inventory/inventory.yaml`, shared with `stage_mirror_content`'s mirrored pin. Loki Operator channels are dated/rolling — re-verify against the mirrored catalog periodically. |
 | `lokistack_size` | `1x.demo` | Smallest documented LokiStack size tier; bump per-environment once real log volume is known. |
 | `loki_retention_days` | `30` | Maps to `spec.limits.global.retention.days` — **verify field path** against a live `LokiStack` CRD. |
 | `loki_hot_retention_days` | `7` | See "Retention model" below — this is an approximation, not a second storage tier. |

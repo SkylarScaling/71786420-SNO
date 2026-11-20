@@ -17,7 +17,7 @@ this SNO test harness.
 
 | Variable | Default | Notes |
 |---|---|---|
-| `grafana_channel` | `v5` | **Verify** the real OperatorHub channel string/catalog before a real run. |
+| `grafana_channel` | `"{{ operator_catalog.grafana.channel }}"` | Single source is `operator_catalog.grafana` in `staging/inventory/inventory.yaml`, shared with `stage_mirror_content`'s mirrored pin. |
 | `grafana_namespace` | `openshift-logging` | Reuses `configure_lokistack`'s namespace — simplest layout for a single small cluster. |
 | `grafana_instance_name` | `{{ cluster_name }}-grafana` | Name of the `Grafana` CR and the label selector used by its `GrafanaDatasource`s. |
 | `loki_lokistack_name` | `{{ cluster_name }}-loki` | **Must match** `configure_lokistack`'s value of the same name. |
@@ -28,7 +28,6 @@ this SNO test harness.
 
 ## Known gaps / needs live-cluster verification
 
-- `grafana_channel` placeholder — confirm exact channel/catalog source.
 - The Loki datasource points at the LokiStack's query-frontend Service directly,
   bypassing the tenant gateway that `configure_lokistack`'s
   `spec.tenants.mode: openshift-logging` sets up. This is simplest for a one-off test

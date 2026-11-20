@@ -8,10 +8,11 @@ staging host — the first step of the disconnected mirroring pattern.
 
 ### To use this correctly:
 
-- Override `oc_mirror_operator_packages` in `staging/inventory/inventory.yaml` to
-  change which operators get mirrored — every pinned `channel` there must be updated
-  together with the matching `roles/ocp/configure_*` role's own `*_channel` default
-  (two-file edit, see "Operator packages mirrored" below).
+- `oc_mirror_operator_packages` is built from `operator_catalog`/`odf_sub_packages`
+  in `staging/inventory/inventory.yaml` — edit the channel/catalog there, not this
+  role's `defaults/main.yaml`; it's the single source shared with the matching
+  `roles/ocp/configure_*` role's own `*_channel`/`*_catalog_source` default (see
+  "Operator packages mirrored" below).
 - A nonzero `oc-mirror` exit code alone doesn't mean the run failed — see "Known
   `oc-mirror --v2` defect: exit code alone isn't a reliable success/failure signal"
   below before assuming a failed play means a failed mirror.
@@ -212,28 +213,28 @@ release; don't let the channel pick it implicitly.
 
 ## Operator packages mirrored
 
-`oc_mirror_operator_packages` (role default, see `defaults/main.yaml`) is the full
-set this repo's feature roles install — LVM Storage, OADP, cluster logging, the ODF
-operator in standalone MCG mode, Loki/Grafana, OpenTelemetry/Tempo, MetalLB,
-RabbitMQ, Crunchy Postgres, and Keycloak — each entry either a bare package name
-(default catalog/channel) or a `{name, channel, catalog}` dict where a package needs
-a pinned channel or ships from a non-default operator index. Override this in
-`inventory/<provider>/inventory.yaml`'s vars block to mirror a different set, or trim
-the list if you're not exercising every feature. Set it to `[]` to mirror the
-*entire* operator catalog instead (large and slow).
+`oc_mirror_operator_packages` (`defaults/main.yaml`) is built at render time from
+`operator_catalog`/`odf_sub_packages` in `staging/inventory/inventory.yaml` — the
+full set this repo's feature roles install: LVM Storage, OADP, cluster logging, the
+ODF operator in standalone MCG mode, Loki/Grafana, OpenTelemetry/Tempo, MetalLB,
+RabbitMQ, Crunchy Postgres, Keycloak, and Quay. Override `operator_catalog`'s entries
+in `staging/inventory/inventory.yaml` to change a channel/catalog, or
+`odf_sub_packages` to change ODF's sub-package list — never add a literal channel
+back into this role's own `defaults/main.yaml`.
 
 ### Updating a mirrored operator's channel
 
-A pinned `channel` in `oc_mirror_operator_packages` and the matching
-`roles/ocp/configure_*`'s own `*_channel` default are two separately-maintained
-values for the same actual requirement — read by two different tools at two
-different times (oc-mirror, on staging, potentially hours/days before install; the
-role's `Subscription` template, on the bastion/cluster, at install time). **Bumping
-one without the other is a real failure mode, confirmed live**: `loki_channel`'s
-`stable-6.6` pin was correct when first set, then silently dropped from the catalog
-by a later mirror run, failing `oc-mirror` outright with the real cause buried in its
-own per-component logs rather than surfaced clearly (see `tasks/main.yaml`'s "Fail if
-the oc-mirror run itself failed" for the error-message improvement that followed).
+A pinned channel in `operator_catalog` is read by two different tools at two
+different times — oc-mirror, on staging, potentially hours/days before install; the
+matching `roles/ocp/configure_*` role's `Subscription` template, on the
+bastion/cluster, at install time — but both now read the **same**
+`operator_catalog.<key>.channel` value from `staging/inventory/inventory.yaml`, so a
+bump only needs one edit. (This used to be a two-file edit, and a real mismatch did
+happen live: `loki_channel`'s `stable-6.6` pin was correct when first set, then
+silently dropped from the catalog by a later mirror run, failing `oc-mirror` outright
+with the real cause buried in its own per-component logs rather than surfaced
+clearly — see `tasks/main.yaml`'s "Fail if the oc-mirror run itself failed" for the
+error-message improvement that followed.)
 
 When a channel needs to change (OCP upgrade, or just re-verifying periodically —
 catalogs can drop older channels even without an `openshift_version` bump):
@@ -241,26 +242,18 @@ catalogs can drop older channels even without an `openshift_version` bump):
 1. Re-run `oc-mirror list operators --v1 --catalog <index>[:vX.Y] --package <name>`
    against the catalog/version actually in use to confirm the real current channel —
    don't assume a channel that worked last time still exists.
-2. Update the entry in `oc_mirror_operator_packages` here.
-3. Update the matching role's own `*_channel` default in the **same change**.
-4. Re-run `stage_mirror_content` (`--tags` isn't scoped finely enough to just the
+2. Update the matching entry in `operator_catalog` (`staging/inventory/inventory.yaml`).
+3. Re-run `stage_mirror_content` (`--tags` isn't scoped finely enough to just the
    mirror step the way `bastion_prereqs` is for RPMs — a channel change needs the
    full "mirror to disk" re-run) before the next install/upgrade.
 
-Currently-pinned entries that need both sides kept in sync: `loki-operator`
-(`configure_lokistack`'s `loki_channel`), `grafana-operator`
-(`configure_grafana`'s `grafana_channel`), `rabbitmq-cluster-operator`
-(`configure_rabbitmq`'s `rabbitmq_operator_channel`), `crunchy-postgres-operator`
-(`configure_postgres`'s `postgres_operator_channel`), and `quay-operator`
-(`configure_onprem_quay`'s `quay_channel`) — each of those roles' own
-`defaults/main.yaml` carries a comment pointing back here.
-
-`quay-operator` was found missing from this list entirely while documenting this
-(its `Subscription` is templated by `configure_onprem_quay`, but nothing had ever
-mirrored it) — added as part of the same fix. Worth treating this as a prompt to spot
-check: any `roles/ocp/configure_*` role that creates a `Subscription`/`CatalogSource`
-needs a corresponding entry here, bare or pinned; there's no automated check tying
-the two together.
+`quay-operator` was found missing from `oc_mirror_operator_packages` entirely while
+documenting the old two-file-edit pattern (its `Subscription` is templated by
+`configure_onprem_quay`, but nothing had ever mirrored it) — fixed by adding a
+`quay` entry to `operator_catalog`. Worth treating this as a prompt to spot check:
+any `roles/ocp/configure_*` role that creates a `Subscription`/`CatalogSource` needs
+a corresponding `operator_catalog` entry; there's no automated check tying the two
+together.
 
 Before any of that, hardens sshd's `ClientAliveInterval`/`ClientAliveCountMax` on this
 host (paired with `ServerAliveInterval`/`ControlPersist` in `playbooks/ansible.cfg`) —
@@ -279,8 +272,9 @@ that's missing those entries, merge them in before running this role.
 ## Bastion RPMs — now `sync_bastion_rpms`
 
 Mirroring the bastion's own OS-level RPM dependencies (`bastion_packages`/
-`bastion_required_repos`, `reposync`/`resolve` via `bastion_rpm_sync_method`) used to
-be a tagged (`bastion_prereqs`) block directly in this role's `tasks/main.yaml`. Split
+`bastion_required_repos`, pinned in `staging/inventory/inventory.yaml`,
+`reposync`/`resolve` via `bastion_rpm_sync_method`) used to be a tagged
+(`bastion_prereqs`) block directly in this role's `tasks/main.yaml`. Split
 out into its own `sync_bastion_rpms` role on 2026-11-17, at customer request: a full
 `reposync` can run 8+ hours on its own, and the customer wanted to run/re-run it
 independently of this role's separate, also-hours-long oc-mirror "mirror to disk"
