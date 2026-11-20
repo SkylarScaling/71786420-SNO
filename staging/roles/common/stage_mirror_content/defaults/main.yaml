@@ -106,3 +106,11 @@ oc_mirror_operator_packages:
   - { name: crunchy-postgres-operator, catalog: certified, channel: v5 }      # configure_postgres — not in redhat-operator-index
   - rhbk-operator                                                             # configure_keycloak
   - { name: quay-operator, channel: stable-3.13 }                             # configure_onprem_quay — pinned, not catalog default
+
+# Plain (non-operator) images mirrored alongside the operator catalogs above —
+# rendered into imageset-config.yaml's additionalImages list verbatim, one `name:`
+# entry per image. Override/extend per-environment.
+oc_mirror_additional_images:
+  - registry.redhat.io/rhel10/support-tools:1786467197
+  - registry.redhat.io/rhel10/rhel-guest-image:latest
+  - registry.access.redhat.com/ubi9/python-312:9.8-1786510252

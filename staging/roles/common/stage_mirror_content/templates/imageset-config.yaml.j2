@@ -65,4 +65,11 @@ mirror:
     - catalog: "registry.redhat.io/redhat/redhat-operator-index:v{{ openshift_version.split('.')[:2] | join('.') }}"
       packages: []   # empty mirrors the ENTIRE catalog — set oc_mirror_operator_packages in inventory to limit this
 {% endif %}
+{% if oc_mirror_additional_images %}
+  additionalImages:
+{% for image in oc_mirror_additional_images %}
+    - name: {{ image }}
+{% endfor %}
+{% else %}
   additionalImages: []
+{% endif %}

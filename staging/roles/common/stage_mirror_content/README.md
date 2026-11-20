@@ -222,6 +222,12 @@ a pinned channel or ships from a non-default operator index. Override this in
 the list if you're not exercising every feature. Set it to `[]` to mirror the
 *entire* operator catalog instead (large and slow).
 
+`oc_mirror_additional_images` (also in `defaults/main.yaml`) is a plain list of
+non-operator image references mirrored alongside the operator catalogs — rendered
+into `imageset-config.yaml`'s `additionalImages` list verbatim. Use this for images a
+feature role pulls directly (not via an operator Subscription/bundle) that
+`oc-mirror`'s operator-catalog mirroring wouldn't otherwise catch.
+
 ### Updating a mirrored operator's channel
 
 A pinned `channel` in `oc_mirror_operator_packages` and the matching
